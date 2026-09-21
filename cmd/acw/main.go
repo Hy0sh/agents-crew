@@ -1,11 +1,11 @@
-// agents-crew launches a dedicated Herdr workspace: one master agent
-// supervising N worker agents, to dispatch and supervise tasks in a repo
-// in parallel, project-agnostic.
+// acw (agents-crew) launches a dedicated Herdr workspace: one master
+// agent supervising N worker agents, to dispatch and supervise tasks in
+// a repo in parallel, project-agnostic.
 //
-// `agents-crew` (no subcommand) starts the swarm in the current directory;
-// `agents-crew stop` tears it down. Closing the terminal does nothing —
-// Herdr is a persistent server that outlives it, and so do any
-// environments workers started.
+// `acw` (no subcommand) starts the swarm in the current directory; `acw
+// stop` tears it down. Closing the terminal does nothing — Herdr is a
+// persistent server that outlives it, and so do any environments
+// workers started.
 package main
 
 import (
@@ -33,7 +33,7 @@ func main() {
 	opts := &startOptions{}
 
 	root := &cobra.Command{
-		Use:     "agents-crew",
+		Use:     "acw",
 		Short:   "Master + N worker Claude Code agents over Herdr, dispatching tasks in parallel",
 		Version: version.String(),
 		Args:    cobra.NoArgs,
@@ -45,7 +45,7 @@ func main() {
 			return runStart(cmd.ErrOrStderr(), opts)
 		},
 	}
-	root.SetVersionTemplate("agents-crew {{.Version}}\n")
+	root.SetVersionTemplate("acw {{.Version}}\n")
 
 	root.Flags().IntVarP(&opts.workers, "workers", "n", 3, "number of worker agents")
 	root.Flags().IntVar(&opts.maxStacks, "max-stacks", 0, "concurrent isolated environments the machine can hold (default: same as --workers)")

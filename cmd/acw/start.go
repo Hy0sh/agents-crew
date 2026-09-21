@@ -16,7 +16,7 @@ import (
 	"github.com/Hy0sh/agents-crew/internal/names"
 )
 
-const label = "agents-crew"
+const label = "acw"
 
 // runStart creates the master, hands it its brief, backgrounds worker
 // provisioning, then execs into the Herdr TUI so the caller can start
@@ -48,11 +48,11 @@ func runStart(out io.Writer, opts *startOptions) error {
 	for _, a := range agents {
 		if a.Cwd == repo && strings.HasPrefix(a.Name, "master-") {
 			return fmt.Errorf("un master tourne déjà dans le workspace %s pour ce répertoire. Attache-toi-y (herdr workspace focus %s) "+
-				"au lieu d'en relancer un — ou ferme-le d'abord (agents-crew stop)", a.WorkspaceID, a.WorkspaceID)
+				"au lieu d'en relancer un — ou ferme-le d'abord (acw stop)", a.WorkspaceID, a.WorkspaceID)
 		}
 	}
 
-	if err := os.MkdirAll(filepath.Join(repo, ".claude", "worktrees", ".agents-crew-status"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(repo, ".claude", "worktrees", ".acw-status"), 0o755); err != nil {
 		return err
 	}
 
@@ -120,7 +120,7 @@ func launchBackgroundProvisioning(repo, masterPane, stamp string, n, maxStacks i
 	if err != nil {
 		return err
 	}
-	logPath := filepath.Join(os.TempDir(), fmt.Sprintf("agents-crew-workers-%s.log", stamp))
+	logPath := filepath.Join(os.TempDir(), fmt.Sprintf("acw-workers-%s.log", stamp))
 	logFile, err := os.Create(logPath)
 	if err != nil {
 		return err
