@@ -27,6 +27,7 @@ import (
 
 	"agents-crew/internal/brief"
 	"agents-crew/internal/herdr"
+	"agents-crew/internal/preflight"
 	"agents-crew/internal/teardown"
 )
 
@@ -54,6 +55,11 @@ func main() {
 }
 
 func start() error {
+	if err := preflight.Check(); err != nil {
+		return err
+	}
+	preflight.WarnIfWtmMissing(func(format string, a ...any) { fmt.Fprintf(os.Stderr, format, a...) })
+
 	n, err := parseCount(argOr(1, "3"), "N")
 	if err != nil {
 		return usageErr(err)

@@ -12,6 +12,17 @@ Born out of (and battle-tested on) a Django/wtm-based project; see
 `internal/brief` for the operating rules baked into the master's initial
 prompt.
 
+## Requirements
+
+- [`herdr`](https://herdr.dev) — required.
+- `claude` (Claude Code CLI) — required, `npm install -g @anthropic-ai/claude-code`.
+- `wtm` — optional; without it, workers just don't get an isolated
+  environment provisioned automatically.
+
+`agents-crew` checks these on every launch and refuses to start with a clear
+message if `herdr` or `claude` is missing, rather than failing a few calls
+deep into the run (see `internal/preflight`).
+
 ## Install
 
 ```sh
