@@ -27,6 +27,19 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   stop --help`: the branch is mandatory for `stop`/`remove`, unlike
   `adopt`. Left a stack running after a "torn down" swarm until this was
   fixed.
+- `agents-crew stop` discovered workers by asking Herdr for agents named
+  `workerN` — but an environment can be `up` (provisioning already ran
+  `wtm adopt`) before the pane for it exists, let alone before `herdr
+  agent start` names it. Stopping during that window found nothing to
+  clean up and reported success anyway, orphaning real Docker stacks.
+  Worker discovery is now a filesystem scan of
+  `.claude/worktrees/workerN-*`, independent of Herdr/agent state.
+- Even on the happy path, `wtm remove` never deleted the worktree
+  directory itself: it only removes worktrees it created via `wtm
+  create`, and agents-crew's are plain `git worktree add` ones (adopted,
+  not created). `.claude/worktrees/workerN-*` directories accumulated on
+  every stop. `agents-crew stop` now also runs `git worktree remove
+  --force` and deletes the branch.
 
 ## [0.1.0] - 2026-09-21
 
