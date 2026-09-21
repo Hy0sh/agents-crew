@@ -7,11 +7,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/Hy0sh/agents-crew/internal/brief"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
+	"github.com/Hy0sh/agents-crew/internal/names"
 )
 
 const label = "agents-crew"
@@ -32,14 +34,20 @@ func runStart(out io.Writer, opts *startOptions) error {
 	if err != nil {
 		return err
 	}
+	slug := names.Slug(repo)
+	masterName := names.Master(slug)
 
+	// Scoped to this directory, not global: two different repos each get
+	// their own master/worker names (see internal/names), and a swarm
+	// already running for a DIFFERENT repo never blocks this one — only an
+	// agent whose own pane cwd is exactly this repo does.
 	agents, err := herdr.AgentList()
 	if err != nil {
 		return fmt.Errorf("herdr agent list: %w", err)
 	}
 	for _, a := range agents {
-		if a.Name == "master" {
-			return fmt.Errorf("un master tourne déjà dans le workspace %s. Attache-toi-y (herdr workspace focus %s) "+
+		if a.Cwd == repo && strings.HasPrefix(a.Name, "master-") {
+			return fmt.Errorf("un master tourne déjà dans le workspace %s pour ce répertoire. Attache-toi-y (herdr workspace focus %s) "+
 				"au lieu d'en relancer un — ou ferme-le d'abord (agents-crew stop)", a.WorkspaceID, a.WorkspaceID)
 		}
 	}
@@ -63,15 +71,15 @@ func runStart(out io.Writer, opts *startOptions) error {
 	if err := herdr.PaneRename(masterPane, "master"); err != nil {
 		return err
 	}
-	if err := herdr.AgentStart("master", masterPane, "--model", opts.masterModel); err != nil {
+	if err := herdr.AgentStart(masterName, masterPane, "--model", opts.masterModel); err != nil {
 		return fmt.Errorf("herdr agent start master: %w", err)
 	}
 
-	masterBrief, err := buildBrief(opts.briefPath, repo, opts.workers, maxStacks)
+	masterBrief, err := buildBrief(opts.briefPath, repo, slug, opts.workers, maxStacks)
 	if err != nil {
 		return err
 	}
-	if err := herdr.AgentPrompt("master", masterBrief); err != nil {
+	if err := herdr.AgentPrompt(masterName, masterBrief); err != nil {
 		return fmt.Errorf("herdr agent prompt master: %w", err)
 	}
 	if err := herdr.WorkspaceFocus(workspaceID); err != nil {
@@ -93,15 +101,15 @@ func runStart(out io.Writer, opts *startOptions) error {
 
 // buildBrief uses a custom template file if path is non-empty, the
 // built-in one otherwise.
-func buildBrief(path, repo string, n, maxStacks int) (string, error) {
+func buildBrief(path, repo, slug string, n, maxStacks int) (string, error) {
 	if path == "" {
-		return brief.Build(repo, n, maxStacks), nil
+		return brief.Build(repo, slug, n, maxStacks), nil
 	}
 	source, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("lecture du brief personnalisé %s: %w", path, err)
 	}
-	return brief.BuildFromSource(string(source), repo, n, maxStacks)
+	return brief.BuildFromSource(string(source), repo, slug, n, maxStacks)
 }
 
 // launchBackgroundProvisioning starts a detached copy of this same binary
