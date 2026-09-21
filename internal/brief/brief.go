@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"strings"
 	"text/template"
+
+	"github.com/Hy0sh/agents-crew/internal/names"
 )
 
 //go:embed templates/master.md
@@ -33,21 +35,22 @@ type MasterData struct {
 	EnvCapRule  string
 }
 
-func newMasterData(repoPath string, n, maxStacks int) MasterData {
+func newMasterData(repoPath, slug string, n, maxStacks int) MasterData {
 	return MasterData{
 		RepoPath:    repoPath,
 		N:           n,
-		WorkerNames: workerNamesList(n),
+		WorkerNames: workerNamesList(slug, n),
 		EnvCapRule:  envCapRule(n, maxStacks),
 	}
 }
 
 // Build returns the master's initial brief for a repo at repoPath, with n
 // workers and maxStacks concurrent isolated environments allowed, using
-// the built-in template.
-func Build(repoPath string, n, maxStacks int) string {
+// the built-in template. slug is the run's names.Slug(repoPath), used to
+// name the workers the same way the caller actually started them.
+func Build(repoPath, slug string, n, maxStacks int) string {
 	var b bytes.Buffer
-	if err := masterTemplate.Execute(&b, newMasterData(repoPath, n, maxStacks)); err != nil {
+	if err := masterTemplate.Execute(&b, newMasterData(repoPath, slug, n, maxStacks)); err != nil {
 		// templates/master.md is embedded and parsed at init time (template.Must
 		// above already panics on a syntax error), so a failure here can only
 		// mean a field referenced in the template no longer exists on MasterData.
@@ -62,13 +65,13 @@ func Build(repoPath string, n, maxStacks int) string {
 // {{.EnvCapRule}} — and any template syntax error is returned rather than
 // panicking, since the source comes from the user, not from what's baked
 // into the binary.
-func BuildFromSource(source, repoPath string, n, maxStacks int) (string, error) {
+func BuildFromSource(source, repoPath, slug string, n, maxStacks int) (string, error) {
 	tmpl, err := template.New("custom-master").Parse(source)
 	if err != nil {
 		return "", fmt.Errorf("parsing custom brief template: %w", err)
 	}
 	var b bytes.Buffer
-	if err := tmpl.Execute(&b, newMasterData(repoPath, n, maxStacks)); err != nil {
+	if err := tmpl.Execute(&b, newMasterData(repoPath, slug, n, maxStacks)); err != nil {
 		return "", fmt.Errorf("executing custom brief template: %w", err)
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
@@ -76,9 +79,9 @@ func BuildFromSource(source, repoPath string, n, maxStacks int) (string, error) 
 
 // WorkersReadyMessage is sent to the master once background provisioning
 // finishes.
-func WorkersReadyMessage(n int) string {
+func WorkersReadyMessage(slug string, n int) string {
 	var b bytes.Buffer
-	data := struct{ WorkerNames string }{WorkerNames: workerNamesList(n)}
+	data := struct{ WorkerNames string }{WorkerNames: workerNamesList(slug, n)}
 	if err := workersReadyTemplate.Execute(&b, data); err != nil {
 		panic(fmt.Sprintf("brief: executing workers-ready template: %v", err))
 	}
@@ -99,10 +102,10 @@ func envCapRule(n, maxStacks int) string {
 	return rule + "Ici la capacité couvre tous les workers, pas d'arbitrage nécessaire."
 }
 
-func workerNamesList(n int) string {
-	names := make([]string, n)
+func workerNamesList(slug string, n int) string {
+	list := make([]string, n)
 	for i := 1; i <= n; i++ {
-		names[i-1] = fmt.Sprintf("worker%d", i)
+		list[i-1] = names.Worker(slug, i)
 	}
-	return strings.Join(names, ", ")
+	return strings.Join(list, ", ")
 }

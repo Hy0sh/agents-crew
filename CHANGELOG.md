@@ -18,6 +18,16 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   of serially — roughly N× faster wall-clock time for that part, and
   nobody stares at a workspace with only the master pane in it for
   several minutes.
+- Runs are scoped to the directory, not global. Agent names now include a
+  `names.Slug(repo)` (a readable basename plus a hash of the full path,
+  so two different directories sharing a basename never collide) instead
+  of the bare `master`/`workerN` — Herdr requires every live agent name
+  to be unique, so a single swarm used to be a system-wide limit.
+  `agents-crew stop` and the already-running guard on plain `agents-crew`
+  now match on the agent's actual pane `cwd` against the current
+  directory, not on the literal name `master`, so several swarms — one
+  per project — can run at the same time, and `stop` only ever tears
+  down the one in the directory you run it from.
 
 - Rebuilt the CLI on Cobra: `agents-crew --help` and `agents-crew completion
   {bash,zsh,fish,powershell}` now exist. `N`/`MAX_STACKS` positional

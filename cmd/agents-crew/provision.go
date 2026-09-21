@@ -11,6 +11,7 @@ import (
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/layout"
+	"github.com/Hy0sh/agents-crew/internal/names"
 	"github.com/Hy0sh/agents-crew/internal/wtm"
 )
 
@@ -41,6 +42,7 @@ func provisionWorkers(args []string) {
 		os.Exit(1)
 	}
 	workerModel := args[5]
+	slug := names.Slug(repo)
 
 	if err := gitutil.Fetch(repo); err != nil {
 		fmt.Fprintln(os.Stderr, "git fetch:", err)
@@ -53,7 +55,8 @@ func provisionWorkers(args []string) {
 	var adopting sync.WaitGroup
 
 	for i := 1; i <= n; i++ {
-		name := fmt.Sprintf("worker%d", i)
+		label := fmt.Sprintf("worker%d", i) // cosmetic pane label, kept short
+		name := names.Worker(slug, i)       // actual herdr agent name, unique per repo
 		wt := filepath.Join(repo, ".claude", "worktrees", fmt.Sprintf("worker%d-%s", i, stamp))
 		branch := fmt.Sprintf("agents/worker%d-%s", i, stamp)
 
@@ -70,7 +73,7 @@ func provisionWorkers(args []string) {
 		}
 		currentPane = newPane
 
-		if err := herdr.PaneRename(newPane, name); err != nil {
+		if err := herdr.PaneRename(newPane, label); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: herdr pane rename: %v\n", name, err)
 		}
 		if err := herdr.AgentStart(name, newPane, "--model", workerModel); err != nil {
@@ -91,7 +94,8 @@ func provisionWorkers(args []string) {
 
 	adopting.Wait()
 
-	if err := herdr.AgentPrompt("master", brief.WorkersReadyMessage(n)); err != nil {
+	masterName := names.Master(slug)
+	if err := herdr.AgentPrompt(masterName, brief.WorkersReadyMessage(slug, n)); err != nil {
 		fmt.Fprintln(os.Stderr, "herdr agent prompt master (workers ready):", err)
 	}
 }

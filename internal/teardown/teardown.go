@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
@@ -16,10 +17,17 @@ import (
 
 var workerDirName = regexp.MustCompile(`^worker\d+-.+$`)
 
-// Run tears down the running swarm, if any, printing progress to stdout
-// and non-fatal errors to stderr. It returns nil even when there was
-// nothing to tear down.
+// Run tears down the swarm running in the current directory, if any,
+// printing progress to stdout and non-fatal errors to stderr. It returns
+// nil even when there was nothing to tear down. Scoped to the current
+// directory, not global: a swarm running for a different repo is left
+// alone, so several can run at once.
 func Run() error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+
 	agents, err := herdr.AgentList()
 	if err != nil {
 		return fmt.Errorf("herdr agent list: %w", err)
@@ -27,14 +35,14 @@ func Run() error {
 
 	var workspaceID, repo string
 	for _, a := range agents {
-		if a.Name == "master" {
+		if a.Cwd == cwd && strings.HasPrefix(a.Name, "master-") {
 			workspaceID = a.WorkspaceID
 			repo = a.Cwd
 			break
 		}
 	}
 	if workspaceID == "" {
-		fmt.Println("Aucun master agents-crew en cours.")
+		fmt.Println("Aucun master agents-crew en cours pour ce répertoire.")
 		return nil
 	}
 
