@@ -22,3 +22,6 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 - `agents-crew` checks `herdr` and `claude` are installed before doing
   anything, with a clear message and install instructions if not; `wtm` is
   checked too but stays optional.
+
+[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Hy0sh/agents-crew/releases/tag/v0.1.0
