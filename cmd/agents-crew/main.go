@@ -25,10 +25,11 @@ import (
 	"syscall"
 	"time"
 
-	"agents-crew/internal/brief"
-	"agents-crew/internal/herdr"
-	"agents-crew/internal/preflight"
-	"agents-crew/internal/teardown"
+	"github.com/Hy0sh/agents-crew/internal/brief"
+	"github.com/Hy0sh/agents-crew/internal/herdr"
+	"github.com/Hy0sh/agents-crew/internal/preflight"
+	"github.com/Hy0sh/agents-crew/internal/teardown"
+	"github.com/Hy0sh/agents-crew/internal/version"
 )
 
 const (
@@ -37,6 +38,10 @@ const (
 )
 
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Println("agents-crew " + version.String())
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == provisionFlag {
 		provisionWorkers(os.Args[2:])
 		return

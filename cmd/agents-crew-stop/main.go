@@ -11,10 +11,15 @@ import (
 	"fmt"
 	"os"
 
-	"agents-crew/internal/teardown"
+	"github.com/Hy0sh/agents-crew/internal/teardown"
+	"github.com/Hy0sh/agents-crew/internal/version"
 )
 
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Println("agents-crew-stop " + version.String())
+		return
+	}
 	if err := teardown.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
