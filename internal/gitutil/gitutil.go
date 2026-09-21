@@ -1,4 +1,4 @@
-// Package gitutil wraps the handful of git operations herd-tickets needs
+// Package gitutil wraps the handful of git operations agents-crew needs
 // to give each worker a fresh, up-to-date worktree.
 package gitutil
 
