@@ -1,26 +1,22 @@
-// herd-tickets-stop tears down a swarm started by herd-tickets: each
-// worker's environment (via wtm), the shared status directory, and the
-// Herdr workspace itself. Closing the terminal alone does nothing — Herdr
-// is a persistent server that outlives it, and so do the environments.
-package main
+// Package teardown implements the agents-crew-stop logic: releasing
+// every worker's environment, the shared status directory, and the Herdr
+// workspace itself. Shared between the `agents-crew stop` subcommand and
+// the standalone `agents-crew-stop` binary.
+package teardown
 
 import (
 	"fmt"
 	"os"
 	"strings"
 
-	"herd-tickets/internal/herdr"
-	"herd-tickets/internal/wtm"
+	"agents-crew/internal/herdr"
+	"agents-crew/internal/wtm"
 )
 
-func main() {
-	if err := stop(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-}
-
-func stop() error {
+// Run tears down the running swarm, if any, printing progress to stdout
+// and non-fatal errors to stderr. It returns nil even when there was
+// nothing to tear down.
+func Run() error {
 	agents, err := herdr.AgentList()
 	if err != nil {
 		return fmt.Errorf("herdr agent list: %w", err)
@@ -35,7 +31,7 @@ func stop() error {
 		}
 	}
 	if workspaceID == "" {
-		fmt.Println("Aucun master herd-tickets en cours.")
+		fmt.Println("Aucun master agents-crew en cours.")
 		return nil
 	}
 
@@ -59,7 +55,7 @@ func stop() error {
 	}
 
 	if repo != "" {
-		statusDir := repo + "/.claude/worktrees/.herd-status"
+		statusDir := repo + "/.claude/worktrees/.agents-crew-status"
 		if err := os.RemoveAll(statusDir); err != nil {
 			fmt.Fprintf(os.Stderr, "suppression de %s: %v\n", statusDir, err)
 		}

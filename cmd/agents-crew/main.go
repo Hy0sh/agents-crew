@@ -1,12 +1,14 @@
-// herd-tickets launches a dedicated Herdr workspace: 1 master (opus) + N
+// agents-crew launches a dedicated Herdr workspace: 1 master (opus) + N
 // workers (sonnet) to dispatch and supervise tasks in the current
 // directory's repo, project-agnostic.
 //
-// Usage: herd-tickets [N] [MAX_STACKS]
+// Usage: agents-crew [N] [MAX_STACKS]
 //
 //	N          number of workers (default 3)
 //	MAX_STACKS number of concurrent isolated environments allowed
 //	           (default N; capped to N)
+//
+// agents-crew stop tears the whole thing down (see internal/teardown).
 //
 // The master is created and briefed synchronously so you can start talking
 // to it immediately; workers are provisioned (worktree + environment) in a
@@ -23,18 +25,26 @@ import (
 	"syscall"
 	"time"
 
-	"herd-tickets/internal/brief"
-	"herd-tickets/internal/herdr"
+	"agents-crew/internal/brief"
+	"agents-crew/internal/herdr"
+	"agents-crew/internal/teardown"
 )
 
 const (
-	label         = "tickets-auto"
+	label         = "agents-crew"
 	provisionFlag = "__provision-workers"
 )
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == provisionFlag {
 		provisionWorkers(os.Args[2:])
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "stop" {
+		if err := teardown.Run(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 		return
 	}
 	if err := start(); err != nil {
@@ -72,7 +82,7 @@ func start() error {
 		}
 	}
 
-	if err := os.MkdirAll(filepath.Join(repo, ".claude", "worktrees", ".herd-status"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(repo, ".claude", "worktrees", ".agents-crew-status"), 0o755); err != nil {
 		return err
 	}
 
@@ -123,7 +133,7 @@ func launchBackgroundProvisioning(repo, masterPane, stamp string, n, maxStacks i
 	if err != nil {
 		return err
 	}
-	logPath := filepath.Join(os.TempDir(), fmt.Sprintf("herd-tickets-workers-%s.log", stamp))
+	logPath := filepath.Join(os.TempDir(), fmt.Sprintf("agents-crew-workers-%s.log", stamp))
 	logFile, err := os.Create(logPath)
 	if err != nil {
 		return err
@@ -165,5 +175,5 @@ func parseCount(s, name string) (int, error) {
 }
 
 func usageErr(err error) error {
-	return fmt.Errorf("%w\nUsage: herd-tickets [N] [MAX_STACKS]", err)
+	return fmt.Errorf("%w\nUsage: agents-crew [N] [MAX_STACKS]", err)
 }

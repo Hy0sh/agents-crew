@@ -1,5 +1,5 @@
 // Package wtm wraps the parts of the `wtm` CLI (worktree-manager) that
-// herd-tickets needs: giving a freshly created worktree a Docker stack,
+// agents-crew needs: giving a freshly created worktree a Docker stack,
 // and tearing that stack down again. wtm itself decides whether a project
 // is registered; a missing binary or an unregistered project is not an
 // error here, callers just get a stack-less worktree.

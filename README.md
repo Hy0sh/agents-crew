@@ -1,4 +1,4 @@
-# herd-tickets
+# agents-crew
 
 Launches a dedicated [Herdr](https://herdr.dev) workspace with one **master**
 agent (Claude Opus) supervising N **worker** agents (Claude Sonnet), to
@@ -15,8 +15,8 @@ prompt.
 ## Install
 
 ```sh
-go build -o ~/.local/bin/herd-tickets ./cmd/herd-tickets
-go build -o ~/.local/bin/herd-tickets-stop ./cmd/herd-tickets-stop
+go build -o ~/.local/bin/agents-crew ./cmd/agents-crew
+go build -o ~/.local/bin/agents-crew-stop ./cmd/agents-crew-stop
 ```
 
 (`~/.local/bin` just needs to be on `PATH`, same as `herdr`.)
@@ -25,7 +25,7 @@ go build -o ~/.local/bin/herd-tickets-stop ./cmd/herd-tickets-stop
 
 ```sh
 cd /path/to/some/repo
-herd-tickets [N] [MAX_STACKS]
+agents-crew [N] [MAX_STACKS]
 ```
 
 - `N` — number of workers (default 3).
@@ -37,16 +37,17 @@ The master is created and briefed synchronously so you can start talking to
 it as soon as the terminal opens. Workers (worktree + environment) are
 provisioned in a detached background process so that setup — the slow part,
 if the project's environment tool spins up real services — never delays
-opening the terminal. Its log lands in `$TMPDIR/herd-tickets-workers-<timestamp>.log`.
+opening the terminal. Its log lands in `$TMPDIR/agents-crew-workers-<timestamp>.log`.
 
 ```sh
-herd-tickets-stop
+agents-crew stop
 ```
 
 Tears the whole thing down: each worker's environment, the shared status
 directory, and the Herdr workspace. **Closing the terminal does nothing** —
 Herdr is a persistent server that outlives it, and so do any environments
-workers started. This is the only way to actually stop it.
+workers started. This is the only way to actually stop it. (`agents-crew-stop`
+is also installed as a standalone binary, same effect, for convenience.)
 
 ## How it works
 
@@ -58,6 +59,8 @@ workers started. This is the only way to actually stop it.
 - `internal/layout` — pure math for the pane-split ratios that stack N
   worker panes evenly next to the master pane.
 - `internal/brief` — builds the master's initial prompt.
+- `internal/teardown` — shared logic behind `agents-crew stop` and
+  `agents-crew-stop`.
 
 ## Design notes worth knowing before changing the brief
 
@@ -76,10 +79,10 @@ workers started. This is the only way to actually stop it.
   `idle`, not `blocked`), leaving the master to only ever wake on timeout.
 - **`agent read` is a TUI capture, not text** — truncated lines, spinners,
   occasional corruption mid-redraw. The shared per-worker status file
-  (`.claude/worktrees/.herd-status/workerN.json`, worker-written) is cheaper
-  and more reliable for routine checks; it's still self-reported, so the
-  brief also tells the master to cross-check objective signals (git status,
-  CI) before trusting a push.
+  (`.claude/worktrees/.agents-crew-status/workerN.json`, worker-written) is
+  cheaper and more reliable for routine checks; it's still self-reported, so
+  the brief also tells the master to cross-check objective signals (git
+  status, CI) before trusting a push.
 - **A false statement in the brief propagates to every worker at once** —
   it's more expensive than an omission. When in doubt, favor "state the
   intent, defer to the project" over a plausible-looking literal command.

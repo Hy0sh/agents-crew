@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"herd-tickets/internal/brief"
-	"herd-tickets/internal/gitutil"
-	"herd-tickets/internal/herdr"
-	"herd-tickets/internal/layout"
-	"herd-tickets/internal/wtm"
+	"agents-crew/internal/brief"
+	"agents-crew/internal/gitutil"
+	"agents-crew/internal/herdr"
+	"agents-crew/internal/layout"
+	"agents-crew/internal/wtm"
 )
 
 // provisionWorkers runs as a detached background process (see

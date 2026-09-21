@@ -137,7 +137,7 @@ func AgentStart(name, paneID string, extraArgs ...string) error {
 }
 
 // AgentPrompt submits text to a running agent, without waiting for it to
-// settle (fire-and-forget, matching herd-tickets' brief delivery).
+// settle (fire-and-forget, matching agents-crew's brief delivery).
 func AgentPrompt(name, text string) error {
 	_, err := run("agent", "prompt", name, text)
 	return err
