@@ -58,7 +58,10 @@ is also installed as a standalone binary, same effect, for convenience.)
 - `internal/gitutil` — fetch + default-branch detection + worktree creation.
 - `internal/layout` — pure math for the pane-split ratios that stack N
   worker panes evenly next to the master pane.
-- `internal/brief` — builds the master's initial prompt.
+- `internal/brief` — builds the master's initial prompt. The prose itself
+  lives in `internal/brief/templates/*.md` (`text/template`, `go:embed`),
+  not in the Go file — it's a document to read and edit, not a string
+  literal to escape.
 - `internal/teardown` — shared logic behind `agents-crew stop` and
   `agents-crew-stop`.
 
