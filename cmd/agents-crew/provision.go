@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"agents-crew/internal/brief"
-	"agents-crew/internal/gitutil"
-	"agents-crew/internal/herdr"
-	"agents-crew/internal/layout"
-	"agents-crew/internal/wtm"
+	"github.com/Hy0sh/agents-crew/internal/brief"
+	"github.com/Hy0sh/agents-crew/internal/gitutil"
+	"github.com/Hy0sh/agents-crew/internal/herdr"
+	"github.com/Hy0sh/agents-crew/internal/layout"
+	"github.com/Hy0sh/agents-crew/internal/wtm"
 )
 
 // provisionWorkers runs as a detached background process (see

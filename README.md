@@ -25,6 +25,19 @@ deep into the run (see `internal/preflight`).
 
 ## Install
 
+A tagged release ships prebuilt binaries for darwin/linux, amd64/arm64 — grab
+the tarball for your platform from the
+[latest release](https://github.com/Hy0sh/agents-crew/releases/latest).
+
+Or, with Go installed:
+
+```sh
+go install github.com/Hy0sh/agents-crew/cmd/agents-crew@latest
+go install github.com/Hy0sh/agents-crew/cmd/agents-crew-stop@latest
+```
+
+Or from a checkout:
+
 ```sh
 go build -o ~/.local/bin/agents-crew ./cmd/agents-crew
 go build -o ~/.local/bin/agents-crew-stop ./cmd/agents-crew-stop

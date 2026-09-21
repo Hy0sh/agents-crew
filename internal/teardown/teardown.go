@@ -9,8 +9,8 @@ import (
 	"os"
 	"strings"
 
-	"agents-crew/internal/herdr"
-	"agents-crew/internal/wtm"
+	"github.com/Hy0sh/agents-crew/internal/herdr"
+	"github.com/Hy0sh/agents-crew/internal/wtm"
 )
 
 // Run tears down the running swarm, if any, printing progress to stdout
