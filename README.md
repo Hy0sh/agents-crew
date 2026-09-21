@@ -33,29 +33,37 @@ Or, with Go installed:
 
 ```sh
 go install github.com/Hy0sh/agents-crew/cmd/agents-crew@latest
-go install github.com/Hy0sh/agents-crew/cmd/agents-crew-stop@latest
 ```
 
 Or from a checkout:
 
 ```sh
 go build -o ~/.local/bin/agents-crew ./cmd/agents-crew
-go build -o ~/.local/bin/agents-crew-stop ./cmd/agents-crew-stop
 ```
 
 (`~/.local/bin` just needs to be on `PATH`, same as `herdr`.)
+
+Shell completion (bash/zsh/fish/powershell) comes from Cobra for free:
+`agents-crew completion zsh > ...` (see `agents-crew completion --help` for
+where each shell expects the file).
 
 ## Usage
 
 ```sh
 cd /path/to/some/repo
-agents-crew [N] [MAX_STACKS]
+agents-crew [flags]
 ```
 
-- `N` — number of workers (default 3).
-- `MAX_STACKS` — number of concurrent isolated environments the machine can
-  hold (default N, capped to N). When lower than N, the master is told to
-  arbitrate which worker gets an environment.
+| Flag | Default | Meaning |
+|---|---|---|
+| `-n, --workers` | `3` | number of worker agents |
+| `--max-stacks` | same as `--workers` | concurrent isolated environments the machine can hold; when lower, the master is told to arbitrate which worker gets one |
+| `--master-model` | `opus` | Claude model for the master agent |
+| `--worker-model` | `sonnet` | Claude model for worker agents |
+| `--brief` | *(built-in)* | path to a custom master brief template — same fields as the built-in one (see `internal/brief/templates/master.md`), for when you want to change the operating rules without forking the tool |
+
+`agents-crew --help` / `agents-crew stop --help` document all of this in the
+terminal too.
 
 The master is created and briefed synchronously so you can start talking to
 it as soon as the terminal opens. Workers (worktree + environment) are
@@ -70,8 +78,7 @@ agents-crew stop
 Tears the whole thing down: each worker's environment, the shared status
 directory, and the Herdr workspace. **Closing the terminal does nothing** —
 Herdr is a persistent server that outlives it, and so do any environments
-workers started. This is the only way to actually stop it. (`agents-crew-stop`
-is also installed as a standalone binary, same effect, for convenience.)
+workers started. This is the only way to actually stop it.
 
 ## How it works
 
@@ -86,8 +93,8 @@ is also installed as a standalone binary, same effect, for convenience.)
   lives in `internal/brief/templates/*.md` (`text/template`, `go:embed`),
   not in the Go file — it's a document to read and edit, not a string
   literal to escape.
-- `internal/teardown` — shared logic behind `agents-crew stop` and
-  `agents-crew-stop`.
+- `internal/teardown` — the `agents-crew stop` logic.
+- `internal/version` — `--version`, via `runtime/debug.ReadBuildInfo` (no ldflags).
 
 ## Design notes worth knowing before changing the brief
 

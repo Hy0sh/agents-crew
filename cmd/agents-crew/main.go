@@ -1,190 +1,87 @@
-// agents-crew launches a dedicated Herdr workspace: 1 master (opus) + N
-// workers (sonnet) to dispatch and supervise tasks in the current
-// directory's repo, project-agnostic.
+// agents-crew launches a dedicated Herdr workspace: one master agent
+// supervising N worker agents, to dispatch and supervise tasks in a repo
+// in parallel, project-agnostic.
 //
-// Usage: agents-crew [N] [MAX_STACKS]
-//
-//	N          number of workers (default 3)
-//	MAX_STACKS number of concurrent isolated environments allowed
-//	           (default N; capped to N)
-//
-// agents-crew stop tears the whole thing down (see internal/teardown).
-//
-// The master is created and briefed synchronously so you can start talking
-// to it immediately; workers are provisioned (worktree + environment) in a
-// detached background process so that setup never delays opening the
-// terminal.
+// `agents-crew` (no subcommand) starts the swarm in the current directory;
+// `agents-crew stop` tears it down. Closing the terminal does nothing —
+// Herdr is a persistent server that outlives it, and so do any
+// environments workers started.
 package main
 
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strconv"
-	"syscall"
-	"time"
 
-	"github.com/Hy0sh/agents-crew/internal/brief"
-	"github.com/Hy0sh/agents-crew/internal/herdr"
+	"github.com/spf13/cobra"
+
 	"github.com/Hy0sh/agents-crew/internal/preflight"
 	"github.com/Hy0sh/agents-crew/internal/teardown"
 	"github.com/Hy0sh/agents-crew/internal/version"
 )
 
-const (
-	label         = "agents-crew"
-	provisionFlag = "__provision-workers"
-)
+const provisionUse = "__provision-workers"
+
+type startOptions struct {
+	workers     int
+	maxStacks   int
+	masterModel string
+	workerModel string
+	briefPath   string
+}
 
 func main() {
-	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
-		fmt.Println("agents-crew " + version.String())
-		return
+	opts := &startOptions{}
+
+	root := &cobra.Command{
+		Use:     "agents-crew",
+		Short:   "Master + N worker Claude Code agents over Herdr, dispatching tasks in parallel",
+		Version: version.String(),
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := preflight.CheckStart(); err != nil {
+				return err
+			}
+			preflight.WarnIfWtmMissing(func(format string, a ...any) { fmt.Fprintf(cmd.ErrOrStderr(), format, a...) })
+			return runStart(cmd.ErrOrStderr(), opts)
+		},
 	}
-	if len(os.Args) > 1 && os.Args[1] == provisionFlag {
-		provisionWorkers(os.Args[2:])
-		return
+	root.SetVersionTemplate("agents-crew {{.Version}}\n")
+
+	root.Flags().IntVarP(&opts.workers, "workers", "n", 3, "number of worker agents")
+	root.Flags().IntVar(&opts.maxStacks, "max-stacks", 0, "concurrent isolated environments the machine can hold (default: same as --workers)")
+	root.Flags().StringVar(&opts.masterModel, "master-model", "opus", "Claude model for the master agent")
+	root.Flags().StringVar(&opts.workerModel, "worker-model", "sonnet", "Claude model for worker agents")
+	root.Flags().StringVar(&opts.briefPath, "brief", "", "path to a custom master brief template (text/template, same fields as the built-in one); default: built-in template")
+
+	stop := &cobra.Command{
+		Use:   "stop",
+		Short: "Tear down the running swarm (environments, status files, Herdr workspace)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := preflight.CheckStop(); err != nil {
+				return err
+			}
+			return teardown.Run()
+		},
 	}
-	if len(os.Args) > 1 && os.Args[1] == "stop" {
-		if err := teardown.Run(); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		return
+
+	// Internal: re-exec'd as a detached background process by runStart to
+	// provision workers without delaying the Herdr TUI opening. Hidden from
+	// --help and completion; not a documented interface.
+	provision := &cobra.Command{
+		Use:    provisionUse + " <repo> <masterPane> <stamp> <workers> <maxStacks> <workerModel>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(6),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			provisionWorkers(args)
+			return nil
+		},
 	}
-	if err := start(); err != nil {
+
+	root.AddCommand(stop, provision)
+
+	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-}
-
-func start() error {
-	if err := preflight.Check(); err != nil {
-		return err
-	}
-	preflight.WarnIfWtmMissing(func(format string, a ...any) { fmt.Fprintf(os.Stderr, format, a...) })
-
-	n, err := parseCount(argOr(1, "3"), "N")
-	if err != nil {
-		return usageErr(err)
-	}
-	maxStacks, err := parseCount(argOr(2, strconv.Itoa(n)), "MAX_STACKS")
-	if err != nil {
-		return usageErr(err)
-	}
-	if maxStacks > n {
-		maxStacks = n
-	}
-
-	repo, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-
-	agents, err := herdr.AgentList()
-	if err != nil {
-		return fmt.Errorf("herdr agent list: %w", err)
-	}
-	for _, a := range agents {
-		if a.Name == "master" {
-			return fmt.Errorf("un master tourne déjà dans le workspace %s. Attache-toi-y (herdr workspace focus %s) "+
-				"au lieu d'en relancer un — ou ferme-le d'abord (herdr workspace close %s --group)", a.WorkspaceID, a.WorkspaceID, a.WorkspaceID)
-		}
-	}
-
-	if err := os.MkdirAll(filepath.Join(repo, ".claude", "worktrees", ".agents-crew-status"), 0o755); err != nil {
-		return err
-	}
-
-	workspaceID, masterPane, err := herdr.WorkspaceCreate(repo, label, true)
-	if err != nil {
-		return fmt.Errorf("herdr workspace create: %w", err)
-	}
-	// From here on, clean up the half-built workspace on any failure.
-	success := false
-	defer func() {
-		if !success {
-			_ = herdr.WorkspaceClose(workspaceID, true)
-		}
-	}()
-
-	if err := herdr.PaneRename(masterPane, "master"); err != nil {
-		return err
-	}
-	if err := herdr.AgentStart("master", masterPane, "--model", "opus"); err != nil {
-		return fmt.Errorf("herdr agent start master: %w", err)
-	}
-
-	masterBrief := brief.Build(repo, n, maxStacks)
-	if err := herdr.AgentPrompt("master", masterBrief); err != nil {
-		return fmt.Errorf("herdr agent prompt master: %w", err)
-	}
-	if err := herdr.WorkspaceFocus(workspaceID); err != nil {
-		return err
-	}
-
-	stamp := time.Now().Format("20060102150405")
-	if err := launchBackgroundProvisioning(repo, masterPane, stamp, n, maxStacks); err != nil {
-		return fmt.Errorf("lancement du provisioning des workers: %w", err)
-	}
-
-	success = true
-	fmt.Fprintf(os.Stderr, "→ master (opus) prêt, tu peux déjà lui parler. %d worker(s) (sonnet) en provisionnement en tâche de fond.\n", n)
-
-	// Replace this process with the Herdr TUI, attaching to the workspace just built.
-	return syscall.Exec(mustLookPath("herdr"), []string{"herdr"}, os.Environ())
-}
-
-// launchBackgroundProvisioning starts a detached copy of this same binary
-// in provisioning mode, so worker setup (worktrees, environments, panes,
-// agents) continues after this process execs into the Herdr TUI.
-func launchBackgroundProvisioning(repo, masterPane, stamp string, n, maxStacks int) error {
-	self, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	logPath := filepath.Join(os.TempDir(), fmt.Sprintf("agents-crew-workers-%s.log", stamp))
-	logFile, err := os.Create(logPath)
-	if err != nil {
-		return err
-	}
-
-	cmd := exec.Command(self, provisionFlag, repo, masterPane, stamp, strconv.Itoa(n), strconv.Itoa(maxStacks))
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	// Intentionally not waited on: it must keep running after this process execs into herdr.
-	return nil
-}
-
-func mustLookPath(bin string) string {
-	p, err := exec.LookPath(bin)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s introuvable dans le PATH: %v\n", bin, err)
-		os.Exit(1)
-	}
-	return p
-}
-
-func argOr(i int, def string) string {
-	if i < len(os.Args) {
-		return os.Args[i]
-	}
-	return def
-}
-
-func parseCount(s, name string) (int, error) {
-	v, err := strconv.Atoi(s)
-	if err != nil || v <= 0 {
-		return 0, fmt.Errorf("%s doit être un entier > 0, reçu %q", name, s)
-	}
-	return v, nil
-}
-
-func usageErr(err error) error {
-	return fmt.Errorf("%w\nUsage: agents-crew [N] [MAX_STACKS]", err)
 }

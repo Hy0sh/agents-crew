@@ -3,8 +3,8 @@ name: Release
 # A tag is what publishes a version: the module proxy resolves tags, so
 # `go install ...@vX.Y.Z` works the moment it is pushed. This turns that tag
 # into a GitHub release too, with the changelog section as its notes and a
-# binary pair per platform attached, so the two never drift apart and nobody
-# has to remember the second step.
+# binary per platform attached, so the two never drift apart and nobody has
+# to remember the second step.
 on:
   push:
     tags:
@@ -86,12 +86,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Built through `go install <module>/cmd/<bin>@<tag>` rather than
-          # from the checkout: the toolchain then records the module version,
-          # so a downloaded binary reports `agents-crew --version` exactly
-          # like one the user installed themselves. GOPROXY=direct reads the
-          # tag from this repository instead of waiting for the proxy to
-          # have seen it.
+          # Built through `go install <module>/cmd/agents-crew@<tag>` rather
+          # than from the checkout: the toolchain then records the module
+          # version, so a downloaded binary reports `agents-crew --version`
+          # exactly like one the user installed themselves. GOPROXY=direct
+          # reads the tag from this repository instead of waiting for the
+          # proxy to have seen it.
           export GOPROXY=direct GOFLAGS=-trimpath CGO_ENABLED=0
           gopath=$(go env GOPATH)
           mkdir -p dist
@@ -99,19 +99,17 @@ jobs:
           for platform in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
             goos=${platform%/*}
             goarch=${platform#*/}
+            GOOS=$goos GOARCH=$goarch go install "github.com/${{ github.repository }}/cmd/agents-crew@$TAG"
+
+            # A cross-compiled install lands in a per-platform directory, a
+            # native one straight in bin.
+            binary="$gopath/bin/${goos}_${goarch}/agents-crew"
+            [ -f "$binary" ] || binary="$gopath/bin/agents-crew"
 
             staging=$(mktemp -d)
-            for bin in agents-crew agents-crew-stop; do
-              GOOS=$goos GOARCH=$goarch go install "github.com/${{ github.repository }}/cmd/$bin@$TAG"
-
-              # A cross-compiled install lands in a per-platform directory, a
-              # native one straight in bin.
-              binary="$gopath/bin/${goos}_${goarch}/$bin"
-              [ -f "$binary" ] || binary="$gopath/bin/$bin"
-              cp "$binary" "$staging/$bin"
-            done
+            cp "$binary" "$staging/agents-crew"
             cp LICENSE README.md "$staging/"
-            tar -czf "dist/agents-crew_${TAG}_${goos}_${goarch}.tar.gz" -C "$staging" agents-crew agents-crew-stop LICENSE README.md
+            tar -czf "dist/agents-crew_${TAG}_${goos}_${goarch}.tar.gz" -C "$staging" agents-crew LICENSE README.md
           done
 
           ( cd dist && sha256sum *.tar.gz > SHA256SUMS )

@@ -23,30 +23,55 @@ var (
 	workersReadyTemplate = template.Must(template.New("workers-ready").Parse(workersReadyTemplateSource))
 )
 
-type masterData struct {
+// MasterData is what the master brief template can reference. Exported so
+// a custom template (see BuildFromSource) can use the same fields as the
+// built-in one.
+type MasterData struct {
 	RepoPath    string
 	N           int
 	WorkerNames string
 	EnvCapRule  string
 }
 
-// Build returns the master's initial brief for a repo at repoPath, with n
-// workers and maxStacks concurrent isolated environments allowed.
-func Build(repoPath string, n, maxStacks int) string {
-	data := masterData{
+func newMasterData(repoPath string, n, maxStacks int) MasterData {
+	return MasterData{
 		RepoPath:    repoPath,
 		N:           n,
 		WorkerNames: workerNamesList(n),
 		EnvCapRule:  envCapRule(n, maxStacks),
 	}
+}
+
+// Build returns the master's initial brief for a repo at repoPath, with n
+// workers and maxStacks concurrent isolated environments allowed, using
+// the built-in template.
+func Build(repoPath string, n, maxStacks int) string {
 	var b bytes.Buffer
-	if err := masterTemplate.Execute(&b, data); err != nil {
+	if err := masterTemplate.Execute(&b, newMasterData(repoPath, n, maxStacks)); err != nil {
 		// templates/master.md is embedded and parsed at init time (template.Must
 		// above already panics on a syntax error), so a failure here can only
-		// mean a field referenced in the template no longer exists on masterData.
+		// mean a field referenced in the template no longer exists on MasterData.
 		panic(fmt.Sprintf("brief: executing master template: %v", err))
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// BuildFromSource renders a custom master brief template (e.g. read from a
+// file passed via --brief) instead of the built-in one. It gets the same
+// MasterData fields — {{.RepoPath}}, {{.N}}, {{.WorkerNames}},
+// {{.EnvCapRule}} — and any template syntax error is returned rather than
+// panicking, since the source comes from the user, not from what's baked
+// into the binary.
+func BuildFromSource(source, repoPath string, n, maxStacks int) (string, error) {
+	tmpl, err := template.New("custom-master").Parse(source)
+	if err != nil {
+		return "", fmt.Errorf("parsing custom brief template: %w", err)
+	}
+	var b bytes.Buffer
+	if err := tmpl.Execute(&b, newMasterData(repoPath, n, maxStacks)); err != nil {
+		return "", fmt.Errorf("executing custom brief template: %w", err)
+	}
+	return strings.TrimRight(b.String(), "\n"), nil
 }
 
 // WorkersReadyMessage is sent to the master once background provisioning
