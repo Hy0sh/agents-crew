@@ -8,6 +8,17 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ### Changed
 
+- Worker provisioning is progressive and concurrent instead of
+  all-at-once-at-the-end: `git worktree add` → pane split → rename →
+  agent start is fast (seconds), so each worker's pane and agent appear
+  one after another as soon as its own worktree exists — not after every
+  worker finishes. `wtm adopt` (the slow part, real services starting)
+  now runs in its own goroutine per worker once the pane is already
+  live, so N workers provision their environments concurrently instead
+  of serially — roughly N× faster wall-clock time for that part, and
+  nobody stares at a workspace with only the master pane in it for
+  several minutes.
+
 - Rebuilt the CLI on Cobra: `agents-crew --help` and `agents-crew completion
   {bash,zsh,fish,powershell}` now exist. `N`/`MAX_STACKS` positional
   arguments became `-n/--workers` and `--max-stacks` flags.
