@@ -50,3 +50,18 @@ func WorktreeAdd(repo, path, branch, baseRef string) error {
 func CurrentBranch(dir string) (string, error) {
 	return run(dir, "rev-parse", "--abbrev-ref", "HEAD")
 }
+
+// WorktreeRemove removes the worktree at path. wtm's own `remove` only
+// deletes a worktree it created itself — one agents-crew made via
+// WorktreeAdd (plain `git worktree add`, not `wtm create`) is left on disk
+// otherwise, so this is still needed after a wtm stack is torn down.
+func WorktreeRemove(repo, path string) error {
+	_, err := run(repo, "worktree", "remove", path, "--force")
+	return err
+}
+
+// DeleteBranch force-deletes branch in repo.
+func DeleteBranch(repo, branch string) error {
+	_, err := run(repo, "branch", "-D", branch)
+	return err
+}
