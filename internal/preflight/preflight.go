@@ -19,7 +19,7 @@ type dependency struct {
 var (
 	herdrDep = dependency{
 		bin:     "herdr",
-		purpose: "orchestre les panes/agents (indispensable, agents-crew ne fait rien sans lui)",
+		purpose: "orchestre les panes/agents (indispensable, acw ne fait rien sans lui)",
 		install: "https://herdr.dev",
 	}
 	claudeDep = dependency{
@@ -62,6 +62,6 @@ func check(deps ...dependency) error {
 // this tool runs against needs wtm.
 func WarnIfWtmMissing(printf func(format string, a ...any)) {
 	if _, err := exec.LookPath("wtm"); err != nil {
-		printf("note: wtm introuvable — les workers n'auront pas d'environnement isolé provisionné automatiquement (pas bloquant, agents-crew fonctionne sans). Si ce projet en a besoin : https://github.com/Hy0sh/worktree-manager\n")
+		printf("note: wtm introuvable — les workers n'auront pas d'environnement isolé provisionné automatiquement (pas bloquant, acw fonctionne sans). Si ce projet en a besoin : https://github.com/Hy0sh/worktree-manager\n")
 	}
 }

@@ -86,12 +86,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Built through `go install <module>/cmd/agents-crew@<tag>` rather
-          # than from the checkout: the toolchain then records the module
-          # version, so a downloaded binary reports `agents-crew --version`
-          # exactly like one the user installed themselves. GOPROXY=direct
-          # reads the tag from this repository instead of waiting for the
-          # proxy to have seen it.
+          # Built through `go install <module>/cmd/acw@<tag>` rather than
+          # from the checkout: the toolchain then records the module
+          # version, so a downloaded binary reports `acw --version` exactly
+          # like one the user installed themselves. GOPROXY=direct reads
+          # the tag from this repository instead of waiting for the proxy
+          # to have seen it.
           export GOPROXY=direct GOFLAGS=-trimpath CGO_ENABLED=0
           gopath=$(go env GOPATH)
           mkdir -p dist
@@ -99,17 +99,17 @@ jobs:
           for platform in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
             goos=${platform%/*}
             goarch=${platform#*/}
-            GOOS=$goos GOARCH=$goarch go install "github.com/${{ github.repository }}/cmd/agents-crew@$TAG"
+            GOOS=$goos GOARCH=$goarch go install "github.com/${{ github.repository }}/cmd/acw@$TAG"
 
             # A cross-compiled install lands in a per-platform directory, a
             # native one straight in bin.
-            binary="$gopath/bin/${goos}_${goarch}/agents-crew"
-            [ -f "$binary" ] || binary="$gopath/bin/agents-crew"
+            binary="$gopath/bin/${goos}_${goarch}/acw"
+            [ -f "$binary" ] || binary="$gopath/bin/acw"
 
             staging=$(mktemp -d)
-            cp "$binary" "$staging/agents-crew"
+            cp "$binary" "$staging/acw"
             cp LICENSE README.md "$staging/"
-            tar -czf "dist/agents-crew_${TAG}_${goos}_${goarch}.tar.gz" -C "$staging" agents-crew LICENSE README.md
+            tar -czf "dist/acw_${TAG}_${goos}_${goarch}.tar.gz" -C "$staging" acw LICENSE README.md
           done
 
           ( cd dist && sha256sum *.tar.gz > SHA256SUMS )

@@ -6,6 +6,14 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Changed
+
+- The binary is now `acw`, not `agents-crew` — short like `wtm`, for daily
+  typing. The repo/module keep the descriptive name (`github.com/Hy0sh/
+  agents-crew`), only `cmd/agents-crew` moved to `cmd/acw`, same pattern as
+  `worktree-manager`/`wtm`. The shared status directory moved from
+  `.agents-crew-status` to `.acw-status` accordingly.
+
 ### Fixed
 
 - `herdr agent start` on a just-created pane (fresh off `workspace

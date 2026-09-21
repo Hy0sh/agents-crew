@@ -42,7 +42,7 @@ func Run() error {
 		}
 	}
 	if workspaceID == "" {
-		fmt.Println("Aucun master agents-crew en cours pour ce répertoire.")
+		fmt.Println("Aucun master acw en cours pour ce répertoire.")
 		return nil
 	}
 
@@ -58,7 +58,7 @@ func Run() error {
 		return fmt.Errorf("herdr workspace close: %w", err)
 	}
 
-	statusDir := filepath.Join(repo, ".claude", "worktrees", ".agents-crew-status")
+	statusDir := filepath.Join(repo, ".claude", "worktrees", ".acw-status")
 	if err := os.RemoveAll(statusDir); err != nil {
 		fmt.Fprintf(os.Stderr, "suppression de %s: %v\n", statusDir, err)
 	}
