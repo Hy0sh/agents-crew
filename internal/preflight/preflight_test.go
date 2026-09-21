@@ -5,17 +5,29 @@ import (
 	"testing"
 )
 
-func TestCheckReportsEveryMissingBinary(t *testing.T) {
+func TestCheckStartReportsEveryMissingBinary(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // an empty directory: nothing resolves
 
-	err := Check()
+	err := CheckStart()
 	if err == nil {
-		t.Fatal("Check() = nil, want an error when herdr and claude are both missing")
+		t.Fatal("CheckStart() = nil, want an error when herdr and claude are both missing")
 	}
 	for _, want := range []string{"herdr", "claude", "herdr.dev", "npm install"} {
 		if !strings.Contains(err.Error(), want) {
-			t.Errorf("Check() error = %q, missing %q", err.Error(), want)
+			t.Errorf("CheckStart() error = %q, missing %q", err.Error(), want)
 		}
+	}
+}
+
+func TestCheckStopOnlyRequiresHerdr(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	err := CheckStop()
+	if err == nil {
+		t.Fatal("CheckStop() = nil, want an error when herdr is missing")
+	}
+	if strings.Contains(err.Error(), "claude") {
+		t.Errorf("CheckStop() error = %q, should not require claude", err.Error())
 	}
 }
 

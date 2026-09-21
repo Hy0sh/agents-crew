@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/wtm"
 )
@@ -40,11 +41,16 @@ func Run() error {
 			if a.WorkspaceID != workspaceID || !strings.HasPrefix(a.Name, "worker") || a.Cwd == "" {
 				continue
 			}
-			if err := wtm.Stop(a.Cwd); err != nil {
+			branch, err := gitutil.CurrentBranch(a.Cwd)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%s: resolving branch (%s): %v\n", a.Name, a.Cwd, err)
+				continue
+			}
+			if err := wtm.Stop(a.Cwd, branch); err != nil {
 				fmt.Fprintf(os.Stderr, "%s: wtm stop (%s): %v\n", a.Name, a.Cwd, err)
 				continue
 			}
-			if err := wtm.Remove(a.Cwd); err != nil {
+			if err := wtm.Remove(a.Cwd, branch); err != nil {
 				fmt.Fprintf(os.Stderr, "%s: wtm remove (%s): %v\n", a.Name, a.Cwd, err)
 			}
 		}

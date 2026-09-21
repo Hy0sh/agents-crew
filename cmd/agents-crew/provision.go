@@ -19,8 +19,8 @@ import (
 // master they're ready. Errors are logged and provisioning continues for
 // the remaining workers where it safely can — a partial swarm beats none.
 func provisionWorkers(args []string) {
-	if len(args) != 5 {
-		fmt.Fprintf(os.Stderr, "provisionWorkers: expected 5 args, got %d\n", len(args))
+	if len(args) != 6 {
+		fmt.Fprintf(os.Stderr, "provisionWorkers: expected 6 args, got %d\n", len(args))
 		os.Exit(1)
 	}
 	repo, masterPane, stamp := args[0], args[1], args[2]
@@ -34,6 +34,7 @@ func provisionWorkers(args []string) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	workerModel := args[5]
 
 	if err := gitutil.Fetch(repo); err != nil {
 		fmt.Fprintln(os.Stderr, "git fetch:", err)
@@ -84,7 +85,7 @@ func provisionWorkers(args []string) {
 			continue
 		}
 		name := fmt.Sprintf("worker%d", i)
-		if err := herdr.AgentStart(name, panes[i], "--model", "sonnet"); err != nil {
+		if err := herdr.AgentStart(name, panes[i], "--model", workerModel); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: herdr agent start: %v\n", name, err)
 		}
 	}

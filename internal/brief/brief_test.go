@@ -43,6 +43,30 @@ func TestBuildNeverHardcodesProjectTooling(t *testing.T) {
 	}
 }
 
+func TestBuildFromSourceRendersCustomTemplate(t *testing.T) {
+	got, err := BuildFromSource("Repo: {{.RepoPath}}, {{.N}} workers ({{.WorkerNames}}). {{.EnvCapRule}}", "/repo", 2, 2)
+	if err != nil {
+		t.Fatalf("BuildFromSource() error = %v", err)
+	}
+	for _, want := range []string{"/repo", "2 workers", "worker1, worker2", "pas d'arbitrage nécessaire"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("BuildFromSource() = %q, missing %q", got, want)
+		}
+	}
+}
+
+func TestBuildFromSourceRejectsBadSyntax(t *testing.T) {
+	if _, err := BuildFromSource("{{.Nope", "/repo", 1, 1); err == nil {
+		t.Fatal("BuildFromSource() with invalid template syntax = nil error, want one")
+	}
+}
+
+func TestBuildFromSourceRejectsUnknownField(t *testing.T) {
+	if _, err := BuildFromSource("{{.NotAField}}", "/repo", 1, 1); err == nil {
+		t.Fatal("BuildFromSource() referencing an unknown field = nil error, want one")
+	}
+}
+
 func TestWorkersReadyMessageListsAllNames(t *testing.T) {
 	got := WorkersReadyMessage(2)
 	if !strings.Contains(got, "worker1") || !strings.Contains(got, "worker2") {

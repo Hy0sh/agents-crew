@@ -34,12 +34,17 @@ func Adopt(dir string) error {
 	return run(dir, "adopt", "-y")
 }
 
-// Stop stops the worktree's stack without removing it.
-func Stop(dir string) error {
-	return run(dir, "stop")
+// Stop stops the worktree's stack without removing it. Unlike Adopt, wtm
+// does not infer the branch from dir for `stop` — it must be given
+// explicitly (verified against `wtm stop --help`: "Usage: wtm stop
+// [project] <branch>").
+func Stop(dir, branch string) error {
+	return run(dir, "stop", branch)
 }
 
 // Remove stops the stack and removes the worktree (its branch is kept).
-func Remove(dir string) error {
-	return run(dir, "remove")
+// Same requirement as Stop: the branch is a mandatory argument, not
+// inferred from dir.
+func Remove(dir, branch string) error {
+	return run(dir, "remove", branch)
 }

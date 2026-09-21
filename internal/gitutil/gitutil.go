@@ -45,3 +45,8 @@ func WorktreeAdd(repo, path, branch, baseRef string) error {
 	_, err := run(repo, "worktree", "add", path, "-b", branch, baseRef)
 	return err
 }
+
+// CurrentBranch returns the branch checked out in dir.
+func CurrentBranch(dir string) (string, error) {
+	return run(dir, "rev-parse", "--abbrev-ref", "HEAD")
+}
