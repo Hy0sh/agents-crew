@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strings"
+	"time"
 )
 
 type envelope struct {
@@ -126,14 +128,35 @@ func PaneSplit(paneID, direction string, ratio float64, cwd string) (newPaneID s
 
 // AgentStart starts a Claude Code agent named `name` in paneID. extraArgs,
 // if any, are forwarded to the `claude` binary after `--`.
+//
+// A pane fresh off `workspace create`/`pane split` can still have its
+// shell initializing (oh-my-zsh, profile scripts...) for a moment after
+// the pane itself exists — herdr then refuses the start with
+// "agent_pane_busy" even though nothing is actually wrong. That's
+// retried with backoff here rather than surfaced as a real failure.
 func AgentStart(name, paneID string, extraArgs ...string) error {
 	args := []string{"agent", "start", name, "--kind", "claude", "--pane", paneID}
 	if len(extraArgs) > 0 {
 		args = append(args, "--")
 		args = append(args, extraArgs...)
 	}
-	_, err := run(args...)
-	return err
+
+	const maxAttempts = 10
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			time.Sleep(500 * time.Millisecond)
+		}
+		if _, err := run(args...); err != nil {
+			lastErr = err
+			if strings.Contains(err.Error(), "agent_pane_busy") {
+				continue
+			}
+			return err
+		}
+		return nil
+	}
+	return fmt.Errorf("pane %s never became available after %d attempts: %w", paneID, maxAttempts, lastErr)
 }
 
 // AgentPrompt submits text to a running agent, without waiting for it to
