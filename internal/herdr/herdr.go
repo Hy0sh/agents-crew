@@ -126,16 +126,17 @@ func PaneSplit(paneID, direction string, ratio float64, cwd string) (newPaneID s
 	return result.Pane.PaneID, nil
 }
 
-// AgentStart starts a Claude Code agent named `name` in paneID. extraArgs,
-// if any, are forwarded to the `claude` binary after `--`.
+// AgentStart starts an agent of the given kind (herdr's `--kind`: claude,
+// codex, gemini...) named `name` in paneID. extraArgs, if any, are
+// forwarded to that kind's own CLI after `--`.
 //
 // A pane fresh off `workspace create`/`pane split` can still have its
 // shell initializing (oh-my-zsh, profile scripts...) for a moment after
 // the pane itself exists — herdr then refuses the start with
 // "agent_pane_busy" even though nothing is actually wrong. That's
 // retried with backoff here rather than surfaced as a real failure.
-func AgentStart(name, paneID string, extraArgs ...string) error {
-	args := []string{"agent", "start", name, "--kind", "claude", "--pane", paneID}
+func AgentStart(name, kind, paneID string, extraArgs ...string) error {
+	args := []string{"agent", "start", name, "--kind", kind, "--pane", paneID}
 	if len(extraArgs) > 0 {
 		args = append(args, "--")
 		args = append(args, extraArgs...)

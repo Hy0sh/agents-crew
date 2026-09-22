@@ -1,9 +1,11 @@
 # agents-crew
 
 `acw` launches a dedicated [Herdr](https://herdr.dev) workspace with one
-**master** agent (Claude Opus) supervising N **worker** agents (Claude
-Sonnet), to dispatch and supervise tasks — tickets, bugs, anything — across a
-repo in parallel. Project-agnostic: the master's brief states intentions
+**master** agent supervising N **worker** agents, to dispatch and supervise
+tasks — tickets, bugs, anything — across a repo in parallel. By default both
+are Claude Code (Opus for the master, Sonnet for the workers); any other kind
+Herdr knows (`codex`, `gemini`, `cursor`...) works via `--master-kind` /
+`--worker-kind`. Project-agnostic: the master's brief states intentions
 ("one isolated environment per task, released when the task changes hands")
 and defers to whatever the target project's own docs/skills say for the
 actual mechanics, rather than hardcoding one project's tooling.
@@ -15,13 +17,24 @@ prompt.
 ## Requirements
 
 - [`herdr`](https://herdr.dev) — required.
-- `claude` (Claude Code CLI) — required, `npm install -g @anthropic-ai/claude-code`.
+- the CLI of each agent kind you ask for — required. With the defaults that's
+  `claude` (Claude Code), `npm install -g @anthropic-ai/claude-code`; with
+  `--worker-kind codex` it's `codex`, and so on (a Herdr kind's name is its
+  executable).
 - `wtm` — optional; without it, workers just don't get an isolated
   environment provisioned automatically.
 
 `acw` checks these on every launch and refuses to start with a clear message
-if `herdr` or `claude` is missing, rather than failing a few calls deep into
-the run (see `internal/preflight`).
+naming what's missing, rather than failing a few calls deep into the run (see
+`internal/preflight`).
+
+One trap that stays silent otherwise: `AGENTS.md` is the cross-agent standard,
+and Claude Code reads it natively — but only when no `CLAUDE.md` shadows it in
+the cwd or above. So a repo carrying its conventions in a `CLAUDE.md` alone
+gives a non-Claude worker *no* project instructions at all. `acw` warns about
+that combination at launch (non-blocking); the fix, in the target repo, is to
+move the content to `AGENTS.md` and leave a `CLAUDE.md` containing
+`@AGENTS.md`.
 
 ## Install
 
@@ -58,8 +71,10 @@ acw [flags]
 |---|---|---|
 | `-n, --workers` | `3` | number of worker agents |
 | `--max-stacks` | same as `--workers` | concurrent isolated environments the machine can hold; when lower, the master is told to arbitrate which worker gets one |
-| `--master-model` | `opus` | Claude model for the master agent |
-| `--worker-model` | `sonnet` | Claude model for worker agents |
+| `--master-kind` | `claude` | Herdr agent kind for the master (`claude`, `codex`, `gemini`, `cursor`...) |
+| `--worker-kind` | `claude` | Herdr agent kind for the workers |
+| `--master-model` | `opus` | model for the master agent; **empty means no `--model` is passed** to its CLI, for a kind that has no such flag |
+| `--worker-model` | `sonnet` | model for worker agents; same empty-means-nothing rule |
 | `--brief` | *(built-in)* | path to a custom master brief template — same fields as the built-in one (see `internal/brief/templates/master.md`), for when you want to change the operating rules without forking the tool |
 
 `acw --help` / `acw stop --help` document all of this in the terminal too.
