@@ -17,22 +17,32 @@ import (
 var invalidChar = regexp.MustCompile(`[^a-z0-9-]`)
 
 // Slug derives a short, herdr-safe, collision-resistant identifier for
-// repo: a readable basename plus a hash of the full path, so two
-// different directories sharing a basename never collide, and repeated
-// runs in the same directory always agree on the same names.
+// repo: a hash of its full path, so two different directories sharing a
+// basename never collide, and repeated runs in the same directory always
+// agree on the same names.
+//
+// Just the hash, with no readable basename: agent names show up in
+// Herdr's sidebar in a narrow column, and a "worker1-shop-frontend-3f9a1c"
+// gets truncated there to exactly the part that is NOT discriminating.
+// Which repo a swarm belongs to is carried by the workspace label (see
+// Label) where it is displayed once, and in code by the agent's own cwd,
+// which is what every lookup here actually matches on.
 func Slug(repo string) string {
+	sum := sha256.Sum256([]byte(repo))
+	return hex.EncodeToString(sum[:])[:6]
+}
+
+// Label is the workspace label for a run in repo: the tool, so a swarm is
+// recognizable among other Herdr workspaces, and the repo's directory
+// name, so two swarms are tellable apart at a glance.
+func Label(repo string) string {
 	base := strings.ToLower(filepath.Base(repo))
 	base = invalidChar.ReplaceAllString(base, "-")
 	base = strings.Trim(base, "-")
-	if len(base) > 15 {
-		base = base[:15]
-	}
-	sum := sha256.Sum256([]byte(repo))
-	hash := hex.EncodeToString(sum[:])[:6]
 	if base == "" {
-		return hash
+		return "acw"
 	}
-	return base + "-" + hash
+	return "acw " + base
 }
 
 // Master is the master agent's name for a run identified by slug.

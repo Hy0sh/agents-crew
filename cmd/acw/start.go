@@ -17,8 +17,6 @@ import (
 	"github.com/Hy0sh/agents-crew/internal/preflight"
 )
 
-const label = "acw"
-
 // runStart creates the master, hands it its brief, backgrounds worker
 // provisioning, then execs into the Herdr TUI so the caller can start
 // talking to the master immediately.
@@ -61,7 +59,7 @@ func runStart(out io.Writer, opts *startOptions) error {
 		return err
 	}
 
-	workspaceID, masterPane, err := herdr.WorkspaceCreate(repo, label, true)
+	workspaceID, masterPane, err := herdr.WorkspaceCreate(repo, names.Label(repo), true)
 	if err != nil {
 		return fmt.Errorf("herdr workspace create: %w", err)
 	}
