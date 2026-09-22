@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -43,6 +44,7 @@ func provisionWorkers(args []string) {
 	}
 	workerModel, workerKind := args[5], args[6]
 	slug := names.Slug(repo)
+	masterName := names.Master(slug)
 
 	if err := gitutil.Fetch(repo); err != nil {
 		fmt.Fprintln(os.Stderr, "git fetch:", err)
@@ -76,7 +78,7 @@ func provisionWorkers(args []string) {
 		if err := herdr.PaneRename(newPane, label); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: herdr pane rename: %v\n", name, err)
 		}
-		if err := herdr.AgentStart(name, workerKind, newPane, modelArgs(workerModel)...); err != nil {
+		if err := herdr.AgentStart(name, workerKind, newPane, workerArgs(workerModel, workerKind, masterName, label)...); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: herdr agent start: %v\n", name, err)
 			continue
 		}
@@ -94,8 +96,67 @@ func provisionWorkers(args []string) {
 
 	adopting.Wait()
 
-	masterName := names.Master(slug)
 	if err := herdr.AgentPrompt(masterName, brief.WorkersReadyMessage(slug, n)); err != nil {
 		fmt.Fprintln(os.Stderr, "herdr agent prompt master (workers ready):", err)
 	}
+}
+
+// workerArgs is what gets forwarded to a worker's own CLI: its model,
+// plus — for a Claude Code worker — a Stop hook that pings the master
+// every time the worker hands control back.
+//
+// That ping is the one thing Herdr cannot provide: it has no push
+// notification for agent state, so a master only learns a worker moved by
+// going to look. Every substitute tried in practice was a discipline the
+// master had to keep up (re-arming `agent wait` after each wake-up and
+// each dispatch, telling each worker to report in) and disciplines get
+// dropped — a finished PR went unnoticed for an afternoon that way. A
+// hook is not a discipline: it fires whatever the worker or the master
+// remembered to do, and survives the `/clear` between two tasks that
+// wipes everything the worker was told.
+//
+// Only for `claude` workers: no other agent kind exposes hooks, and they
+// simply keep the pre-existing behaviour (the master polls). Passed as
+// inline JSON rather than written into the worktree, so nothing lands in
+// a file a worker could commit by accident.
+func workerArgs(model, kind, masterName, label string) []string {
+	args := modelArgs(model)
+	if kind != "claude" {
+		return args
+	}
+	hooks, err := stopHookSettings(masterName, label)
+	if err != nil {
+		// Only json.Marshal of a literal struct can fail here, which it
+		// cannot; the worker still starts, just without its ping.
+		fmt.Fprintf(os.Stderr, "%s: hook Stop non installé: %v\n", label, err)
+		return args
+	}
+	return append(args, "--settings", hooks)
+}
+
+func stopHookSettings(masterName, label string) (string, error) {
+	// Deliberately says nothing about WHAT changed: the hook cannot know,
+	// and a ping that guesses would be worse than one that points at the
+	// status file the worker just updated.
+	ping := fmt.Sprintf("herdr agent prompt %s %q", masterName, fmt.Sprintf(
+		"%s a rendu la main. Lis son fichier de statut (champs state, decision, pr_url, proof_path) avant toute réaction. "+
+			"Si rien n'a changé depuis ton dernier point, ne fais rien et ne lui écris pas.", label))
+
+	type command struct {
+		Type    string `json:"type"`
+		Command string `json:"command"`
+	}
+	settings := struct {
+		Hooks map[string][]struct {
+			Hooks []command `json:"hooks"`
+		} `json:"hooks"`
+	}{
+		Hooks: map[string][]struct {
+			Hooks []command `json:"hooks"`
+		}{
+			"Stop": {{Hooks: []command{{Type: "command", Command: ping}}}},
+		},
+	}
+	out, err := json.Marshal(settings)
+	return string(out), err
 }
