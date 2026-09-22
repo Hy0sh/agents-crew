@@ -8,11 +8,22 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"text/template"
 
 	"github.com/Hy0sh/agents-crew/internal/names"
 )
+
+// RulesFile is the repo-relative path whose content, when present, is
+// injected verbatim into the master's brief. Verbatim and not summarized:
+// the master reciting the repo's rules from memory into each worker brief
+// is exactly where one gets dropped, and the dropped one costs a
+// force-push. At the repo root and named after this tool rather than
+// under some agent's own directory — the swarm can be running codex or
+// gemini, and these are the repo's rules, not an agent's config.
+const RulesFile = ".acw-rules.md"
 
 //go:embed templates/master.md
 var masterTemplateSource string
@@ -34,6 +45,7 @@ type MasterData struct {
 	WorkerAgent string
 	WorkerNames string
 	EnvCapRule  string
+	RepoRules   string // content of RulesFile, empty when the repo has none
 }
 
 func newMasterData(repoPath, slug, workerAgent string, n, maxStacks int) MasterData {
@@ -43,7 +55,19 @@ func newMasterData(repoPath, slug, workerAgent string, n, maxStacks int) MasterD
 		WorkerAgent: workerAgent,
 		WorkerNames: workerNamesList(slug, n),
 		EnvCapRule:  envCapRule(n, maxStacks),
+		RepoRules:   readRepoRules(repoPath),
 	}
+}
+
+// readRepoRules returns the repo's own hard rules, or "" when it declares
+// none. A missing file is the normal case, not an error: the brief just
+// falls back to telling the master to go find the conventions itself.
+func readRepoRules(repoPath string) string {
+	content, err := os.ReadFile(filepath.Join(repoPath, RulesFile))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(content))
 }
 
 // Build returns the master's initial brief for a repo at repoPath, with n
