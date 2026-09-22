@@ -6,6 +6,8 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-22
+
 ### Added
 
 - `--master-kind` / `--worker-kind` (both default `claude`) pick any agent
@@ -38,18 +40,6 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   agents-crew`), only `cmd/agents-crew` moved to `cmd/acw`, same pattern as
   `worktree-manager`/`wtm`. The shared status directory moved from
   `.agents-crew-status` to `.acw-status` accordingly.
-
-### Fixed
-
-- `herdr agent start` on a just-created pane (fresh off `workspace
-  create` or `pane split`) could fail with `agent_pane_busy`: the
-  shell (oh-my-zsh, profile scripts...) was still initializing when the
-  start was attempted, a moment after the pane itself already existed.
-  `AgentStart` now retries with backoff on that specific error instead
-  of surfacing it as a real failure — this hit the master's own pane in
-  production, aborting the run before any worker was ever provisioned.
-
-### Changed
 
 - Worker provisioning is progressive and concurrent instead of
   all-at-once-at-the-end: `git worktree add` → pane split → rename →
@@ -85,6 +75,13 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ### Fixed
 
+- `herdr agent start` on a just-created pane (fresh off `workspace
+  create` or `pane split`) could fail with `agent_pane_busy`: the
+  shell (oh-my-zsh, profile scripts...) was still initializing when the
+  start was attempted, a moment after the pane itself already existed.
+  `AgentStart` now retries with backoff on that specific error instead
+  of surfacing it as a real failure — this hit the master's own pane in
+  production, aborting the run before any worker was ever provisioned.
 - `agents-crew stop` called `wtm stop`/`wtm remove` from inside each
   worker's worktree with no branch argument, assuming the same
   current-directory inference `wtm adopt` documents. Verified against `wtm
@@ -122,5 +119,6 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   anything, with a clear message and install instructions if not; `wtm` is
   checked too but stays optional.
 
-[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Hy0sh/agents-crew/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Hy0sh/agents-crew/releases/tag/v0.1.0
