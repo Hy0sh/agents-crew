@@ -1,6 +1,8 @@
 package brief
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -54,6 +56,34 @@ func TestBuildNamesTheWorkerAgentAndStaysNeutral(t *testing.T) {
 		if strings.Contains(got, banned) {
 			t.Errorf("brief hardcodes %q — workers can run on any herdr kind", banned)
 		}
+	}
+}
+
+func TestBuildInjectsRepoRulesVerbatim(t *testing.T) {
+	repo := t.TempDir()
+	rules := "- clé du ticket en suffixe du titre de PR\n- aucun test committé sous apps/import_historical"
+	if err := os.WriteFile(filepath.Join(repo, RulesFile), []byte(rules+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := Build(repo, testSlug, "claude", 3, 3)
+	if !strings.Contains(got, rules) {
+		t.Errorf("brief should carry %s verbatim, got:\n%s", RulesFile, got)
+	}
+}
+
+func TestBuildWithoutRepoRulesOmitsTheSection(t *testing.T) {
+	got := Build(t.TempDir(), testSlug, "claude", 3, 3)
+	if strings.Contains(got, "RÈGLES DU DÉPÔT") {
+		t.Errorf("brief should not open a repo-rules section when the repo declares none")
+	}
+}
+
+func TestBuildMentionsTheStopHookOnlyForClaudeWorkers(t *testing.T) {
+	if !strings.Contains(Build("/repo", testSlug, "claude", 3, 3), "a rendu la main") {
+		t.Errorf("brief should tell a master with claude workers that it gets automatic pings")
+	}
+	if strings.Contains(Build("/repo", testSlug, "codex", 3, 3), "a rendu la main") {
+		t.Errorf("brief promises pings to a master whose workers cannot send them (no hooks outside claude)")
 	}
 }
 
