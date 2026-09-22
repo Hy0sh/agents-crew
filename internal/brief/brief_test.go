@@ -8,7 +8,7 @@ import (
 const testSlug = "testslug"
 
 func TestBuildNamesAllWorkers(t *testing.T) {
-	got := Build("/repo", testSlug, 3, 3)
+	got := Build("/repo", testSlug, "claude", 3, 3)
 	for _, want := range []string{"worker1-testslug", "worker2-testslug", "worker3-testslug"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("brief missing %q", want)
@@ -20,14 +20,14 @@ func TestBuildNamesAllWorkers(t *testing.T) {
 }
 
 func TestBuildArbitrationWhenCapped(t *testing.T) {
-	got := Build("/repo", testSlug, 5, 3)
+	got := Build("/repo", testSlug, "claude", 5, 3)
 	if !strings.Contains(got, "C'est TOI qui arbitres") {
 		t.Errorf("brief should instruct master to arbitrate when maxStacks < n")
 	}
 }
 
 func TestBuildNoArbitrationWhenUncapped(t *testing.T) {
-	got := Build("/repo", testSlug, 3, 3)
+	got := Build("/repo", testSlug, "claude", 3, 3)
 	if strings.Contains(got, "C'est TOI qui arbitres") {
 		t.Errorf("brief should not mention arbitration when maxStacks == n")
 	}
@@ -37,7 +37,7 @@ func TestBuildNoArbitrationWhenUncapped(t *testing.T) {
 }
 
 func TestBuildNeverHardcodesProjectTooling(t *testing.T) {
-	got := Build("/repo", testSlug, 3, 3)
+	got := Build("/repo", testSlug, "claude", 3, 3)
 	for _, banned := range []string{"wtm adopt", "wtm remove", "wtm stop", "--keepdb", "docker compose"} {
 		if strings.Contains(got, banned) {
 			t.Errorf("brief hardcodes project-specific tooling %q — should state intent and defer to the project's own docs", banned)
@@ -45,8 +45,20 @@ func TestBuildNeverHardcodesProjectTooling(t *testing.T) {
 	}
 }
 
+func TestBuildNamesTheWorkerAgentAndStaysNeutral(t *testing.T) {
+	got := Build("/repo", testSlug, "codex", 3, 3)
+	if !strings.Contains(got, "codex") {
+		t.Errorf("brief should tell the master what agent its workers run on")
+	}
+	for _, banned := range []string{"Claude Code", "AskUserQuestion"} {
+		if strings.Contains(got, banned) {
+			t.Errorf("brief hardcodes %q — workers can run on any herdr kind", banned)
+		}
+	}
+}
+
 func TestBuildFromSourceRendersCustomTemplate(t *testing.T) {
-	got, err := BuildFromSource("Repo: {{.RepoPath}}, {{.N}} workers ({{.WorkerNames}}). {{.EnvCapRule}}", "/repo", testSlug, 2, 2)
+	got, err := BuildFromSource("Repo: {{.RepoPath}}, {{.N}} workers ({{.WorkerNames}}). {{.EnvCapRule}}", "/repo", testSlug, "claude", 2, 2)
 	if err != nil {
 		t.Fatalf("BuildFromSource() error = %v", err)
 	}
@@ -58,13 +70,13 @@ func TestBuildFromSourceRendersCustomTemplate(t *testing.T) {
 }
 
 func TestBuildFromSourceRejectsBadSyntax(t *testing.T) {
-	if _, err := BuildFromSource("{{.Nope", "/repo", testSlug, 1, 1); err == nil {
+	if _, err := BuildFromSource("{{.Nope", "/repo", testSlug, "claude", 1, 1); err == nil {
 		t.Fatal("BuildFromSource() with invalid template syntax = nil error, want one")
 	}
 }
 
 func TestBuildFromSourceRejectsUnknownField(t *testing.T) {
-	if _, err := BuildFromSource("{{.NotAField}}", "/repo", testSlug, 1, 1); err == nil {
+	if _, err := BuildFromSource("{{.NotAField}}", "/repo", testSlug, "claude", 1, 1); err == nil {
 		t.Fatal("BuildFromSource() referencing an unknown field = nil error, want one")
 	}
 }

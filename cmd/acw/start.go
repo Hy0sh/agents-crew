@@ -14,6 +14,7 @@ import (
 	"github.com/Hy0sh/agents-crew/internal/brief"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
+	"github.com/Hy0sh/agents-crew/internal/preflight"
 )
 
 const label = "acw"
@@ -36,6 +37,10 @@ func runStart(out io.Writer, opts *startOptions) error {
 	}
 	slug := names.Slug(repo)
 	masterName := names.Master(slug)
+
+	// Here rather than next to the other preflight warnings in main.go: it
+	// needs the repo path, which is only resolved at this point.
+	preflight.WarnIfAgentsFileMissing(repo, opts.workerKind, func(format string, a ...any) { fmt.Fprintf(out, format, a...) })
 
 	// Scoped to this directory, not global: two different repos each get
 	// their own master/worker names (see internal/names), and a swarm
@@ -71,11 +76,11 @@ func runStart(out io.Writer, opts *startOptions) error {
 	if err := herdr.PaneRename(masterPane, "master"); err != nil {
 		return err
 	}
-	if err := herdr.AgentStart(masterName, masterPane, "--model", opts.masterModel); err != nil {
+	if err := herdr.AgentStart(masterName, opts.masterKind, masterPane, modelArgs(opts.masterModel)...); err != nil {
 		return fmt.Errorf("herdr agent start master: %w", err)
 	}
 
-	masterBrief, err := buildBrief(opts.briefPath, repo, slug, opts.workers, maxStacks)
+	masterBrief, err := buildBrief(opts.briefPath, repo, slug, opts.workerKind, opts.workers, maxStacks)
 	if err != nil {
 		return err
 	}
@@ -87,13 +92,13 @@ func runStart(out io.Writer, opts *startOptions) error {
 	}
 
 	stamp := time.Now().Format("20060102150405")
-	if err := launchBackgroundProvisioning(repo, masterPane, stamp, opts.workers, maxStacks, opts.workerModel); err != nil {
+	if err := launchBackgroundProvisioning(repo, masterPane, stamp, opts.workers, maxStacks, opts.workerModel, opts.workerKind); err != nil {
 		return fmt.Errorf("lancement du provisioning des workers: %w", err)
 	}
 
 	success = true
 	fmt.Fprintf(out, "→ master (%s) prêt, tu peux déjà lui parler. %d worker(s) (%s) en provisionnement en tâche de fond.\n",
-		opts.masterModel, opts.workers, opts.workerModel)
+		describeAgent(opts.masterKind, opts.masterModel), opts.workers, describeAgent(opts.workerKind, opts.workerModel))
 
 	// Replace this process with the Herdr TUI, attaching to the workspace just built.
 	return syscall.Exec(mustLookPath("herdr"), []string{"herdr"}, os.Environ())
@@ -101,21 +106,39 @@ func runStart(out io.Writer, opts *startOptions) error {
 
 // buildBrief uses a custom template file if path is non-empty, the
 // built-in one otherwise.
-func buildBrief(path, repo, slug string, n, maxStacks int) (string, error) {
+func buildBrief(path, repo, slug, workerKind string, n, maxStacks int) (string, error) {
 	if path == "" {
-		return brief.Build(repo, slug, n, maxStacks), nil
+		return brief.Build(repo, slug, workerKind, n, maxStacks), nil
 	}
 	source, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("lecture du brief personnalisé %s: %w", path, err)
 	}
-	return brief.BuildFromSource(string(source), repo, slug, n, maxStacks)
+	return brief.BuildFromSource(string(source), repo, slug, workerKind, n, maxStacks)
+}
+
+// modelArgs is the `--model X` forwarded to an agent's own CLI, or nothing
+// when model is empty — the escape hatch for a CLI that has no --model.
+func modelArgs(model string) []string {
+	if model == "" {
+		return nil
+	}
+	return []string{"--model", model}
+}
+
+// describeAgent names an agent the way the launch line reports it: the
+// kind alone when no model was asked for.
+func describeAgent(kind, model string) string {
+	if model == "" {
+		return kind
+	}
+	return kind + " " + model
 }
 
 // launchBackgroundProvisioning starts a detached copy of this same binary
 // in provisioning mode, so worker setup (worktrees, environments, panes,
 // agents) continues after this process execs into the Herdr TUI.
-func launchBackgroundProvisioning(repo, masterPane, stamp string, n, maxStacks int, workerModel string) error {
+func launchBackgroundProvisioning(repo, masterPane, stamp string, n, maxStacks int, workerModel, workerKind string) error {
 	self, err := os.Executable()
 	if err != nil {
 		return err
@@ -126,7 +149,7 @@ func launchBackgroundProvisioning(repo, masterPane, stamp string, n, maxStacks i
 		return err
 	}
 
-	cmd := exec.Command(self, provisionUse, repo, masterPane, stamp, strconv.Itoa(n), strconv.Itoa(maxStacks), workerModel)
+	cmd := exec.Command(self, provisionUse, repo, masterPane, stamp, strconv.Itoa(n), strconv.Itoa(maxStacks), workerModel, workerKind)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

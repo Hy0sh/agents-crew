@@ -31,26 +31,29 @@ var (
 type MasterData struct {
 	RepoPath    string
 	N           int
+	WorkerAgent string
 	WorkerNames string
 	EnvCapRule  string
 }
 
-func newMasterData(repoPath, slug string, n, maxStacks int) MasterData {
+func newMasterData(repoPath, slug, workerAgent string, n, maxStacks int) MasterData {
 	return MasterData{
 		RepoPath:    repoPath,
 		N:           n,
+		WorkerAgent: workerAgent,
 		WorkerNames: workerNamesList(slug, n),
 		EnvCapRule:  envCapRule(n, maxStacks),
 	}
 }
 
 // Build returns the master's initial brief for a repo at repoPath, with n
-// workers and maxStacks concurrent isolated environments allowed, using
-// the built-in template. slug is the run's names.Slug(repoPath), used to
-// name the workers the same way the caller actually started them.
-func Build(repoPath, slug string, n, maxStacks int) string {
+// workers of kind workerAgent and maxStacks concurrent isolated
+// environments allowed, using the built-in template. slug is the run's
+// names.Slug(repoPath), used to name the workers the same way the caller
+// actually started them.
+func Build(repoPath, slug, workerAgent string, n, maxStacks int) string {
 	var b bytes.Buffer
-	if err := masterTemplate.Execute(&b, newMasterData(repoPath, slug, n, maxStacks)); err != nil {
+	if err := masterTemplate.Execute(&b, newMasterData(repoPath, slug, workerAgent, n, maxStacks)); err != nil {
 		// templates/master.md is embedded and parsed at init time (template.Must
 		// above already panics on a syntax error), so a failure here can only
 		// mean a field referenced in the template no longer exists on MasterData.
@@ -61,17 +64,17 @@ func Build(repoPath, slug string, n, maxStacks int) string {
 
 // BuildFromSource renders a custom master brief template (e.g. read from a
 // file passed via --brief) instead of the built-in one. It gets the same
-// MasterData fields — {{.RepoPath}}, {{.N}}, {{.WorkerNames}},
-// {{.EnvCapRule}} — and any template syntax error is returned rather than
-// panicking, since the source comes from the user, not from what's baked
-// into the binary.
-func BuildFromSource(source, repoPath, slug string, n, maxStacks int) (string, error) {
+// MasterData fields — {{.RepoPath}}, {{.N}}, {{.WorkerAgent}},
+// {{.WorkerNames}}, {{.EnvCapRule}} — and any template syntax error is
+// returned rather than panicking, since the source comes from the user,
+// not from what's baked into the binary.
+func BuildFromSource(source, repoPath, slug, workerAgent string, n, maxStacks int) (string, error) {
 	tmpl, err := template.New("custom-master").Parse(source)
 	if err != nil {
 		return "", fmt.Errorf("parsing custom brief template: %w", err)
 	}
 	var b bytes.Buffer
-	if err := tmpl.Execute(&b, newMasterData(repoPath, slug, n, maxStacks)); err != nil {
+	if err := tmpl.Execute(&b, newMasterData(repoPath, slug, workerAgent, n, maxStacks)); err != nil {
 		return "", fmt.Errorf("executing custom brief template: %w", err)
 	}
 	return strings.TrimRight(b.String(), "\n"), nil

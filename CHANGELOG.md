@@ -6,8 +6,33 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `--master-kind` / `--worker-kind` (both default `claude`) pick any agent
+  kind Herdr can start — `codex`, `gemini`, `cursor`, and the twenty-odd
+  others. Nothing was abstracted: Herdr already did the work, `acw` just
+  stopped passing `--kind claude` unconditionally. `--master-model` /
+  `--worker-model` now accept an empty value, which passes no `--model` at
+  all to that CLI — the escape hatch for a kind that has no such flag.
+- A non-blocking launch warning when the workers run on something other than
+  Claude Code in a repo whose project instructions live in a `CLAUDE.md` with
+  no `AGENTS.md` beside it. Claude Code reads `AGENTS.md` natively but only
+  when no `CLAUDE.md` shadows it, so that exact combination leaves a
+  codex/gemini/... worker with zero project instructions — no error, no
+  signal, just code written outside the repo's conventions. The user-level
+  `~/.claude/CLAUDE.md` doesn't count: it loads alongside `AGENTS.md` rather
+  than shadowing it.
+
 ### Changed
 
+- The master's brief no longer assumes its workers are Claude Code sessions:
+  it names the actual kind (`{{.WorkerAgent}}`, a new template field), speaks
+  of "a context reset (`/clear` or your agent's equivalent)" and of project
+  instructions "whatever file carries them (AGENTS.md, CLAUDE.md...)", and
+  asks for a decision with options and a recommendation instead of naming
+  Claude Code's `AskUserQuestion` tool. The rule that each worker's brief must
+  repeat the repo's 3-4 unforgiving conventions gained a reason: depending on
+  the worker's agent, those conventions may never have been loaded at all.
 - The binary is now `acw`, not `agents-crew` — short like `wtm`, for daily
   typing. The repo/module keep the descriptive name (`github.com/Hy0sh/
   agents-crew`), only `cmd/agents-crew` moved to `cmd/acw`, same pattern as

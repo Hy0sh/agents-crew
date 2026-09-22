@@ -24,6 +24,8 @@ const provisionUse = "__provision-workers"
 type startOptions struct {
 	workers     int
 	maxStacks   int
+	masterKind  string
+	workerKind  string
 	masterModel string
 	workerModel string
 	briefPath   string
@@ -38,7 +40,7 @@ func main() {
 		Version: version.String(),
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := preflight.CheckStart(); err != nil {
+			if err := preflight.CheckStart(opts.masterKind, opts.workerKind); err != nil {
 				return err
 			}
 			preflight.WarnIfWtmMissing(func(format string, a ...any) { fmt.Fprintf(cmd.ErrOrStderr(), format, a...) })
@@ -49,8 +51,10 @@ func main() {
 
 	root.Flags().IntVarP(&opts.workers, "workers", "n", 3, "number of worker agents")
 	root.Flags().IntVar(&opts.maxStacks, "max-stacks", 0, "concurrent isolated environments the machine can hold (default: same as --workers)")
-	root.Flags().StringVar(&opts.masterModel, "master-model", "opus", "Claude model for the master agent")
-	root.Flags().StringVar(&opts.workerModel, "worker-model", "sonnet", "Claude model for worker agents")
+	root.Flags().StringVar(&opts.masterKind, "master-kind", "claude", "herdr agent kind for the master (claude, codex, gemini...)")
+	root.Flags().StringVar(&opts.workerKind, "worker-kind", "claude", "herdr agent kind for the workers (claude, codex, gemini...)")
+	root.Flags().StringVar(&opts.masterModel, "master-model", "opus", "model for the master agent; empty means no --model is passed to its CLI")
+	root.Flags().StringVar(&opts.workerModel, "worker-model", "sonnet", "model for worker agents; empty means no --model is passed to their CLI")
 	root.Flags().StringVar(&opts.briefPath, "brief", "", "path to a custom master brief template (text/template, same fields as the built-in one); default: built-in template")
 
 	stop := &cobra.Command{
@@ -69,9 +73,9 @@ func main() {
 	// provision workers without delaying the Herdr TUI opening. Hidden from
 	// --help and completion; not a documented interface.
 	provision := &cobra.Command{
-		Use:    provisionUse + " <repo> <masterPane> <stamp> <workers> <maxStacks> <workerModel>",
+		Use:    provisionUse + " <repo> <masterPane> <stamp> <workers> <maxStacks> <workerModel> <workerKind>",
 		Hidden: true,
-		Args:   cobra.ExactArgs(6),
+		Args:   cobra.ExactArgs(7),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			provisionWorkers(args)
 			return nil
