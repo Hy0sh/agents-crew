@@ -2,6 +2,7 @@ package names
 
 import (
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -41,6 +42,16 @@ func TestMasterAndWorkerNamesAreHerdrSafe(t *testing.T) {
 				t.Errorf("Worker(Slug(%q), %d) = %q, not a valid herdr agent name", repo, i, w)
 			}
 		}
+	}
+}
+
+func TestLabelCarriesTheRepoDirectory(t *testing.T) {
+	got := Label("/Users/francois/dev/projects/gallia-utopia")
+	if !strings.Contains(got, "gallia-utopia") {
+		t.Errorf("Label() = %q, should name the repo directory — it is the only place the swarm's project is displayed", got)
+	}
+	if !strings.HasPrefix(got, "acw") {
+		t.Errorf("Label() = %q, should stay recognizable among other Herdr workspaces", got)
 	}
 }
 
