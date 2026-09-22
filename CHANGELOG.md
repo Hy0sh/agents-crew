@@ -6,6 +6,76 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-22
+
+All of this comes from one full day running a 3-worker swarm on a Django
+project: 7 PRs, 3 merged. Each entry names what actually went wrong.
+
+### Added
+
+- A `Stop` hook, installed in each Claude Code worker at startup, that pings
+  the master every time the worker hands control back. Herdr has no push
+  notification for agent state, and every substitute is a discipline someone
+  has to keep up: re-arming `agent wait` after each wake-up and each dispatch,
+  or telling each worker to report in. Disciplines get dropped — on that day a
+  finished PR went unnoticed for an afternoon, and two reviews for fifteen
+  minutes each. A hook is not a discipline: it fires whatever the master or
+  the worker remembered, and it survives the context reset between two tasks.
+  It carries no information about what changed (it cannot know) and points at
+  the status file instead. Claude Code workers only — no other kind exposes
+  hooks, and they keep the previous polling behaviour. Passed as inline JSON
+  on the worker's own CLI, so nothing lands in a file a worker could commit by
+  accident. Expect 2 to 5 pings per worker per task.
+- `.acw-rules.md` at the repo root, injected verbatim into the master's brief
+  when present. The brief already told the master to repeat the repo's
+  unforgiving conventions in every worker brief, but it had no way to know
+  them: a worker committed a test file into a directory where the repo forbids
+  any, because that rule only ever lived in the master's head. Verbatim and
+  never summarized — summarizing from memory is exactly how that rule got
+  dropped. At the repo root and named after this tool rather than under
+  `.claude/`: the swarm may well be running `codex` or `gemini`, and these are
+  the repo's rules, not an agent's config.
+
+### Changed
+
+- Agent names drop the repo's basename and keep only the path hash
+  (`worker1-3f9a1c`), while the workspace label gains it (`acw
+  gallia-utopia`). Herdr's sidebar is a narrow column, and
+  `worker1-gallia-utopia-3f9a1c` was truncated there to precisely the part
+  that does not discriminate. Which repo a swarm belongs to is now displayed
+  once, in the label; in code it was never the name that mattered, every
+  lookup matches on the agent's cwd.
+- The brief's environment rule was pushing workers toward the one move that
+  breaks: it framed the isolated environment as per-task, "released when the
+  task changes hands". Two workers out of three hit a session confined to its
+  own directory, where creating a worktree elsewhere is plainly refused, and
+  had to improvise. A worker's worktree is now stated as its own for the whole
+  run: a new task is a new branch **in place**, and the only legitimate
+  release is the one the master decides to reassign an environment. The rule
+  also warns that an environment often follows the branch, so a switch made
+  without telling the project's tooling leaves a ghost record behind — measured,
+  it does not keep a stack running, but it does push later environments further
+  out.
+- A context reset before **every** task, instead of one left to the master's
+  judgement. The argument is cost (a worker at 40% context bills that context
+  on every call, for a task it no longer needs) and a second benefit found on
+  the way: a worker that remembers its previous task "recognizes" problems that
+  came from its own work instead of finding them. The brief also states the
+  trap: a reset sent to a worker that is still working is queued, not executed,
+  so the sequence has to start from a worker at rest.
+- `acw stop` says what it is doing while it does it. Its slow half is one
+  Docker stack going down after another, and it used to print nothing between
+  the first line and the last — a silent minute reads as a hang, and when it
+  does hang the step that is running is the one worth naming. It also now
+  says when a worker's branch survived the teardown, which means unmerged work
+  was on it.
+- The shared status file gains `branch`, `decision`, `pr_url`, `proof_path`
+  and `blocked_on`. The workers kept that file up to date on their own all
+  day; what cost the master were the free-text values — "approach decided"
+  without naming the approach (it took reading the diff to find out, and the
+  approach was wrong), "PR opened" without the link. A structured field left
+  empty is visible, an empty sentence is not.
+
 ## [0.2.0] - 2026-09-22
 
 ### Added
@@ -119,6 +189,7 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   anything, with a clear message and install instructions if not; `wtm` is
   checked too but stays optional.
 
-[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Hy0sh/agents-crew/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Hy0sh/agents-crew/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Hy0sh/agents-crew/releases/tag/v0.1.0

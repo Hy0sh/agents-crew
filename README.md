@@ -79,6 +79,23 @@ acw [flags]
 
 `acw --help` / `acw stop --help` document all of this in the terminal too.
 
+## `.acw-rules.md`, the repo's own hard rules
+
+Drop an `.acw-rules.md` at the root of the target repo and its content goes
+**verbatim** into the master's brief, with the instruction to copy it, still
+verbatim, into every worker brief. Nothing to configure, no flag; no file
+means the master is just told to go find the conventions itself, as before.
+
+It's for the handful of rules that cost a force-push when missed — commit
+message shape, where screenshots belong, the directory where a test must
+never be committed — not for the project's whole documentation, which the
+agents already read. Verbatim matters: a master reciting them from memory is
+exactly how one gets dropped, and that happened for real.
+
+At the repo root, and named after this tool rather than tucked under
+`.claude/`: the swarm may well be running `codex` or `gemini`, and these are
+the repo's rules, not an agent's config.
+
 The master is created and briefed synchronously so you can start talking to
 it as soon as the terminal opens. Workers (worktree + environment) are
 provisioned progressively and concurrently in a detached background process:
@@ -89,9 +106,17 @@ and you don't stare at a workspace with only the master pane in it while N
 environments provision one after another. Its log lands in
 `$TMPDIR/acw-workers-<timestamp>.log`.
 
+Each Claude Code worker starts with a `Stop` hook that pings the master every
+time it hands control back — the push notification Herdr doesn't have, so a
+finished PR can't sit unnoticed until someone thinks to look. The ping says
+which worker moved and nothing more (a hook can't know what changed); it
+points the master at that worker's status file. Workers of any other kind
+have no hooks and keep the previous behaviour, where the master polls.
+
 Runs are scoped to the current directory, not global: agent names carry a
 hash of the full repo path (see `internal/names`), so several swarms — one
-per project — can run at the same time without colliding.
+per project — can run at the same time without colliding. The repo's own name
+is on the workspace instead, where it is displayed once and in full.
 
 ```sh
 acw stop
@@ -122,6 +147,14 @@ only way to actually stop it.
 - `internal/teardown` — the `acw stop` logic.
 - `internal/version` — `--version`, via `runtime/debug.ReadBuildInfo` (no ldflags).
 
+## What it is not for
+
+Reviewing pull requests. It was tried for a day: the reviews were good and
+found a real defect, but each one cost a full environment switch for work
+that produces no commit — and on a repo that bans AI-written review comments,
+the result can't even be posted where reviews live. Dispatch work that ends in
+a branch and a PR; run reviews separately.
+
 ## Design notes worth knowing before changing the brief
 
 - **State intentions to the master, not literal commands for the target
@@ -137,6 +170,15 @@ only way to actually stop it.
   (idle/done/blocked) — do not add `--until blocked`, it was tried and
   effectively never fires in practice (tool-approval prompts surface as
   `idle`, not `blocked`), leaving the master to only ever wake on timeout.
+  The worker-side `Stop` hook is what made this reliable: anything that asks
+  the master to re-arm a wait, or a worker to report in, is a discipline, and
+  a day of real use dropped three of them. The hook still doesn't cover a
+  worker frozen on a tool-approval prompt — it never ends its turn, so `Stop`
+  never fires. That's what the wait remains the net for.
+- **A `Notification` hook was considered for that frozen case and left out.**
+  Zero occurrences over a full day with workers in auto mode: a real but
+  unobserved failure, and not worth a second ping per worker until someone
+  running workers interactively actually hits it.
 - **`agent read` is a TUI capture, not text** — truncated lines, spinners,
   occasional corruption mid-redraw. The shared per-worker status file
   (`.claude/worktrees/.acw-status/workerN.json`, worker-written) is cheaper
