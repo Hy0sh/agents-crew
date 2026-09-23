@@ -1,12 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -20,7 +20,7 @@ import (
 // runStart creates the master, hands it its brief, backgrounds worker
 // provisioning, then execs into the Herdr TUI so the caller can start
 // talking to the master immediately.
-func runStart(out io.Writer, opts *startOptions) error {
+func runStart(out io.Writer, opts *startOptions, workers []workerSpec) error {
 	maxStacks := opts.maxStacks
 	if maxStacks <= 0 {
 		maxStacks = opts.workers
@@ -38,7 +38,9 @@ func runStart(out io.Writer, opts *startOptions) error {
 
 	// Here rather than next to the other preflight warnings in main.go: it
 	// needs the repo path, which is only resolved at this point.
-	preflight.WarnIfAgentsFileMissing(repo, opts.workerKind, func(format string, a ...any) { fmt.Fprintf(out, format, a...) })
+	for _, kind := range distinctKinds(workers) {
+		preflight.WarnIfAgentsFileMissing(repo, kind, func(format string, a ...any) { fmt.Fprintf(out, format, a...) })
+	}
 
 	// Scoped to this directory, not global: two different repos each get
 	// their own master/worker names (see internal/names), and a swarm
@@ -58,7 +60,14 @@ func runStart(out io.Writer, opts *startOptions) error {
 	// Before anything is created: a custom brief with a typo'd variable
 	// must fail here, not after a workspace and a master agent were started
 	// for nothing.
-	masterBrief, err := buildBrief(opts.briefPath, repo, slug, opts.workerKind, opts.workers, maxStacks, opts.profile, readNotes(out, repo, opts.notesPath))
+	masterBrief, err := buildBrief(opts.briefPath, brief.Params{
+		RepoPath:  repo,
+		Slug:      slug,
+		MaxStacks: maxStacks,
+		Profile:   opts.profile,
+		Notes:     readNotes(out, repo, opts.notesPath),
+		Workers:   briefWorkers(workers),
+	})
 	if err != nil {
 		return err
 	}
@@ -94,13 +103,14 @@ func runStart(out io.Writer, opts *startOptions) error {
 	}
 
 	stamp := time.Now().Format("20060102150405")
-	if err := launchBackgroundProvisioning(repo, masterPane, stamp, opts.workers, maxStacks, opts.workerModel, opts.workerKind, opts.profile); err != nil {
+	plan := provisionPlan{Repo: repo, MasterPane: masterPane, Stamp: stamp, MaxStacks: maxStacks, Profile: opts.profile, Workers: workers}
+	if err := launchBackgroundProvisioning(plan); err != nil {
 		return fmt.Errorf("lancement du provisioning des workers: %w", err)
 	}
 
 	success = true
 	fmt.Fprintf(out, "→ master (%s) prêt, tu peux déjà lui parler. %d worker(s) (%s) en provisionnement en tâche de fond.\n",
-		describeAgent(opts.masterKind, opts.masterModel), opts.workers, describeAgent(opts.workerKind, opts.workerModel))
+		describeAgent(opts.masterKind, opts.masterModel), len(workers), describeWorkers(workers))
 
 	// Replace this process with the Herdr TUI, attaching to the workspace just built.
 	return syscall.Exec(mustLookPath("herdr"), []string{"herdr"}, os.Environ())
@@ -108,15 +118,15 @@ func runStart(out io.Writer, opts *startOptions) error {
 
 // buildBrief uses a custom template file if path is non-empty, the
 // built-in one otherwise.
-func buildBrief(path, repo, slug, workerKind string, n, maxStacks int, profile, notes string) (string, error) {
+func buildBrief(path string, p brief.Params) (string, error) {
 	if path == "" {
-		return brief.Build(repo, slug, workerKind, n, maxStacks, profile, notes), nil
+		return brief.Build(p), nil
 	}
 	source, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("lecture du brief personnalisé %s: %w", path, err)
 	}
-	return brief.BuildFromSource(string(source), repo, slug, workerKind, n, maxStacks, profile, notes)
+	return brief.BuildFromSource(string(source), p)
 }
 
 // readNotes returns the per-project notes file's content, or "" when none
@@ -160,18 +170,22 @@ func describeAgent(kind, model string) string {
 // launchBackgroundProvisioning starts a detached copy of this same binary
 // in provisioning mode, so worker setup (worktrees, environments, panes,
 // agents) continues after this process execs into the Herdr TUI.
-func launchBackgroundProvisioning(repo, masterPane, stamp string, n, maxStacks int, workerModel, workerKind, profile string) error {
+func launchBackgroundProvisioning(plan provisionPlan) error {
 	self, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	logPath := filepath.Join(os.TempDir(), fmt.Sprintf("acw-workers-%s.log", stamp))
+	planJSON, err := json.Marshal(plan)
+	if err != nil {
+		return err
+	}
+	logPath := filepath.Join(os.TempDir(), fmt.Sprintf("acw-workers-%s.log", plan.Stamp))
 	logFile, err := os.Create(logPath)
 	if err != nil {
 		return err
 	}
 
-	cmd := exec.Command(self, provisionUse, repo, masterPane, stamp, strconv.Itoa(n), strconv.Itoa(maxStacks), workerModel, workerKind, profile)
+	cmd := exec.Command(self, provisionUse, string(planJSON))
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

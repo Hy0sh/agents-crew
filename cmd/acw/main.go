@@ -9,6 +9,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -23,11 +24,6 @@ import (
 
 const provisionUse = "__provision-workers"
 
-// provisionArgCount is shared by the command's cobra.ExactArgs and
-// provisionWorkers' own check, so adding an argument can't update one and
-// leave the other rejecting every launch.
-const provisionArgCount = 8
-
 type startOptions struct {
 	workers     int
 	maxStacks   int
@@ -36,8 +32,9 @@ type startOptions struct {
 	masterModel string
 	workerModel string
 	briefPath   string
-	profile     string // from the per-project config only, no flag
-	notesPath   string // same
+	profile     string                           // from the per-project config only, no flag
+	notesPath   string                           // same
+	overrides   map[string]config.WorkerOverride // same
 }
 
 // applyConfig copies the project entry's values into opts, except for
@@ -65,6 +62,7 @@ func applyConfig(opts *startOptions, p *config.Project, changed func(string) boo
 	setStr("brief", &opts.briefPath, p.Brief)
 	setStr("profile", &opts.profile, p.Profile)
 	setStr("notes", &opts.notesPath, p.Notes)
+	opts.overrides = p.WorkerOverrides
 }
 
 const rootLong = `Launches a Herdr workspace with one master agent supervising N worker
@@ -73,22 +71,32 @@ agents, in the current directory.
 Per-project config (optional): ~/.config/acw/config.json, or
 $XDG_CONFIG_HOME/acw/config.json. It lives outside the repo, so it works
 where nothing may be committed. Entries are keyed by the directory acw is
-launched from, keys are the flag names, plus two with no flag:
+launched from, keys are the flag names, plus three with no flag:
 
   {
     "projects": {
       "/path/to/repo": {
         "workers": 4,
         "profile": "light",
-        "notes": "~/.config/acw/repo.md"
+        "notes": "~/.config/acw/repo.md",
+        "worker-overrides": {
+          "3": {"kind": "codex", "model": "gpt-5-codex", "prompt": "verifier.md"}
+        }
       }
     }
   }
 
-  profile  wtm stack profile workers start on (default: the whole stack)
-  notes    markdown file copied verbatim into the master's brief, then into
-           every worker's: the repo's hard rules. A relative path is read
-           from the repo, for a file the team commits there.
+  profile           wtm stack profile workers start on (default: the whole
+                    stack)
+  notes             markdown file copied verbatim into the master's brief,
+                    then into every worker's: the repo's hard rules
+  worker-overrides  per worker index (1 to workers): its own kind, model,
+                    and prompt, a file of standing instructions (system
+                    prompt for a claude worker, copied into each of its
+                    briefs by the master otherwise)
+
+Paths accept ~, and a relative one is read from the repo, for a file the
+team commits there.
 
 Precedence: a flag given on the command line > the project's entry > the
 built-in default. No file or no entry: acw behaves as without config. An
@@ -116,11 +124,15 @@ func main() {
 				applyConfig(opts, project, cmd.Flags().Changed)
 				fmt.Fprintf(cmd.ErrOrStderr(), "config: %s → %s\n", config.Path(), project.Summary())
 			}
-			if err := preflight.CheckStart(opts.masterKind, opts.workerKind); err != nil {
+			workers, err := resolveWorkers(opts, cwd)
+			if err != nil {
+				return fmt.Errorf("config acw: %w", err)
+			}
+			if err := preflight.CheckStart(append([]string{opts.masterKind}, distinctKinds(workers)...)...); err != nil {
 				return err
 			}
 			preflight.WarnIfWtmMissing(func(format string, a ...any) { fmt.Fprintf(cmd.ErrOrStderr(), format, a...) })
-			return runStart(cmd.ErrOrStderr(), opts)
+			return runStart(cmd.ErrOrStderr(), opts, workers)
 		},
 	}
 	root.SetVersionTemplate("acw {{.Version}}\n")
@@ -155,11 +167,15 @@ func main() {
 	// provision workers without delaying the Herdr TUI opening. Hidden from
 	// --help and completion; not a documented interface.
 	provision := &cobra.Command{
-		Use:    provisionUse + " <repo> <masterPane> <stamp> <workers> <maxStacks> <workerModel> <workerKind> <profile>",
+		Use:    provisionUse + " <plan-json>",
 		Hidden: true,
-		Args:   cobra.ExactArgs(provisionArgCount),
+		Args:   cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			provisionWorkers(args)
+			var plan provisionPlan
+			if err := json.Unmarshal([]byte(args[0]), &plan); err != nil {
+				return fmt.Errorf("plan de provisioning illisible: %w", err)
+			}
+			provisionWorkers(plan)
 			return nil
 		},
 	}
