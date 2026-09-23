@@ -97,6 +97,40 @@ func TestLoadRejectsInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestLoadWorkerOverrides(t *testing.T) {
+	writeConfig(t, `{"projects": {"/repo": {"worker-overrides": {
+		"1": {"model": "opus", "prompt": "~/planner.md"},
+		"3": {"kind": "codex", "model": ""}
+	}}}}`)
+	p, err := Load("/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, _ := os.UserHomeDir()
+	if got := *p.WorkerOverrides["1"].Prompt; got != filepath.Join(home, "planner.md") {
+		t.Errorf("prompt = %q, ~ not expanded", got)
+	}
+	three := p.WorkerOverrides["3"]
+	if *three.Kind != "codex" || three.Model == nil || *three.Model != "" || three.Prompt != nil {
+		t.Errorf(`override 3 = %+v; want kind codex, model set to "", no prompt`, three)
+	}
+}
+
+func TestLoadRejectsUnknownKeyInWorkerOverride(t *testing.T) {
+	writeConfig(t, `{"projects": {"/repo": {"worker-overrides": {"1": {"modle": "opus"}}}}}`)
+	_, err := Load("/repo")
+	if err == nil || !strings.Contains(err.Error(), "modle") {
+		t.Errorf("Load() error = %v; want one naming the unknown key", err)
+	}
+}
+
+func TestSummaryListsWorkerOverrideIndexes(t *testing.T) {
+	p := &Project{WorkerOverrides: map[string]WorkerOverride{"3": {}, "1": {}}}
+	if got := p.Summary(); got != "worker-overrides=1,3" {
+		t.Errorf("Summary() = %q", got)
+	}
+}
+
 func TestSummaryListsOnlySetKeys(t *testing.T) {
 	workers, profile := 4, "light"
 	got := (&Project{Workers: &workers, Profile: &profile}).Summary()

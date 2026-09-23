@@ -13,8 +13,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -31,6 +33,18 @@ type Project struct {
 	Brief       *string `json:"brief"`
 	Profile     *string `json:"profile"`
 	Notes       *string `json:"notes"`
+	// WorkerOverrides is keyed by worker index, 1 to workers, as a
+	// string because JSON keys are. The range is checked by the caller,
+	// once the flags have had their say on the worker count.
+	WorkerOverrides map[string]WorkerOverride `json:"worker-overrides"`
+}
+
+// WorkerOverride replaces worker-kind / worker-model for one worker and
+// gives it standing instructions. Same absent-vs-"" rule as Project.
+type WorkerOverride struct {
+	Kind   *string `json:"kind"`
+	Model  *string `json:"model"`
+	Prompt *string `json:"prompt"`
 }
 
 type file struct {
@@ -72,7 +86,11 @@ func Load(repo string) (*Project, error) {
 		if filepath.Clean(expandHome(key)) != repo {
 			continue
 		}
-		for _, s := range []*string{p.Brief, p.Notes} {
+		paths := []*string{p.Brief, p.Notes}
+		for _, o := range p.WorkerOverrides {
+			paths = append(paths, o.Prompt)
+		}
+		for _, s := range paths {
 			if s != nil {
 				*s = expandHome(*s)
 			}
@@ -105,6 +123,10 @@ func (p *Project) Summary() string {
 	addStr("brief", p.Brief)
 	addStr("profile", p.Profile)
 	addStr("notes", p.Notes)
+	if len(p.WorkerOverrides) > 0 {
+		keys := slices.Sorted(maps.Keys(p.WorkerOverrides))
+		parts = append(parts, "worker-overrides="+strings.Join(keys, ","))
+	}
 	return strings.Join(parts, ", ")
 }
 

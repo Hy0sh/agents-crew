@@ -91,11 +91,18 @@ and keep the variables you need:
 |---|---|
 | `{{.RepoPath}}` | absolute path of the repo acw runs in |
 | `{{.N}}` | number of workers |
-| `{{.WorkerAgent}}` | the workers' Herdr kind (`claude`, `codex`...) |
+| `{{.WorkerAgent}}` | the workers' Herdr kind (`claude`, `codex`...) when they all share one; otherwise `mixte : ` followed by each worker's kind |
 | `{{.WorkerNames}}` | the workers' Herdr names, comma-separated (`worker1-<slug>, worker2-<slug>`) |
 | `{{.EnvCapRule}}` | the stack capacity rule: how many environments exist, and the arbitration to do when `max-stacks` is below the worker count |
 | `{{.StackProfileRule}}` | the wtm profile rule, empty when no `profile` is configured |
 | `{{.RepoRules}}` | the `notes` file's content, empty when none is configured |
+| `{{.PingingWorkers}}` | the names of the workers that ping the master on each turn (the `claude` ones, which have the Stop hook), empty when none does |
+| `{{.WorkerOverrides}}` | each worker configured apart in `worker-overrides`: its kind, model and standing instructions in full, and whether the master must copy them into its briefs; empty when none is |
+
+Before `worker-overrides`, a template could test `{{if eq .WorkerAgent
+"claude"}}` to know whether pings come in. That still works when all
+workers are Claude, but `{{if .PingingWorkers}}` is right for a mixed swarm
+too.
 
 The empty ones are meant for `{{if .StackProfileRule}}...{{end}}`, as the
 built-in template does. A variable that doesn't exist (a typo) makes acw
@@ -106,10 +113,11 @@ Only the brief is a template. The `notes` file is injected as is: a
 
 ## Per-project config
 
-Typing the same flags on every launch of the same repo gets old, and two
+Typing the same flags on every launch of the same repo gets old, and some
 things have no flag at all: which wtm profile the workers' stacks start on,
-and notes about the project you'd rather not commit into it. Both go in
-one personal file, **outside any repo**:
+notes about the project you'd rather not commit into it, and workers set
+apart from the others. All of it goes in one personal file, **outside any
+repo**:
 
 ```
 ~/.config/acw/config.json        ($XDG_CONFIG_HOME/acw/config.json if set)
@@ -151,6 +159,7 @@ needs no answers to work, so the file only changes the defaults.
 | `brief` | `--brief` | built-in template |
 | `profile` | *(no flag)* | none: the whole stack |
 | `notes` | *(no flag)* | none |
+| `worker-overrides` | *(no flag)* | none: every worker as above |
 
 **`profile`** is one of the project's wtm profiles (`wtm project edit
 --profile-set light=db,backend`). Workers' environments are adopted with
@@ -177,6 +186,37 @@ Where the file lives is up to you. Keep it next to the config
 committed. Or commit it in the repo so the team shares and versions it, and
 give a relative path (`"notes": "docs/acw-rules.md"`): it is read from the
 repo.
+
+**`worker-overrides`** sets one worker apart from the others: its own
+kind, model, and standing instructions. Not predefined roles: whatever you
+write in its prompt file.
+
+```json
+"worker-overrides": {
+  "1": { "prompt": "~/.config/acw/planner.md", "model": "opus" },
+  "3": { "kind": "codex", "model": "gpt-5-codex", "prompt": "verifier.md" }
+}
+```
+
+- The key is the worker's index, `1` to `workers`. A worker with no entry
+  takes `worker-kind` and `worker-model`, and a field left out of an entry
+  falls back the same way (`"model": ""` still means no `--model`).
+- `prompt` is a file, with the same path rules as `notes`. It has to
+  survive the context reset the master does before every task, so it is
+  not sent as a message. A `claude` worker gets it as a system prompt
+  (`--append-system-prompt-file`). Any other kind has no system prompt acw
+  knows how to set, so the master copies it verbatim into each of that
+  worker's briefs.
+- The master's brief lists every overridden worker with its instructions
+  in full, and is told to dispatch accordingly: a worker whose prompt says
+  to verify does not get a feature to write.
+- Only `claude` workers ping the master (the Stop hook); in a mixed swarm
+  the brief says which ones do, and the master watches the others.
+- Refused at launch: an index that names no worker (`"4"` with 3
+  workers, checked after `-n`), an unknown field, and a `prompt` file that
+  can't be read. Unlike `notes`, that last one is not just a warning: a
+  worker meant to verify that silently becomes a generic one would skew
+  every dispatch.
 
 **Errors**: invalid JSON or an unknown key (`worker_model` for
 `worker-model`) refuses to start and names the file. A `notes` file that

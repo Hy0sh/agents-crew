@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync"
 
 	"github.com/Hy0sh/agents-crew/internal/brief"
@@ -26,23 +25,8 @@ import (
 // so N workers provision their environments concurrently instead of
 // serially. Errors are logged and provisioning continues for the
 // remaining workers where it safely can — a partial swarm beats none.
-func provisionWorkers(args []string) {
-	if len(args) != provisionArgCount {
-		fmt.Fprintf(os.Stderr, "provisionWorkers: expected %d args, got %d\n", provisionArgCount, len(args))
-		os.Exit(1)
-	}
-	repo, masterPane, stamp := args[0], args[1], args[2]
-	n, err := strconv.Atoi(args[3])
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	maxStacks, err := strconv.Atoi(args[4])
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	workerModel, workerKind, profile := args[5], args[6], args[7]
+func provisionWorkers(plan provisionPlan) {
+	repo, stamp, n := plan.Repo, plan.Stamp, len(plan.Workers)
 	slug := names.Slug(repo)
 	masterName := names.Master(slug)
 
@@ -52,7 +36,7 @@ func provisionWorkers(args []string) {
 	baseRef := gitutil.DefaultBaseRef(repo)
 
 	splits := layout.WorkerSplits(n)
-	currentPane := masterPane
+	currentPane := plan.MasterPane
 
 	var adopting sync.WaitGroup
 
@@ -78,16 +62,17 @@ func provisionWorkers(args []string) {
 		if err := herdr.PaneRename(newPane, label); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: herdr pane rename: %v\n", name, err)
 		}
-		if err := herdr.AgentStart(name, workerKind, newPane, workerArgs(workerModel, workerKind, masterName, label)...); err != nil {
+		w := plan.Workers[i-1]
+		if err := herdr.AgentStart(name, w.Kind, newPane, workerArgs(w, masterName, label)...); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: herdr agent start: %v\n", name, err)
 			continue
 		}
 
-		if i <= maxStacks && wtm.Available() {
+		if i <= plan.MaxStacks && wtm.Available() {
 			adopting.Add(1)
 			go func(name, wt string) {
 				defer adopting.Done()
-				if err := wtm.Adopt(wt, profile); err != nil {
+				if err := wtm.Adopt(wt, plan.Profile); err != nil {
 					fmt.Fprintf(os.Stderr, "%s: wtm adopt a échoué — il continue sans environnement dédié: %v\n", name, err)
 				}
 			}(name, wt)
@@ -119,10 +104,17 @@ func provisionWorkers(args []string) {
 // simply keep the pre-existing behaviour (the master polls). Passed as
 // inline JSON rather than written into the worktree, so nothing lands in
 // a file a worker could commit by accident.
-func workerArgs(model, kind, masterName, label string) []string {
-	args := modelArgs(model)
-	if kind != "claude" {
+//
+// Its standing instructions, when it has some, go in as a system prompt
+// for the same reason: that also survives `/clear`. Claude only as well;
+// another kind gets them from the master, copied into each of its briefs.
+func workerArgs(w workerSpec, masterName, label string) []string {
+	args := modelArgs(w.Model)
+	if w.Kind != "claude" {
 		return args
+	}
+	if w.PromptPath != "" {
+		args = append(args, "--append-system-prompt-file", w.PromptPath)
 	}
 	hooks, err := stopHookSettings(masterName, label)
 	if err != nil {
