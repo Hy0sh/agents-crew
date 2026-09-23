@@ -3,6 +3,10 @@
 // at the same time without colliding. Herdr requires every live agent
 // name to be globally unique and match [a-z][a-z0-9_-]{0,31}; a plain
 // "master"/"worker1" only ever supported one swarm system-wide.
+//
+// It also holds where a run puts its worktrees, branches and status
+// files: provisioning creates them and `acw stop` has to find exactly
+// those again, so the convention lives in one place.
 package names
 
 import (
@@ -45,9 +49,44 @@ func Label(repo string) string {
 	return "acw " + base
 }
 
+const masterPrefix = "master-"
+
 // Master is the master agent's name for a run identified by slug.
 func Master(slug string) string {
-	return "master-" + slug
+	return masterPrefix + slug
+}
+
+// IsMaster reports whether an agent name is a master's, whatever its run.
+func IsMaster(agentName string) bool {
+	return strings.HasPrefix(agentName, masterPrefix)
+}
+
+// WorktreesDir is where a run in repo puts its workers' worktrees.
+func WorktreesDir(repo string) string {
+	return filepath.Join(repo, ".claude", "worktrees")
+}
+
+// StatusDir holds the workers' status files, one workerN.json each.
+func StatusDir(repo string) string {
+	return filepath.Join(WorktreesDir(repo), ".acw-status")
+}
+
+// WorkerWorktree is worker i's worktree for the run started at stamp.
+func WorkerWorktree(repo string, i int, stamp string) string {
+	return filepath.Join(WorktreesDir(repo), fmt.Sprintf("worker%d-%s", i, stamp))
+}
+
+// WorkerBranch is the branch worker i's worktree starts on.
+func WorkerBranch(i int, stamp string) string {
+	return fmt.Sprintf("agents/worker%d-%s", i, stamp)
+}
+
+var workerWorktreeName = regexp.MustCompile(`^worker\d+-.+$`)
+
+// IsWorkerWorktree reports whether a directory name under WorktreesDir is
+// one WorkerWorktree made, of any run.
+func IsWorkerWorktree(dirName string) bool {
+	return workerWorktreeName.MatchString(dirName)
 }
 
 // Worker is worker i's agent name for a run identified by slug.

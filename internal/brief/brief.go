@@ -147,15 +147,17 @@ func workerOverrides(slug string, workers []Worker) string {
 			continue
 		}
 		name := names.Worker(slug, i+1)
-		fmt.Fprintf(&b, "- %s tourne sur %s", name, describe(w))
-		switch {
-		case w.Prompt == "":
+		fmt.Fprintf(&b, "- %s tourne sur %s", name, DescribeAgent(w.Kind, w.Model))
+		if w.Prompt == "" {
 			b.WriteString(", sans consignes propres.\n")
-		case w.Kind == "claude":
-			fmt.Fprintf(&b, ". Ses consignes propres sont déjà dans son prompt système, elles survivent à ses réinitialisations : ne les recopie PAS dans ses briefs, tiens-en seulement compte pour lui attribuer des tâches.\n<<<CONSIGNES DE %s\n%s\nFIN DES CONSIGNES DE %s>>>\n", name, strings.TrimSpace(w.Prompt), name)
-		default:
-			fmt.Fprintf(&b, ". Son agent n'a pas de prompt système réglable par ce dispositif : recopie VERBATIM ses consignes propres dans CHACUN de ses briefs, après chaque réinitialisation, et tiens-en compte pour lui attribuer des tâches.\n<<<CONSIGNES DE %s\n%s\nFIN DES CONSIGNES DE %s>>>\n", name, strings.TrimSpace(w.Prompt), name)
+			continue
 		}
+		if w.Kind == "claude" {
+			b.WriteString(". Ses consignes propres sont déjà dans son prompt système, elles survivent à ses réinitialisations : ne les recopie PAS dans ses briefs, tiens-en seulement compte pour lui attribuer des tâches.\n")
+		} else {
+			b.WriteString(". Son agent n'a pas de prompt système réglable par ce dispositif : recopie VERBATIM ses consignes propres dans CHACUN de ses briefs, après chaque réinitialisation, et tiens-en compte pour lui attribuer des tâches.\n")
+		}
+		fmt.Fprintf(&b, "<<<CONSIGNES DE %s\n%s\nFIN DES CONSIGNES DE %s>>>\n", name, strings.TrimSpace(w.Prompt), name)
 	}
 	// Said rather than left to inference: without it the master has to
 	// guess that a worker it was told nothing about takes everything else.
@@ -165,11 +167,13 @@ func workerOverrides(slug string, workers []Worker) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func describe(w Worker) string {
-	if w.Model == "" {
-		return w.Kind
+// DescribeAgent names an agent by its kind and model, the kind alone when
+// no model was asked for — in the brief and on acw's launch line alike.
+func DescribeAgent(kind, model string) string {
+	if model == "" {
+		return kind
 	}
-	return w.Kind + " " + w.Model
+	return kind + " " + model
 }
 
 // Build returns the master's initial brief, using the built-in template.
@@ -192,11 +196,11 @@ func Build(p Params) string {
 func BuildFromSource(source string, p Params) (string, error) {
 	tmpl, err := template.New("custom-master").Parse(source)
 	if err != nil {
-		return "", fmt.Errorf("parsing custom brief template: %w", err)
+		return "", fmt.Errorf("brief personnalisé invalide: %w", err)
 	}
 	var b bytes.Buffer
 	if err := tmpl.Execute(&b, newMasterData(p)); err != nil {
-		return "", fmt.Errorf("executing custom brief template: %w (available variables: %s)", err, Variables())
+		return "", fmt.Errorf("brief personnalisé: %w (variables disponibles : %s)", err, Variables())
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
 }

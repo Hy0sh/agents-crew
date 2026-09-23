@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -20,7 +19,7 @@ import (
 // runStart creates the master, hands it its brief, backgrounds worker
 // provisioning, then execs into the Herdr TUI so the caller can start
 // talking to the master immediately.
-func runStart(out io.Writer, opts *startOptions, workers []workerSpec) error {
+func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSpec) error {
 	maxStacks := opts.maxStacks
 	if maxStacks <= 0 {
 		maxStacks = opts.workers
@@ -29,15 +28,9 @@ func runStart(out io.Writer, opts *startOptions, workers []workerSpec) error {
 		maxStacks = opts.workers
 	}
 
-	repo, err := os.Getwd()
-	if err != nil {
-		return err
-	}
 	slug := names.Slug(repo)
 	masterName := names.Master(slug)
 
-	// Here rather than next to the other preflight warnings in main.go: it
-	// needs the repo path, which is only resolved at this point.
 	for _, kind := range distinctKinds(workers) {
 		preflight.WarnIfAgentsFileMissing(repo, kind, func(format string, a ...any) { fmt.Fprintf(out, format, a...) })
 	}
@@ -51,7 +44,7 @@ func runStart(out io.Writer, opts *startOptions, workers []workerSpec) error {
 		return fmt.Errorf("herdr agent list: %w", err)
 	}
 	for _, a := range agents {
-		if a.Cwd == repo && strings.HasPrefix(a.Name, "master-") {
+		if a.Cwd == repo && names.IsMaster(a.Name) {
 			return fmt.Errorf("un master tourne déjà dans le workspace %s pour ce répertoire. Attache-toi-y (herdr workspace focus %s) "+
 				"au lieu d'en relancer un — ou ferme-le d'abord (acw stop)", a.WorkspaceID, a.WorkspaceID)
 		}
@@ -72,7 +65,7 @@ func runStart(out io.Writer, opts *startOptions, workers []workerSpec) error {
 		return err
 	}
 
-	if err := os.MkdirAll(filepath.Join(repo, ".claude", "worktrees", ".acw-status"), 0o755); err != nil {
+	if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
 		return err
 	}
 
@@ -110,7 +103,7 @@ func runStart(out io.Writer, opts *startOptions, workers []workerSpec) error {
 
 	success = true
 	fmt.Fprintf(out, "→ master (%s) prêt, tu peux déjà lui parler. %d worker(s) (%s) en provisionnement en tâche de fond.\n",
-		describeAgent(opts.masterKind, opts.masterModel), len(workers), describeWorkers(workers))
+		brief.DescribeAgent(opts.masterKind, opts.masterModel), len(workers), describeWorkers(workers))
 
 	// Replace this process with the Herdr TUI, attaching to the workspace just built.
 	return syscall.Exec(mustLookPath("herdr"), []string{"herdr"}, os.Environ())
@@ -156,15 +149,6 @@ func modelArgs(model string) []string {
 		return nil
 	}
 	return []string{"--model", model}
-}
-
-// describeAgent names an agent the way the launch line reports it: the
-// kind alone when no model was asked for.
-func describeAgent(kind, model string) string {
-	if model == "" {
-		return kind
-	}
-	return kind + " " + model
 }
 
 // launchBackgroundProvisioning starts a detached copy of this same binary

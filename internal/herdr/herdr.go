@@ -50,9 +50,7 @@ func runResult(v any, args ...string) error {
 type Agent struct {
 	Name        string `json:"name"`
 	WorkspaceID string `json:"workspace_id"`
-	PaneID      string `json:"pane_id"`
 	Cwd         string `json:"cwd"`
-	AgentStatus string `json:"agent_status"`
 }
 
 // AgentList returns every live agent across all workspaces.
