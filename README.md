@@ -75,16 +75,96 @@ acw [flags]
 | `--worker-kind` | `claude` | Herdr agent kind for the workers |
 | `--master-model` | `opus` | model for the master agent; **empty means no `--model` is passed** to its CLI, for a kind that has no such flag |
 | `--worker-model` | `sonnet` | model for worker agents; same empty-means-nothing rule |
-| `--brief` | *(built-in)* | path to a custom master brief template — same fields as the built-in one (see `internal/brief/templates/master.md`), for when you want to change the operating rules without forking the tool |
+| `--brief` | *(built-in)* | path to a custom master brief template, for when you want to change the operating rules without forking the tool — see [Custom brief template](#custom-brief-template) for the variables |
 
 `acw --help` / `acw stop --help` document all of this in the terminal too.
 
-## `.acw-rules.md`, the repo's own hard rules
+## Custom brief template
 
-Drop an `.acw-rules.md` at the root of the target repo and its content goes
-**verbatim** into the master's brief, with the instruction to copy it, still
-verbatim, into every worker brief. Nothing to configure, no flag; no file
-means the master is just told to go find the conventions itself, as before.
+`--brief` (or the `brief` config key) replaces the master's built-in brief
+with your own file, a Go [`text/template`](https://pkg.go.dev/text/template).
+Start from the built-in one,
+[`internal/brief/templates/master.md`](internal/brief/templates/master.md),
+and keep the variables you need:
+
+| Variable | Content |
+|---|---|
+| `{{.RepoPath}}` | absolute path of the repo acw runs in |
+| `{{.N}}` | number of workers |
+| `{{.WorkerAgent}}` | the workers' Herdr kind (`claude`, `codex`...) |
+| `{{.WorkerNames}}` | the workers' Herdr names, comma-separated (`worker1-<slug>, worker2-<slug>`) |
+| `{{.EnvCapRule}}` | the stack capacity rule: how many environments exist, and the arbitration to do when `max-stacks` is below the worker count |
+| `{{.StackProfileRule}}` | the wtm profile rule, empty when no `profile` is configured |
+| `{{.RepoRules}}` | the `notes` file's content, empty when none is configured |
+
+The empty ones are meant for `{{if .StackProfileRule}}...{{end}}`, as the
+built-in template does. A variable that doesn't exist (a typo) makes acw
+refuse to start instead of sending a brief with a hole in it.
+
+Only the brief is a template. The `notes` file is injected as is: a
+`{{.WorkerNames}}` written in it stays literal.
+
+## Per-project config
+
+Typing the same flags on every launch of the same repo gets old, and two
+things have no flag at all: which wtm profile the workers' stacks start on,
+and notes about the project you'd rather not commit into it. Both go in
+one personal file, **outside any repo**:
+
+```
+~/.config/acw/config.json        ($XDG_CONFIG_HOME/acw/config.json if set)
+```
+
+```json
+{
+  "projects": {
+    "/Users/me/dev/some-repo": {
+      "workers": 4,
+      "max-stacks": 3,
+      "worker-model": "sonnet",
+      "profile": "light",
+      "notes": "~/.config/acw/some-repo.md"
+    }
+  }
+}
+```
+
+It is an **override, not a registry**. Nothing to declare: a repo with no
+entry (or no file at all) runs exactly as without config. Unlike `wtm`, acw
+needs no answers to work, so the file only changes the defaults.
+
+- **Key**: the directory you launch `acw` from, absolute (`~` allowed). A
+  subdirectory of the repo does not match its entry.
+- **Precedence**: a flag given on the command line > the project's entry >
+  the built-in default. `--worker-model sonnet` wins over a config saying
+  `haiku`, even though `sonnet` is also the built-in value.
+- **Launch line**: whenever an entry applies, acw prints what it read, e.g.
+  `config: ~/.config/acw/config.json → workers=4, profile="light"`, so you
+  can always tell where a value came from.
+
+| Key | Same as | Built-in default |
+|---|---|---|
+| `workers` | `-n, --workers` | `3` |
+| `max-stacks` | `--max-stacks` | same as `workers` |
+| `master-kind` / `worker-kind` | `--master-kind` / `--worker-kind` | `claude` |
+| `master-model` / `worker-model` | `--master-model` / `--worker-model` | `opus` / `sonnet`; `""` means no `--model`, like the flag |
+| `brief` | `--brief` | built-in template |
+| `profile` | *(no flag)* | none: the whole stack |
+| `notes` | *(no flag)* | none |
+
+**`profile`** is one of the project's wtm profiles (`wtm project edit
+--profile-set light=db,backend`). Workers' environments are adopted with
+`--profile` set to it, and the master is told they run on a partial stack:
+when a task needs services outside it, the master has that worker switch
+profiles before it starts, then switches it back. A lighter profile is
+also what lets a higher `max-stacks` fit in memory, so the two keys usually
+move together. acw does not check the name; if wtm doesn't know it, that
+worker's `wtm adopt` fails and says so in the provisioning log.
+
+**`notes`** is a markdown file holding the repo's hard rules. Its content
+goes **verbatim** into the master's brief, with the instruction to copy it,
+still verbatim, into every worker brief. No notes means the master is just
+told to go find the conventions itself.
 
 It's for the handful of rules that cost a force-push when missed — commit
 message shape, where screenshots belong, the directory where a test must
@@ -92,9 +172,15 @@ never be committed — not for the project's whole documentation, which the
 agents already read. Verbatim matters: a master reciting them from memory is
 exactly how one gets dropped, and that happened for real.
 
-At the repo root, and named after this tool rather than tucked under
-`.claude/`: the swarm may well be running `codex` or `gemini`, and these are
-the repo's rules, not an agent's config.
+Where the file lives is up to you. Keep it next to the config
+(`~/.config/acw/some-repo.md`) for a client's repo where nothing may be
+committed. Or commit it in the repo so the team shares and versions it, and
+give a relative path (`"notes": "docs/acw-rules.md"`): it is read from the
+repo.
+
+**Errors**: invalid JSON or an unknown key (`worker_model` for
+`worker-model`) refuses to start and names the file. A `notes` file that
+can't be read only warns, and the swarm starts without it.
 
 The master is created and briefed synchronously so you can start talking to
 it as soon as the terminal opens. Workers (worktree + environment) are
@@ -144,6 +230,8 @@ only way to actually stop it.
   lives in `internal/brief/templates/*.md` (`text/template`, `go:embed`),
   not in the Go file — it's a document to read and edit, not a string
   literal to escape.
+- `internal/config` — reads the per-project config file (see
+  [Per-project config](#per-project-config)).
 - `internal/teardown` — the `acw stop` logic.
 - `internal/version` — `--version`, via `runtime/debug.ReadBuildInfo` (no ldflags).
 

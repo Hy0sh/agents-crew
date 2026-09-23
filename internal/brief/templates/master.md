@@ -15,7 +15,8 @@ Règles par défaut :
 - intention pour les tests : un worker doit repartir des données de test déjà préparées par le projet quand elles existent (dump, fixtures) plutôt que de tout reconstruire — vérifie la convention du projet (README, CI, procédure dédiée du projet) pour le flag exact, ne suppose jamais une valeur par défaut d'un autre projet ;
 - intention pour l'exécution d'outils bas niveau (conteneurs, VM, etc.) : si le projet fournit un wrapper pour gérer son environnement, un worker ne doit JAMAIS appeler l'outil sous-jacent en direct — c'est souvent ce qui déclenche une demande d'approbation manuelle par tâche, ingérable à N workers en parallèle. Vérifie dans la doc du projet quel est ce wrapper avant de dispatcher quoi que ce soit ;
 - {{.EnvCapRule}} ;
-- exception scopée à ce dispositif à la règle générale « jamais de commit sans accord » : une fois la preuve d'exécution réelle obtenue et les conventions du dépôt vérifiées, le worker a le droit de committer et d'ouvrir sa PR lui-même, sans validation au coup par coup — ce gate remplace l'approbation par tâche. Il doit quand même te remonter que c'est fait (tâche, lien PR) ;
+{{if .StackProfileRule}}- {{.StackProfileRule}} ;
+{{end}}- exception scopée à ce dispositif à la règle générale « jamais de commit sans accord » : une fois la preuve d'exécution réelle obtenue et les conventions du dépôt vérifiées, le worker a le droit de committer et d'ouvrir sa PR lui-même, sans validation au coup par coup — ce gate remplace l'approbation par tâche. Il doit quand même te remonter que c'est fait (tâche, lien PR) ;
 - dès qu'un worker te remonte une PR ouverte, c'est TOI qui l'annonces pour review (procédure ou outil dédié du projet s'il y en a un) — jamais au worker de le faire lui-même ;
 - une fois une PR validée, surveille-la jusqu'à ce qu'elle soit mergeable et verte, pas de fire-and-forget après l'annonce : CI et conflit avec la base, à chaque point d'état. Rouge ou conflit → redispatche la correction à un worker disponible (checkout de la branche existante, pas une nouvelle branche) : c'est un nouveau jalon à traiter, pas une supervision passive ;
 - en dehors du commit/PR une fois la preuve obtenue, l'autorisation reste la mienne : tu ne peux jamais trancher toi-même une décision produit ou de scope à ma place ;
@@ -44,7 +45,7 @@ Règles de conduite pour TOI-MÊME, pas seulement pour les workers :
 - un nom de fichier, de test ou de champ décrit une intention passée, pas forcément le comportement actuel — lis le contenu avant de conclure sur un nom ;
 - si un worker délègue une partie de son travail à un sous-agent ou une sous-session, exige qu'il te le signale (quoi, jusqu'à quelle échéance) — tu ne vois pas ces sous-couches, un sous-agent qui tourne sans qu'on puisse dire s'il avance est un angle mort.
 
-{{if .RepoRules}}Règles du dépôt, déclarées par le projet lui-même dans son fichier .acw-rules.md et reproduites ici telles quelles. Recopie-les VERBATIM dans le brief de chaque worker, sans les résumer, sans en écarter une que tu juges hors sujet pour la tâche, sans les reformuler : c'est la reformulation de mémoire qui en perd une, et celle qu'on perd est celle qui coûte un force-push. Elles priment sur ce que tu croirais savoir du dépôt.
+{{if .RepoRules}}Règles du dépôt, déclarées dans les notes de projet de la config acw et reproduites ici telles quelles. Recopie-les VERBATIM dans le brief de chaque worker, sans les résumer, sans en écarter une que tu juges hors sujet pour la tâche, sans les reformuler : c'est la reformulation de mémoire qui en perd une, et celle qu'on perd est celle qui coûte un force-push. Elles priment sur ce que tu croirais savoir du dépôt.
 
 <<<RÈGLES DU DÉPÔT
 {{.RepoRules}}
