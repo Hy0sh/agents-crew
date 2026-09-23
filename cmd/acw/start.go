@@ -55,6 +55,14 @@ func runStart(out io.Writer, opts *startOptions) error {
 		}
 	}
 
+	// Before anything is created: a custom brief with a typo'd variable
+	// must fail here, not after a workspace and a master agent were started
+	// for nothing.
+	masterBrief, err := buildBrief(opts.briefPath, repo, slug, opts.workerKind, opts.workers, maxStacks, opts.profile, readNotes(out, repo, opts.notesPath))
+	if err != nil {
+		return err
+	}
+
 	if err := os.MkdirAll(filepath.Join(repo, ".claude", "worktrees", ".acw-status"), 0o755); err != nil {
 		return err
 	}
@@ -78,10 +86,6 @@ func runStart(out io.Writer, opts *startOptions) error {
 		return fmt.Errorf("herdr agent start master: %w", err)
 	}
 
-	masterBrief, err := buildBrief(opts.briefPath, repo, slug, opts.workerKind, opts.workers, maxStacks)
-	if err != nil {
-		return err
-	}
 	if err := herdr.AgentPrompt(masterName, masterBrief); err != nil {
 		return fmt.Errorf("herdr agent prompt master: %w", err)
 	}
@@ -90,7 +94,7 @@ func runStart(out io.Writer, opts *startOptions) error {
 	}
 
 	stamp := time.Now().Format("20060102150405")
-	if err := launchBackgroundProvisioning(repo, masterPane, stamp, opts.workers, maxStacks, opts.workerModel, opts.workerKind); err != nil {
+	if err := launchBackgroundProvisioning(repo, masterPane, stamp, opts.workers, maxStacks, opts.workerModel, opts.workerKind, opts.profile); err != nil {
 		return fmt.Errorf("lancement du provisioning des workers: %w", err)
 	}
 
@@ -104,15 +108,35 @@ func runStart(out io.Writer, opts *startOptions) error {
 
 // buildBrief uses a custom template file if path is non-empty, the
 // built-in one otherwise.
-func buildBrief(path, repo, slug, workerKind string, n, maxStacks int) (string, error) {
+func buildBrief(path, repo, slug, workerKind string, n, maxStacks int, profile, notes string) (string, error) {
 	if path == "" {
-		return brief.Build(repo, slug, workerKind, n, maxStacks), nil
+		return brief.Build(repo, slug, workerKind, n, maxStacks, profile, notes), nil
 	}
 	source, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("lecture du brief personnalisé %s: %w", path, err)
 	}
-	return brief.BuildFromSource(string(source), repo, slug, workerKind, n, maxStacks)
+	return brief.BuildFromSource(string(source), repo, slug, workerKind, n, maxStacks, profile, notes)
+}
+
+// readNotes returns the per-project notes file's content, or "" when none
+// is configured. A relative path is read from repo, so a team can commit
+// the file and each member point their config at it. A missing file only
+// warns: the swarm is still useful without the notes, and the user sees
+// at once which path is wrong.
+func readNotes(out io.Writer, repo, path string) string {
+	if path == "" {
+		return ""
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(repo, path)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(out, "⚠ notes du projet illisibles, lancement sans elles: %v\n", err)
+		return ""
+	}
+	return string(content)
 }
 
 // modelArgs is the `--model X` forwarded to an agent's own CLI, or nothing
@@ -136,7 +160,7 @@ func describeAgent(kind, model string) string {
 // launchBackgroundProvisioning starts a detached copy of this same binary
 // in provisioning mode, so worker setup (worktrees, environments, panes,
 // agents) continues after this process execs into the Herdr TUI.
-func launchBackgroundProvisioning(repo, masterPane, stamp string, n, maxStacks int, workerModel, workerKind string) error {
+func launchBackgroundProvisioning(repo, masterPane, stamp string, n, maxStacks int, workerModel, workerKind, profile string) error {
 	self, err := os.Executable()
 	if err != nil {
 		return err
@@ -147,7 +171,7 @@ func launchBackgroundProvisioning(repo, masterPane, stamp string, n, maxStacks i
 		return err
 	}
 
-	cmd := exec.Command(self, provisionUse, repo, masterPane, stamp, strconv.Itoa(n), strconv.Itoa(maxStacks), workerModel, workerKind)
+	cmd := exec.Command(self, provisionUse, repo, masterPane, stamp, strconv.Itoa(n), strconv.Itoa(maxStacks), workerModel, workerKind, profile)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
