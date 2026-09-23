@@ -41,6 +41,33 @@ type MasterData struct {
 	// reciting the rules from memory into each worker brief is exactly
 	// where one gets dropped, and the dropped one costs a force-push.
 	RepoRules string
+	// PingingWorkers names the workers that have the Stop hook (claude
+	// ones), empty when none does.
+	PingingWorkers string
+	// WorkerOverrides describes the workers configured apart from the
+	// others (kind, model, standing instructions), empty when none is.
+	WorkerOverrides string
+}
+
+// Params is what a brief is built from. N is len(Workers).
+type Params struct {
+	RepoPath  string
+	Slug      string // names.Slug(RepoPath), to name workers as the caller started them
+	MaxStacks int
+	Profile   string // stack profile environments start on, "" for the whole stack
+	Notes     string // content of the per-project notes file, "" when none
+	Workers   []Worker
+}
+
+// Worker is one worker as it was actually started.
+type Worker struct {
+	Kind  string
+	Model string
+	// Prompt is the content of its standing instructions, "" when none.
+	Prompt string
+	// Overridden is set when the config gave this worker its own
+	// settings, so the brief only lists workers that differ.
+	Overridden bool
 }
 
 // Variables lists what a custom template can reference, e.g.
@@ -55,28 +82,100 @@ func Variables() string {
 	return strings.Join(vars, ", ")
 }
 
-func newMasterData(repoPath, slug, workerAgent string, n, maxStacks int, profile, notes string) MasterData {
+func newMasterData(p Params) MasterData {
+	n := len(p.Workers)
 	return MasterData{
-		RepoPath:         repoPath,
+		RepoPath:         p.RepoPath,
 		N:                n,
-		WorkerAgent:      workerAgent,
-		WorkerNames:      workerNamesList(slug, n),
-		EnvCapRule:       envCapRule(n, maxStacks),
-		StackProfileRule: stackProfileRule(profile),
-		RepoRules:        strings.TrimSpace(notes),
+		WorkerAgent:      workerAgent(p.Slug, p.Workers),
+		WorkerNames:      workerNamesList(p.Slug, n),
+		EnvCapRule:       envCapRule(n, p.MaxStacks),
+		StackProfileRule: stackProfileRule(p.Profile),
+		RepoRules:        strings.TrimSpace(p.Notes),
+		PingingWorkers:   pingingWorkers(p.Slug, p.Workers),
+		WorkerOverrides:  workerOverrides(p.Slug, p.Workers),
 	}
 }
 
-// Build returns the master's initial brief for a repo at repoPath, with n
-// workers of kind workerAgent and maxStacks concurrent isolated
-// environments allowed, using the built-in template. slug is the run's
-// names.Slug(repoPath), used to name the workers the same way the caller
-// actually started them. profile is the stack profile worker environments
-// start on ("" for the whole stack) and notes the content of the
-// per-project notes file ("" when none), both from internal/config.
-func Build(repoPath, slug, workerAgent string, n, maxStacks int, profile, notes string) string {
+// workerAgent is the workers' kind when they all share one — the value
+// custom templates compared against "claude" before kinds could differ —
+// and a per-worker description otherwise.
+func workerAgent(slug string, workers []Worker) string {
+	if len(workers) == 0 {
+		return ""
+	}
+	same := true
+	for _, w := range workers {
+		if w.Kind != workers[0].Kind {
+			same = false
+			break
+		}
+	}
+	if same {
+		return workers[0].Kind
+	}
+	parts := make([]string, len(workers))
+	for i, w := range workers {
+		parts[i] = names.Worker(slug, i+1) + " " + w.Kind
+	}
+	return "mixte : " + strings.Join(parts, ", ")
+}
+
+// pingingWorkers names the claude workers: only they get the Stop hook
+// (see workerArgs in cmd/acw).
+func pingingWorkers(slug string, workers []Worker) string {
+	var list []string
+	for i, w := range workers {
+		if w.Kind == "claude" {
+			list = append(list, names.Worker(slug, i+1))
+		}
+	}
+	return strings.Join(list, ", ")
+}
+
+// workerOverrides tells the master which workers are set apart and how,
+// with their instructions in full: it needs them to dispatch (a worker
+// told to verify must not get a feature to write), and must copy them
+// into every brief of a worker whose kind has no system prompt acw can
+// set — a context reset wipes them otherwise.
+func workerOverrides(slug string, workers []Worker) string {
+	var b strings.Builder
+	var generic []string
+	for i, w := range workers {
+		if !w.Overridden {
+			generic = append(generic, names.Worker(slug, i+1))
+			continue
+		}
+		name := names.Worker(slug, i+1)
+		fmt.Fprintf(&b, "- %s tourne sur %s", name, describe(w))
+		switch {
+		case w.Prompt == "":
+			b.WriteString(", sans consignes propres.\n")
+		case w.Kind == "claude":
+			fmt.Fprintf(&b, ". Ses consignes propres sont déjà dans son prompt système, elles survivent à ses réinitialisations : ne les recopie PAS dans ses briefs, tiens-en seulement compte pour lui attribuer des tâches.\n<<<CONSIGNES DE %s\n%s\nFIN DES CONSIGNES DE %s>>>\n", name, strings.TrimSpace(w.Prompt), name)
+		default:
+			fmt.Fprintf(&b, ". Son agent n'a pas de prompt système réglable par ce dispositif : recopie VERBATIM ses consignes propres dans CHACUN de ses briefs, après chaque réinitialisation, et tiens-en compte pour lui attribuer des tâches.\n<<<CONSIGNES DE %s\n%s\nFIN DES CONSIGNES DE %s>>>\n", name, strings.TrimSpace(w.Prompt), name)
+		}
+	}
+	// Said rather than left to inference: without it the master has to
+	// guess that a worker it was told nothing about takes everything else.
+	if b.Len() > 0 && len(generic) > 0 {
+		fmt.Fprintf(&b, "- %s : aucune consigne propre, polyvalent(s), ils prennent les tâches qui ne relèvent d'aucun worker ci-dessus.\n", strings.Join(generic, ", "))
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func describe(w Worker) string {
+	if w.Model == "" {
+		return w.Kind
+	}
+	return w.Kind + " " + w.Model
+}
+
+// Build returns the master's initial brief, using the built-in template.
+func Build(p Params) string {
 	var b bytes.Buffer
-	if err := masterTemplate.Execute(&b, newMasterData(repoPath, slug, workerAgent, n, maxStacks, profile, notes)); err != nil {
+	if err := masterTemplate.Execute(&b, newMasterData(p)); err != nil {
 		// templates/master.md is embedded and parsed at init time (template.Must
 		// above already panics on a syntax error), so a failure here can only
 		// mean a field referenced in the template no longer exists on MasterData.
@@ -87,18 +186,16 @@ func Build(repoPath, slug, workerAgent string, n, maxStacks int, profile, notes 
 
 // BuildFromSource renders a custom master brief template (e.g. read from a
 // file passed via --brief) instead of the built-in one. It gets the same
-// MasterData fields — {{.RepoPath}}, {{.N}}, {{.WorkerAgent}},
-// {{.WorkerNames}}, {{.EnvCapRule}}, {{.StackProfileRule}}, {{.RepoRules}}
-// — and any template syntax error is returned rather than panicking,
-// since the source comes from the user, not from what's baked into the
-// binary.
-func BuildFromSource(source, repoPath, slug, workerAgent string, n, maxStacks int, profile, notes string) (string, error) {
+// MasterData fields (see Variables), and any template error is returned
+// rather than panicking, since the source comes from the user, not from
+// what's baked into the binary.
+func BuildFromSource(source string, p Params) (string, error) {
 	tmpl, err := template.New("custom-master").Parse(source)
 	if err != nil {
 		return "", fmt.Errorf("parsing custom brief template: %w", err)
 	}
 	var b bytes.Buffer
-	if err := tmpl.Execute(&b, newMasterData(repoPath, slug, workerAgent, n, maxStacks, profile, notes)); err != nil {
+	if err := tmpl.Execute(&b, newMasterData(p)); err != nil {
 		return "", fmt.Errorf("executing custom brief template: %w (available variables: %s)", err, Variables())
 	}
 	return strings.TrimRight(b.String(), "\n"), nil

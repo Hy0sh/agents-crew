@@ -46,7 +46,7 @@ func TestStopHookSettingsIsValidAndAddressesTheMaster(t *testing.T) {
 }
 
 func TestWorkerArgsOnlyHooksClaudeWorkers(t *testing.T) {
-	claude := workerArgs("sonnet", "claude", "master-3f9a1c", "worker1")
+	claude := workerArgs(workerSpec{Kind: "claude", Model: "sonnet"}, "master-3f9a1c", "worker1")
 	if !slices.Contains(claude, "--settings") {
 		t.Errorf("workerArgs(claude) = %v, want a --settings carrying the Stop hook", claude)
 	}
@@ -54,8 +54,24 @@ func TestWorkerArgsOnlyHooksClaudeWorkers(t *testing.T) {
 		t.Errorf("workerArgs(claude) = %v, dropped the model", claude)
 	}
 
-	codex := workerArgs("gpt-5", "codex", "master-3f9a1c", "worker1")
+	codex := workerArgs(workerSpec{Kind: "codex", Model: "gpt-5"}, "master-3f9a1c", "worker1")
 	if slices.Contains(codex, "--settings") {
 		t.Errorf("workerArgs(codex) = %v, --settings is Claude Code's own flag and would break the CLI", codex)
+	}
+}
+
+func TestWorkerArgsPromptIsASystemPromptForClaudeOnly(t *testing.T) {
+	claude := workerArgs(workerSpec{Kind: "claude", PromptPath: "/cfg/verifier.md"}, "master-x", "worker1")
+	i := slices.Index(claude, "--append-system-prompt-file")
+	if i < 0 || i+1 >= len(claude) || claude[i+1] != "/cfg/verifier.md" {
+		t.Errorf("workerArgs(claude with prompt) = %v, want --append-system-prompt-file /cfg/verifier.md", claude)
+	}
+	if !slices.Contains(claude, "--settings") {
+		t.Errorf("workerArgs(claude with prompt) = %v, lost the Stop hook", claude)
+	}
+
+	codex := workerArgs(workerSpec{Kind: "codex", PromptPath: "/cfg/verifier.md"}, "master-x", "worker1")
+	if slices.Contains(codex, "--append-system-prompt-file") {
+		t.Errorf("workerArgs(codex with prompt) = %v, passed a Claude Code flag to another CLI", codex)
 	}
 }
