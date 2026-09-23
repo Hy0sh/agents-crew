@@ -7,15 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
+	"github.com/Hy0sh/agents-crew/internal/names"
 	"github.com/Hy0sh/agents-crew/internal/wtm"
 )
-
-var workerDirName = regexp.MustCompile(`^worker\d+-.+$`)
 
 // Run tears down the swarm running in the current directory, if any,
 // printing progress to stdout and non-fatal errors to stderr. It returns
@@ -35,7 +33,7 @@ func Run() error {
 
 	var workspaceID, repo string
 	for _, a := range agents {
-		if a.Cwd == cwd && strings.HasPrefix(a.Name, "master-") {
+		if a.Cwd == cwd && names.IsMaster(a.Name) {
 			workspaceID = a.WorkspaceID
 			repo = a.Cwd
 			break
@@ -62,7 +60,7 @@ func Run() error {
 	}
 	fmt.Println("fait.")
 
-	statusDir := filepath.Join(repo, ".claude", "worktrees", ".acw-status")
+	statusDir := names.StatusDir(repo)
 	if err := os.RemoveAll(statusDir); err != nil {
 		fmt.Fprintf(os.Stderr, "suppression de %s: %v\n", statusDir, err)
 	}
@@ -77,7 +75,7 @@ func Run() error {
 // a hang, and the step that is running is the one worth naming when it
 // does hang for real.
 func cleanupWorkerWorktrees(repo string) {
-	matches, err := filepath.Glob(filepath.Join(repo, ".claude", "worktrees", "worker*"))
+	matches, err := filepath.Glob(filepath.Join(names.WorktreesDir(repo), "worker*"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "recherche des worktrees workers: %v\n", err)
 		return
@@ -85,7 +83,7 @@ func cleanupWorkerWorktrees(repo string) {
 
 	for _, dir := range matches {
 		name := filepath.Base(dir)
-		if !workerDirName.MatchString(name) {
+		if !names.IsWorkerWorktree(name) {
 			continue
 		}
 		info, err := os.Stat(dir)

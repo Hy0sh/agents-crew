@@ -1,12 +1,32 @@
 package names
 
 import (
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 )
 
 var herdrNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
+
+// What provisioning names, teardown must recognize: a mismatch leaves
+// real stacks orphaned by an `acw stop` that reports success.
+func TestIsWorkerWorktreeMatchesWhatWorkerWorktreeMakes(t *testing.T) {
+	if name := filepath.Base(WorkerWorktree("/repo", 12, "20260921181008")); !IsWorkerWorktree(name) {
+		t.Errorf("IsWorkerWorktree(%q) = false for a name WorkerWorktree made", name)
+	}
+	for _, name := range []string{"worker-nostamp", "worker1", "master", "synchronous-nibbling", ".acw-status"} {
+		if IsWorkerWorktree(name) {
+			t.Errorf("IsWorkerWorktree(%q) = true", name)
+		}
+	}
+}
+
+func TestIsMaster(t *testing.T) {
+	if !IsMaster(Master("3f9a1c")) || IsMaster(Worker("3f9a1c", 1)) {
+		t.Error("IsMaster must recognize Master's names and only them")
+	}
+}
 
 func TestSlugIsDeterministic(t *testing.T) {
 	path := "/repo/a"

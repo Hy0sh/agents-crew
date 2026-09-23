@@ -94,11 +94,11 @@ func describeWorkers(workers []workerSpec) string {
 		}
 	}
 	if same {
-		return describeAgent(workers[0].Kind, workers[0].Model)
+		return brief.DescribeAgent(workers[0].Kind, workers[0].Model)
 	}
 	parts := make([]string, len(workers))
 	for i, w := range workers {
-		parts[i] = fmt.Sprintf("worker%d %s", i+1, describeAgent(w.Kind, w.Model))
+		parts[i] = fmt.Sprintf("worker%d %s", i+1, brief.DescribeAgent(w.Kind, w.Model))
 	}
 	return strings.Join(parts, ", ")
 }
