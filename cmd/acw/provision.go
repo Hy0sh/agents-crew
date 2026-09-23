@@ -27,8 +27,8 @@ import (
 // serially. Errors are logged and provisioning continues for the
 // remaining workers where it safely can — a partial swarm beats none.
 func provisionWorkers(args []string) {
-	if len(args) != 7 {
-		fmt.Fprintf(os.Stderr, "provisionWorkers: expected 7 args, got %d\n", len(args))
+	if len(args) != provisionArgCount {
+		fmt.Fprintf(os.Stderr, "provisionWorkers: expected %d args, got %d\n", provisionArgCount, len(args))
 		os.Exit(1)
 	}
 	repo, masterPane, stamp := args[0], args[1], args[2]
@@ -42,7 +42,7 @@ func provisionWorkers(args []string) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	workerModel, workerKind := args[5], args[6]
+	workerModel, workerKind, profile := args[5], args[6], args[7]
 	slug := names.Slug(repo)
 	masterName := names.Master(slug)
 
@@ -87,7 +87,7 @@ func provisionWorkers(args []string) {
 			adopting.Add(1)
 			go func(name, wt string) {
 				defer adopting.Done()
-				if err := wtm.Adopt(wt); err != nil {
+				if err := wtm.Adopt(wt, profile); err != nil {
 					fmt.Fprintf(os.Stderr, "%s: wtm adopt a échoué — il continue sans environnement dédié: %v\n", name, err)
 				}
 			}(name, wt)

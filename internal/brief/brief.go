@@ -8,22 +8,12 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
-	"os"
-	"path/filepath"
+	"reflect"
 	"strings"
 	"text/template"
 
 	"github.com/Hy0sh/agents-crew/internal/names"
 )
-
-// RulesFile is the repo-relative path whose content, when present, is
-// injected verbatim into the master's brief. Verbatim and not summarized:
-// the master reciting the repo's rules from memory into each worker brief
-// is exactly where one gets dropped, and the dropped one costs a
-// force-push. At the repo root and named after this tool rather than
-// under some agent's own directory — the swarm can be running codex or
-// gemini, and these are the repo's rules, not an agent's config.
-const RulesFile = ".acw-rules.md"
 
 //go:embed templates/master.md
 var masterTemplateSource string
@@ -40,44 +30,53 @@ var (
 // a custom template (see BuildFromSource) can use the same fields as the
 // built-in one.
 type MasterData struct {
-	RepoPath    string
-	N           int
-	WorkerAgent string
-	WorkerNames string
-	EnvCapRule  string
-	RepoRules   string // content of RulesFile, empty when the repo has none
+	RepoPath         string
+	N                int
+	WorkerAgent      string
+	WorkerNames      string
+	EnvCapRule       string
+	StackProfileRule string // empty when no stack profile is configured
+	// RepoRules is the per-project notes file's content, empty when none
+	// is configured. Injected verbatim, not summarized: the master
+	// reciting the rules from memory into each worker brief is exactly
+	// where one gets dropped, and the dropped one costs a force-push.
+	RepoRules string
 }
 
-func newMasterData(repoPath, slug, workerAgent string, n, maxStacks int) MasterData {
+// Variables lists what a custom template can reference, e.g.
+// "{{.RepoPath}}, {{.N}}, ...", read off MasterData itself so --help can
+// never list a variable that doesn't exist or miss a new one.
+func Variables() string {
+	t := reflect.TypeOf(MasterData{})
+	vars := make([]string, t.NumField())
+	for i := range vars {
+		vars[i] = "{{." + t.Field(i).Name + "}}"
+	}
+	return strings.Join(vars, ", ")
+}
+
+func newMasterData(repoPath, slug, workerAgent string, n, maxStacks int, profile, notes string) MasterData {
 	return MasterData{
-		RepoPath:    repoPath,
-		N:           n,
-		WorkerAgent: workerAgent,
-		WorkerNames: workerNamesList(slug, n),
-		EnvCapRule:  envCapRule(n, maxStacks),
-		RepoRules:   readRepoRules(repoPath),
+		RepoPath:         repoPath,
+		N:                n,
+		WorkerAgent:      workerAgent,
+		WorkerNames:      workerNamesList(slug, n),
+		EnvCapRule:       envCapRule(n, maxStacks),
+		StackProfileRule: stackProfileRule(profile),
+		RepoRules:        strings.TrimSpace(notes),
 	}
-}
-
-// readRepoRules returns the repo's own hard rules, or "" when it declares
-// none. A missing file is the normal case, not an error: the brief just
-// falls back to telling the master to go find the conventions itself.
-func readRepoRules(repoPath string) string {
-	content, err := os.ReadFile(filepath.Join(repoPath, RulesFile))
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(content))
 }
 
 // Build returns the master's initial brief for a repo at repoPath, with n
 // workers of kind workerAgent and maxStacks concurrent isolated
 // environments allowed, using the built-in template. slug is the run's
 // names.Slug(repoPath), used to name the workers the same way the caller
-// actually started them.
-func Build(repoPath, slug, workerAgent string, n, maxStacks int) string {
+// actually started them. profile is the stack profile worker environments
+// start on ("" for the whole stack) and notes the content of the
+// per-project notes file ("" when none), both from internal/config.
+func Build(repoPath, slug, workerAgent string, n, maxStacks int, profile, notes string) string {
 	var b bytes.Buffer
-	if err := masterTemplate.Execute(&b, newMasterData(repoPath, slug, workerAgent, n, maxStacks)); err != nil {
+	if err := masterTemplate.Execute(&b, newMasterData(repoPath, slug, workerAgent, n, maxStacks, profile, notes)); err != nil {
 		// templates/master.md is embedded and parsed at init time (template.Must
 		// above already panics on a syntax error), so a failure here can only
 		// mean a field referenced in the template no longer exists on MasterData.
@@ -89,17 +88,18 @@ func Build(repoPath, slug, workerAgent string, n, maxStacks int) string {
 // BuildFromSource renders a custom master brief template (e.g. read from a
 // file passed via --brief) instead of the built-in one. It gets the same
 // MasterData fields — {{.RepoPath}}, {{.N}}, {{.WorkerAgent}},
-// {{.WorkerNames}}, {{.EnvCapRule}} — and any template syntax error is
-// returned rather than panicking, since the source comes from the user,
-// not from what's baked into the binary.
-func BuildFromSource(source, repoPath, slug, workerAgent string, n, maxStacks int) (string, error) {
+// {{.WorkerNames}}, {{.EnvCapRule}}, {{.StackProfileRule}}, {{.RepoRules}}
+// — and any template syntax error is returned rather than panicking,
+// since the source comes from the user, not from what's baked into the
+// binary.
+func BuildFromSource(source, repoPath, slug, workerAgent string, n, maxStacks int, profile, notes string) (string, error) {
 	tmpl, err := template.New("custom-master").Parse(source)
 	if err != nil {
 		return "", fmt.Errorf("parsing custom brief template: %w", err)
 	}
 	var b bytes.Buffer
-	if err := tmpl.Execute(&b, newMasterData(repoPath, slug, workerAgent, n, maxStacks)); err != nil {
-		return "", fmt.Errorf("executing custom brief template: %w", err)
+	if err := tmpl.Execute(&b, newMasterData(repoPath, slug, workerAgent, n, maxStacks, profile, notes)); err != nil {
+		return "", fmt.Errorf("executing custom brief template: %w (available variables: %s)", err, Variables())
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
 }
@@ -127,6 +127,19 @@ func envCapRule(n, maxStacks int) string {
 			maxStacks, maxStacks)
 	}
 	return rule + "Ici la capacité couvre tous les workers, pas d'arbitrage nécessaire."
+}
+
+// stackProfileRule states the intent, not the command: the brief never
+// hardcodes the project's tooling (see the README's design notes), the
+// master finds how to switch profiles in the project's own docs.
+func stackProfileRule(profile string) string {
+	if profile == "" {
+		return ""
+	}
+	return fmt.Sprintf("les environnements des workers démarrent sur le profile de stack « %s », pas sur la stack complète. "+
+		"Si une tâche a besoin de services absents de ce profile, fais basculer l'environnement de ce worker sur un autre profile du projet "+
+		"AVANT qu'il ne commence (les profiles disponibles et la façon d'en changer sont dans l'outillage d'environnement du projet), "+
+		"et ramène-le sur « %s » une fois la tâche finie : un profile plus lourd occupe plus de mémoire pour tous les autres", profile, profile)
 }
 
 func workerNamesList(slug string, n int) string {

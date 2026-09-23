@@ -30,8 +30,18 @@ func run(dir string, args ...string) error {
 
 // Adopt gives the worktree at dir a Docker stack, restoring the
 // pre-migrated database dump. dir must already be on the branch to adopt.
-func Adopt(dir string) error {
-	return run(dir, "adopt", "-y")
+// profile names one of the project's wtm profiles; empty starts the whole
+// stack.
+func Adopt(dir, profile string) error {
+	return run(dir, adoptArgs(profile)...)
+}
+
+func adoptArgs(profile string) []string {
+	args := []string{"adopt", "-y"}
+	if profile != "" {
+		args = append(args, "--profile", profile)
+	}
+	return args
 }
 
 // Stop stops the worktree's stack without removing it. Unlike Adopt, wtm

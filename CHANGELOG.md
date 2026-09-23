@@ -6,6 +6,39 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- A per-project config, `~/.config/acw/config.json` (or under
+  `$XDG_CONFIG_HOME`), keyed by the directory acw is launched from. It is an
+  override, not a registry: no entry means the same behaviour as before, and
+  a flag given on the command line still wins. Its keys are the flag names,
+  plus two that have no flag. `profile` starts the workers' wtm stacks on
+  one of the project's profiles instead of the whole stack, and tells the
+  master to switch a worker to another profile when a task needs more.
+  `notes` points at the markdown file of the repo's hard rules, copied
+  verbatim into every brief: outside the repo for one where nothing may be
+  committed, or a relative path to a file the team commits. An unknown key
+  refuses to start, so a typo in a key never gets silently ignored.
+  Documented in `acw --help` and the README.
+
+### Removed
+
+- `.acw-rules.md` is no longer picked up automatically. `notes` does the
+  same job and can point at a file inside the repo, so two entry points for
+  one need was one too many. To keep an existing file, add
+  `"notes": ".acw-rules.md"` to the repo's entry in the config.
+
+### Fixed
+
+- An error from the command itself (a missing dependency, a config typo) was
+  printed twice and buried under the full usage text. It is now printed
+  once, alone. A bad flag or argument still shows the usage.
+- A custom `--brief` referencing a variable that doesn't exist only failed
+  after the Herdr workspace and the master agent had been started. It now
+  fails before anything is created, and the error lists the variables that
+  do exist. They are also listed in `acw --help` and documented in the
+  README, where they previously could only be found by reading the source.
+
 ## [0.3.0] - 2026-09-22
 
 All of this comes from one full day running a 3-worker swarm on a Django
