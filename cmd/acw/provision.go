@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 
 	"github.com/Hy0sh/agents-crew/internal/brief"
@@ -43,8 +42,8 @@ func provisionWorkers(plan provisionPlan) {
 	for i := 1; i <= n; i++ {
 		label := fmt.Sprintf("worker%d", i) // cosmetic pane label, kept short
 		name := names.Worker(slug, i)       // actual herdr agent name, unique per repo
-		wt := filepath.Join(repo, ".claude", "worktrees", fmt.Sprintf("worker%d-%s", i, stamp))
-		branch := fmt.Sprintf("agents/worker%d-%s", i, stamp)
+		wt := names.WorkerWorktree(repo, i, stamp)
+		branch := names.WorkerBranch(i, stamp)
 
 		if err := gitutil.WorktreeAdd(repo, wt, branch, baseRef); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: git worktree add: %v\n", name, err)

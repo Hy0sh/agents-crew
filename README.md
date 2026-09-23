@@ -79,6 +79,39 @@ acw [flags]
 
 `acw --help` / `acw stop --help` document all of this in the terminal too.
 
+The master is created and briefed synchronously so you can start talking to
+it as soon as the terminal opens. Workers (worktree + environment) are
+provisioned progressively and concurrently in a detached background process:
+each worker's pane/agent appears within seconds of its own `git worktree
+add`, and `wtm adopt` (the slow part, real services starting) runs per
+worker in its own goroutine — so setup never delays opening the terminal,
+and you don't stare at a workspace with only the master pane in it while N
+environments provision one after another. Its log lands in
+`$TMPDIR/acw-workers-<timestamp>.log`.
+
+Each Claude Code worker starts with a `Stop` hook that pings the master every
+time it hands control back — the push notification Herdr doesn't have, so a
+finished PR can't sit unnoticed until someone thinks to look. The ping says
+which worker moved and nothing more (a hook can't know what changed); it
+points the master at that worker's status file. Workers of any other kind
+have no hooks and keep the previous behaviour, where the master polls.
+
+Runs are scoped to the current directory, not global: agent names carry a
+hash of the full repo path (see `internal/names`), so several swarms — one
+per project — can run at the same time without colliding. The repo's own name
+is on the workspace instead, where it is displayed once and in full.
+
+```sh
+acw stop
+```
+
+Tears down the swarm running in the **current directory**: each worker's
+environment, the worktrees themselves, the shared status directory, and the
+Herdr workspace. A swarm running for a different repo is left alone.
+**Closing the terminal does nothing** — Herdr is a persistent server that
+outlives it, and so do any environments workers started. `acw stop` is the
+only way to actually stop it.
+
 ## Custom brief template
 
 `--brief` (or the `brief` config key) replaces the master's built-in brief
@@ -222,41 +255,11 @@ write in its prompt file.
 `worker-model`) refuses to start and names the file. A `notes` file that
 can't be read only warns, and the swarm starts without it.
 
-The master is created and briefed synchronously so you can start talking to
-it as soon as the terminal opens. Workers (worktree + environment) are
-provisioned progressively and concurrently in a detached background process:
-each worker's pane/agent appears within seconds of its own `git worktree
-add`, and `wtm adopt` (the slow part, real services starting) runs per
-worker in its own goroutine — so setup never delays opening the terminal,
-and you don't stare at a workspace with only the master pane in it while N
-environments provision one after another. Its log lands in
-`$TMPDIR/acw-workers-<timestamp>.log`.
-
-Each Claude Code worker starts with a `Stop` hook that pings the master every
-time it hands control back — the push notification Herdr doesn't have, so a
-finished PR can't sit unnoticed until someone thinks to look. The ping says
-which worker moved and nothing more (a hook can't know what changed); it
-points the master at that worker's status file. Workers of any other kind
-have no hooks and keep the previous behaviour, where the master polls.
-
-Runs are scoped to the current directory, not global: agent names carry a
-hash of the full repo path (see `internal/names`), so several swarms — one
-per project — can run at the same time without colliding. The repo's own name
-is on the workspace instead, where it is displayed once and in full.
-
-```sh
-acw stop
-```
-
-Tears down the swarm running in the **current directory**: each worker's
-environment, the worktrees themselves, the shared status directory, and the
-Herdr workspace. A swarm running for a different repo is left alone.
-**Closing the terminal does nothing** — Herdr is a persistent server that
-outlives it, and so do any environments workers started. `acw stop` is the
-only way to actually stop it.
-
 ## How it works
 
+- `cmd/acw` — the CLI: flags merged with the config, each worker's final
+  kind/model/prompt, launching the master, and the detached provisioner
+  (worktrees, panes, agents, environments) it hands a JSON plan to.
 - `internal/herdr` — thin wrapper around the `herdr` CLI (JSON in, typed Go out).
 - `internal/wtm` — thin wrapper for giving/removing a worktree's environment,
   used only by this tool's own provisioning step (not by the brief text sent
@@ -265,7 +268,11 @@ only way to actually stop it.
 - `internal/layout` — pure math for the pane-split ratios that stack N
   worker panes evenly next to the master pane.
 - `internal/names` — derives herdr-safe, per-directory agent names
-  (`master-<slug>`, `worker1-<slug>`...) so multiple swarms can coexist.
+  (`master-<slug>`, `worker1-<slug>`...) so multiple swarms can coexist,
+  and where a run puts its worktrees, branches and status files: `acw stop`
+  has to find exactly what provisioning created.
+- `internal/preflight` — the dependency checks and warnings run before
+  anything is started.
 - `internal/brief` — builds the master's initial prompt. The prose itself
   lives in `internal/brief/templates/*.md` (`text/template`, `go:embed`),
   not in the Go file — it's a document to read and edit, not a string

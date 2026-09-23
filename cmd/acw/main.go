@@ -107,7 +107,7 @@ func main() {
 
 	root := &cobra.Command{
 		Use:     "acw",
-		Short:   "Master + N worker Claude Code agents over Herdr, dispatching tasks in parallel",
+		Short:   "Master + N worker coding agents over Herdr, dispatching tasks in parallel",
 		Long:    rootLong,
 		Version: version.String(),
 		Args:    cobra.NoArgs,
@@ -132,7 +132,7 @@ func main() {
 				return err
 			}
 			preflight.WarnIfWtmMissing(func(format string, a ...any) { fmt.Fprintf(cmd.ErrOrStderr(), format, a...) })
-			return runStart(cmd.ErrOrStderr(), opts, workers)
+			return runStart(cmd.ErrOrStderr(), cwd, opts, workers)
 		},
 	}
 	root.SetVersionTemplate("acw {{.Version}}\n")

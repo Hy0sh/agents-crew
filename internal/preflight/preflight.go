@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/Hy0sh/agents-crew/internal/wtm"
 )
 
 type dependency struct {
@@ -128,7 +130,7 @@ func WarnIfAgentsFileMissing(repo, workerKind string, printf func(format string,
 // automatically. Kept separate from CheckStart because not every project
 // this tool runs against needs wtm.
 func WarnIfWtmMissing(printf func(format string, a ...any)) {
-	if _, err := exec.LookPath("wtm"); err != nil {
+	if !wtm.Available() {
 		printf("note: wtm introuvable — les workers n'auront pas d'environnement isolé provisionné automatiquement (pas bloquant, acw fonctionne sans). Si ce projet en a besoin : https://github.com/Hy0sh/worktree-manager\n")
 	}
 }

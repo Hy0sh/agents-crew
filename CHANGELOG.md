@@ -25,7 +25,8 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   outlive the context reset before each task, so a `claude` worker gets it
   as a system prompt, and for any other kind the master copies it verbatim
   into each of its briefs. The master's brief lists the overridden workers
-  with their instructions, to dispatch accordingly, and in a mixed swarm
+  with their instructions, to dispatch accordingly, names the others as
+  the generic ones taking the rest, and in a mixed swarm
   says which workers ping it (only the `claude` ones have the Stop hook).
   An index naming no worker, or a prompt file that can't be read, refuses
   to start. The background provisioner now takes its plan as a single JSON
