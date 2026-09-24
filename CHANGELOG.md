@@ -6,27 +6,13 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-24
+
+Several ways to run one repo, agents that start outside the code, and
+worker pings that no longer land in the middle of what you type to the
+master. No breaking change.
+
 ### Added
-
-- Shell completion offers acw's flags on a bare Tab, next to the
-  subcommands, instead of only once a `-` is typed; flags already on the
-  command line are left out. `--brief`'s help no longer inlines every
-  template variable (they are in the README), so it fits on one line.
-
-- A working directory per agent: `master-dir`, and `dir` in
-  `worker-overrides`, e.g. an agent in a folder whose `.claude` brings the
-  project's product tooling. `dir` makes a worker one outside the code: no
-  worktree, environment or branch, no `max-stacks` slot, and the master is
-  told never to give it code. Whoever codes stays in a worktree: a folder
-  inside the repo is refused. Each agent loads the instructions of the
-  folder it starts in. When an agent never becomes ready, acw names
-  Claude Code's trust prompt for a new folder as the likely cause.
-
-### Changed
-
-- acw finds the master by its name instead of its pane's directory, for
-  `acw stop` and the "already running" check, so a master started in
-  `master-dir` is found too.
 
 - `presets` in a project's config entry, picked with `--preset <name>`:
   named variants of the entry, e.g. a planner, coders and a reviewer next to
@@ -35,6 +21,24 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   preset never inherits roles written for another composition. Precedence
   becomes flag > preset > entry > built-in. An unknown preset, a `--preset`
   on a repo with no entry, and a preset inside a preset refuse to start.
+- A working directory per agent: `master-dir`, and `dir` in
+  `worker-overrides`, e.g. an agent in a folder whose `.claude` brings the
+  project's product tooling. `dir` makes a worker one outside the code: no
+  worktree, environment or branch, no `max-stacks` slot, and the master is
+  told never to give it code. Whoever codes stays in a worktree: a folder
+  inside the repo is refused. Each agent loads the instructions of the
+  folder it starts in. When an agent never becomes ready, acw names
+  Claude Code's trust prompt for a new folder as the likely cause.
+- Shell completion offers acw's flags on a bare Tab, next to the
+  subcommands, instead of only once a `-` is typed; flags already on the
+  command line are left out. `--brief`'s help no longer inlines every
+  template variable (they are in the README), so it fits on one line.
+
+### Changed
+
+- acw finds the master by its name instead of its pane's directory, for
+  `acw stop` and the "already running" check, so a master started in
+  `master-dir` is found too.
 
 ### Fixed
 
@@ -282,7 +286,8 @@ project: 7 PRs, 3 merged. Each entry names what actually went wrong.
   anything, with a clear message and install instructions if not; `wtm` is
   checked too but stays optional.
 
-[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Hy0sh/agents-crew/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Hy0sh/agents-crew/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Hy0sh/agents-crew/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Hy0sh/agents-crew/compare/v0.1.0...v0.2.0
