@@ -6,6 +6,13 @@ import (
 	"github.com/Hy0sh/agents-crew/internal/config"
 )
 
+func TestLoadProjectPresetWithoutEntryFails(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if _, err := loadProject("/repo", "feature"); err == nil {
+		t.Error("loadProject() with --preset and no entry = nil error, want one")
+	}
+}
+
 func TestApplyConfigFlagWinsOverConfig(t *testing.T) {
 	workers, workerModel, masterModel, profile := 5, "haiku", "", "light"
 	project := &config.Project{Workers: &workers, WorkerModel: &workerModel, MasterModel: &masterModel, Profile: &profile}

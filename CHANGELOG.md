@@ -6,6 +6,16 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `presets` in a project's config entry, picked with `--preset <name>`:
+  named variants of the entry, e.g. a planner, coders and a reviewer next to
+  the everyday multitask swarm. A preset takes the entry's keys; each one it
+  sets replaces the entry's whole value, `worker-overrides` included, so a
+  preset never inherits roles written for another composition. Precedence
+  becomes flag > preset > entry > built-in. An unknown preset, a `--preset`
+  on a repo with no entry, and a preset inside a preset refuse to start.
+
 ## [0.4.0] - 2026-09-23
 
 Settings per repo and per worker, outside the repo. One breaking change:

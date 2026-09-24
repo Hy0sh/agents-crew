@@ -75,6 +75,7 @@ acw [flags]
 | `--worker-kind` | `claude` | Herdr agent kind for the workers |
 | `--master-model` | `opus` | model for the master agent; **empty means no `--model` is passed** to its CLI, for a kind that has no such flag |
 | `--worker-model` | `sonnet` | model for worker agents; same empty-means-nothing rule |
+| `--preset` | *(none)* | named preset of the repo's config entry, laid over it — see [Presets](#presets) |
 | `--brief` | *(built-in)* | path to a custom master brief template, for when you want to change the operating rules without forking the tool — see [Custom brief template](#custom-brief-template) for the variables |
 
 `acw --help` / `acw stop --help` document all of this in the terminal too.
@@ -176,8 +177,8 @@ needs no answers to work, so the file only changes the defaults.
 
 - **Key**: the directory you launch `acw` from, absolute (`~` allowed). A
   subdirectory of the repo does not match its entry.
-- **Precedence**: a flag given on the command line > the project's entry >
-  the built-in default. `--worker-model sonnet` wins over a config saying
+- **Precedence**: a flag given on the command line > the preset given with
+  `--preset` > the project's entry > the built-in default. `--worker-model sonnet` wins over a config saying
   `haiku`, even though `sonnet` is also the built-in value.
 - **Launch line**: whenever an entry applies, acw prints what it read, e.g.
   `config: ~/.config/acw/config.json → workers=4, profile="light"`, so you
@@ -193,6 +194,7 @@ needs no answers to work, so the file only changes the defaults.
 | `profile` | *(no flag)* | none: the whole stack |
 | `notes` | *(no flag)* | none |
 | `worker-overrides` | *(no flag)* | none: every worker as above |
+| `presets` | *(picked with `--preset`)* | none |
 
 **`profile`** is one of the project's wtm profiles (`wtm project edit
 --profile-set light=db,backend`). Workers' environments are adopted with
@@ -250,6 +252,44 @@ write in its prompt file.
   can't be read. Unlike `notes`, that last one is not just a warning: a
   worker meant to verify that silently becomes a generic one would skew
   every dispatch.
+
+### Presets
+
+One repo, several ways to run it: the everyday multitask swarm, and for a
+big feature a planner, coders and a reviewer. **`presets`** holds named
+variants of the entry, and `--preset` picks one at launch:
+
+```json
+"/Users/me/dev/some-repo": {
+  "workers": 3,
+  "presets": {
+    "feature": {
+      "workers": 4,
+      "brief": "~/.config/acw/pipeline-brief.md",
+      "worker-overrides": {
+        "1": { "prompt": "~/.config/acw/planner.md", "model": "opus" },
+        "4": { "prompt": "~/.config/acw/reviewer.md" }
+      }
+    }
+  }
+}
+```
+
+```sh
+acw --preset feature
+```
+
+- A preset takes the entry's keys. Each key it sets **replaces the entry's
+  whole value**, `worker-overrides` included: merged index by index, a
+  preset would inherit roles written for another composition of the swarm.
+  A key it leaves out keeps the entry's value.
+- A pipeline (plan, then code, then review) is a different way of
+  dispatching, not only different workers: give the preset its own `brief`,
+  or the master will use the roles as interchangeable task runners.
+- One swarm per repo at a time, as without presets: switching is `acw
+  stop`, then `acw --preset <other>`.
+- Refused at launch: an unknown preset (the error lists the defined ones),
+  `--preset` on a repo with no entry, and a preset inside a preset.
 
 **Errors**: invalid JSON or an unknown key (`worker_model` for
 `worker-model`) refuses to start and names the file. A `notes` file that
