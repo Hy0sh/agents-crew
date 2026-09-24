@@ -39,7 +39,7 @@ a{color:inherit}
 .sidebar{border-right:1px solid var(--line);background:var(--panel);padding:12px 10px;overflow:auto}
 .side-heading{font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:var(--faint);padding:7px 8px;font-weight:700}
 .side-divider{height:1px;background:var(--line);margin:12px 8px 6px}
-.nav-view{width:100%;border:0;background:transparent;text-align:left;padding:8px;border-radius:5px;color:var(--muted)}
+.nav-view{display:flex;align-items:center;width:100%;border:0;background:transparent;text-align:left;padding:8px;border-radius:5px;color:var(--muted)}
 .nav-view:hover,.nav-view.active{background:var(--panel-2);color:var(--text)}
 .project{width:100%;border:0;background:transparent;text-align:left;padding:8px;border-radius:5px;display:flex;align-items:flex-start;gap:8px;margin-bottom:2px}
 .project:hover,.project.active{background:var(--panel-2)}
@@ -64,6 +64,7 @@ h1{font-size:18px;line-height:1.2;margin:0;font-weight:650;letter-spacing:-.025e
 .section-count{font-size:11px;color:var(--faint)}
 .workers{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));border:1px solid var(--line);background:var(--panel)}
 .worker{padding:12px 14px;min-width:0;border-right:1px solid var(--line)}
+.workers-bar{position:sticky;top:0;z-index:1;background:var(--bg)}
 .worker:last-child{border-right:0}
 .worker-top{display:flex;align-items:center;gap:7px}
 .state-dot{width:7px;height:7px;border-radius:50%;flex:none;border:1px solid var(--line-strong)}
@@ -99,11 +100,13 @@ h1{font-size:18px;line-height:1.2;margin:0;font-weight:650;letter-spacing:-.025e
 .error{color:var(--danger);font-size:12px;margin-top:6px}
 .empty{color:var(--muted);padding:6px 0}
 .conversation{display:flex;flex-direction:column;gap:12px;max-width:920px}
-.msg{display:grid;grid-template-columns:90px minmax(0,1fr);gap:13px}
-.msg-meta{color:var(--faint);font-size:11px;padding-top:2px}
-.msg-role{font-weight:700;color:var(--muted);display:block}
+.msg{display:flex;flex-direction:column;align-items:flex-start;gap:3px;max-width:80%;align-self:flex-start}
+.msg.user{align-items:flex-end;align-self:flex-end}
+.msg-meta{display:flex;gap:7px;color:var(--faint);font-size:11px;padding:0 4px}
+.msg-role{font-weight:700;color:var(--muted)}
 .msg.user .msg-role{color:var(--accent)}
-.msg-body{min-width:0;overflow-wrap:anywhere}
+.msg-body{min-width:0;max-width:100%;overflow-wrap:anywhere;background:var(--panel-2);border:1px solid var(--line);border-radius:10px 10px 10px 3px;padding:8px 11px}
+.msg.user .msg-body{background:var(--accent-bg);border-color:transparent;border-radius:10px 10px 3px 10px}
 .msg-body p{margin:0 0 7px} .msg-body p:last-child{margin-bottom:0}
 .msg-body ul{margin:4px 0 7px;padding-left:19px}
 .msg-body code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:var(--panel-2);padding:1px 4px;border-radius:3px}
@@ -131,6 +134,7 @@ h1{font-size:18px;line-height:1.2;margin:0;font-weight:650;letter-spacing:-.025e
   .project,.nav-view{min-width:140px;margin:0}
   .worker{border-right:0;border-bottom:1px solid var(--line)}
   .worker:last-child{border-bottom:0}
+  .workers-bar{position:static} /* stacked, they would cover the screen */
   .main,.journal-view{padding-left:14px;padding-right:14px}
   .project-header{padding:12px 14px}
   .composer{padding:9px 14px}
@@ -138,8 +142,7 @@ h1{font-size:18px;line-height:1.2;margin:0;font-weight:650;letter-spacing:-.025e
 @media (max-width:520px){
   .updated{display:none}
   .decision-actions{grid-template-columns:1fr}
-  .msg{grid-template-columns:1fr;gap:3px}
-  .msg-meta{display:flex;gap:7px}
+  .msg{max-width:92%}
   .jrow{grid-template-columns:44px 60px 1fr}
   .jstate,.jsummary{grid-column:3}
 }
@@ -159,6 +162,7 @@ h1{font-size:18px;line-height:1.2;margin:0;font-weight:650;letter-spacing:-.025e
     <div id="projectList"></div>
     <div class="side-divider"></div>
     <div class="side-heading">Vues</div>
+    <button class="nav-view" id="decisionsNav" type="button">Décisions<span class="badge" id="decisionsBadge" hidden></span></button>
     <button class="nav-view" id="journalNav" type="button">Journal</button>
   </aside>
 
@@ -170,17 +174,20 @@ h1{font-size:18px;line-height:1.2;margin:0;font-weight:650;letter-spacing:-.025e
 
     <div class="content">
       <main class="main" id="mainScroll">
-        <section class="section">
-          <div class="section-title"><h2>Décisions</h2><span class="section-count" id="decisionCount"></span></div>
-          <div class="decisions" id="decisions"></div>
-        </section>
-        <section class="section">
+        <section class="section workers-bar">
           <div class="section-title"><h2>Workers</h2><span class="section-count" id="workerCount"></span></div>
           <div class="workers" id="workers"></div>
         </section>
         <section class="section">
           <div class="section-title"><h2>Conversation avec le master</h2><span class="section-count" id="masterState"></span></div>
           <div class="conversation" id="conversation" aria-live="polite"></div>
+        </section>
+      </main>
+
+      <main class="main" id="decisionsView" hidden>
+        <section class="section">
+          <div class="section-title"><h2>Décisions</h2><span class="section-count" id="decisionCount"></span></div>
+          <div class="decisions" id="decisions"></div>
         </section>
       </main>
 
@@ -293,6 +300,9 @@ function renderSidebar(){
       selectedSlug = b.dataset.slug; currentView = "project"; render(); loadConversation(true); $("#mainScroll").scrollTop = 0;
     }));
     $("#journalNav").classList.toggle("active", currentView === "journal");
+    $("#decisionsNav").classList.toggle("active", currentView === "decisions");
+    const n = current() ? openDecisions(current()).length : 0;
+    $("#decisionsBadge").hidden = !n; $("#decisionsBadge").textContent = n;
   });
 }
 
@@ -395,9 +405,10 @@ function render(){
   }
   const p = current(), journal = currentView === "journal";
   renderSidebar(); renderHeader(p);
-  $("#mainScroll").hidden = journal || !p;
+  $("#mainScroll").hidden = currentView !== "project" || !p;
+  $("#decisionsView").hidden = currentView !== "decisions" || !p;
   $("#journalView").hidden = !journal;
-  $("#composer").hidden = journal || !p || !p.live;
+  $("#composer").hidden = currentView !== "project" || !p || !p.live;
   if (journal) renderJournal();
   else if (p) { renderDecisions(p); renderWorkers(p); }
   const n = state.projects.reduce((n, p) => n + openDecisions(p).length, 0);
@@ -439,6 +450,7 @@ $("#composer").addEventListener("submit", async e => {
   setTimeout(() => loadConversation(false), 800);
 });
 $("#journalNav").addEventListener("click", () => { currentView = "journal"; render(); });
+$("#decisionsNav").addEventListener("click", () => { currentView = "decisions"; render(); });
 $("#journalDaySelect").addEventListener("change", e => { viewDay = e.target.value; refresh(); });
 
 refresh().then(() => loadConversation(true));
