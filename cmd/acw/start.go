@@ -66,8 +66,12 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if inboxWatch == "" {
 		inbox = ""
 	}
-	decisionCmd, warn := decisionCommand(opts.masterKind, customBrief, self, repo, inboxWatch)
-	if warn {
+	// Without the page, no queue: nobody would answer it.
+	decisionCmd := ""
+	if opts.web {
+		decisionCmd, warn = decisionCommand(opts.masterKind, customBrief, self, repo, inboxWatch)
+	}
+	if opts.web && warn {
 		fmt.Fprintln(out, "⚠ le brief personnalisé ne contient pas {{.DecisionCmd}} : le master posera ses questions dans la conversation, comme avant")
 	}
 	masterBrief, err := buildBrief(customBrief, brief.Params{
@@ -104,10 +108,17 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		}
 	}()
 
+	// Claude only: --session-id is Claude Code's flag, and only its
+	// transcript is read by the page.
+	sessionID := ""
+	if opts.web && opts.masterKind == "claude" {
+		sessionID = newSessionID()
+	}
+
 	if err := herdr.PaneRename(masterPane, "master"); err != nil {
 		return err
 	}
-	if err := herdr.AgentStart(masterName, opts.masterKind, masterPane, masterArgs(opts.masterModel, self, inboxWatch, decisionCmd)...); err != nil {
+	if err := herdr.AgentStart(masterName, opts.masterKind, masterPane, masterArgs(opts.masterModel, self, inboxWatch, decisionCmd, sessionID)...); err != nil {
 		return fmt.Errorf("herdr agent start master: %w", explainStart(err, masterDir))
 	}
 
@@ -131,10 +142,13 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	// After the master exists: the server stops itself once it finds no
 	// master in Herdr. Without it the swarm still runs, only the page is
 	// missing.
-	if url, err := ensureUI(self, projectInfo{Repo: repo, Label: filepath.Base(repo), Inbox: inbox}); err != nil {
-		fmt.Fprintln(out, "⚠ page acw indisponible:", err)
-	} else {
-		fmt.Fprintln(out, "→ page acw :", url)
+	if opts.web {
+		project := projectInfo{Repo: repo, Label: filepath.Base(repo), Inbox: inbox, SessionID: sessionID, BriefHead: firstLine(masterBrief)}
+		if url, err := ensureUI(self, project); err != nil {
+			fmt.Fprintln(out, "⚠ page acw indisponible:", err)
+		} else {
+			fmt.Fprintln(out, "→ page acw :", url)
+		}
 	}
 
 	// Replace this process with the Herdr TUI, attaching to the workspace just built.

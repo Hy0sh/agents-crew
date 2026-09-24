@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,7 +24,7 @@ func uiFixture(t *testing.T) (http.Handler, string, projectInfo) {
 	t.Helper()
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	repo := filepath.Join(t.TempDir(), "some-repo")
-	project := projectInfo{Repo: repo, Label: "some-repo", Inbox: filepath.Join(t.TempDir(), "inbox")}
+	project := projectInfo{Repo: repo, Label: "some-repo", Inbox: filepath.Join(t.TempDir(), "inbox"), SessionID: "sess-1", BriefHead: "Tu es la session master"}
 	slug := names.Slug(repo)
 	if err := writeJSON(names.ProjectFile(slug), project); err != nil {
 		t.Fatal(err)
@@ -41,8 +42,19 @@ func uiFixture(t *testing.T) (http.Handler, string, projectInfo) {
 			{Name: names.Worker(slug, 2), Status: "idle"},
 		}, nil
 	}
-	return newUIHandler(serverInfo{Port: 4242, Token: testToken}, agents), slug, project
+	prompt := func(name, text string) error {
+		if text == "bloqué" {
+			return errors.New(`herdr [agent prompt]: exit status 1: {"error":"agent_blocked"}`)
+		}
+		sent = append(sent, name+": "+text)
+		return nil
+	}
+	sent = nil
+	return newUIHandler(serverInfo{Port: 4242, Token: testToken}, agents, prompt), slug, project
 }
+
+// sent records what the fixture's master was typed.
+var sent []string
 
 func request(method, target, host, origin, body string) *http.Request {
 	r := httptest.NewRequest(method, target, strings.NewReader(body))
@@ -115,6 +127,47 @@ func TestUIAnswerClosesTheDecisionAndTellsTheMaster(t *testing.T) {
 	}
 	if code := answer(); code != http.StatusConflict {
 		t.Errorf("second answer status %d, want 409", code)
+	}
+}
+
+func TestUIConversation(t *testing.T) {
+	h, slug, _ := uiFixture(t)
+	claude := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", claude)
+	dir := filepath.Join(claude, "projects", "-some-repo")
+	os.MkdirAll(dir, 0o755)
+	if err := os.WriteFile(filepath.Join(dir, "sess-1.jsonl"), []byte(transcript), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, request("GET", "/api/conversation/"+slug+"?t="+testToken, "127.0.0.1:4242", "", ""))
+	var got struct {
+		MasterState string        `json:"master_state"`
+		Available   bool          `json:"available"`
+		Messages    []chatMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+	if !got.Available || got.MasterState != "waiting" || len(got.Messages) != 2 {
+		t.Errorf("conversation = %+v, want the transcript's two messages and an idle master", got)
+	}
+
+	send := func(text string) int {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, request("POST", "/api/conversation/"+slug+"?t="+testToken, "127.0.0.1:4242",
+			"http://127.0.0.1:4242", `{"text":"`+text+`"}`))
+		return w.Code
+	}
+	if code := send("Et le ticket 131 ?"); code != http.StatusNoContent || len(sent) != 1 || sent[0] != names.Master(slug)+": Et le ticket 131 ?" {
+		t.Errorf("send = %d, typed %v; want the message typed to the master", code, sent)
+	}
+	if code := send("bloqué"); code != http.StatusConflict {
+		t.Errorf("send to a master on an approval prompt = %d, want 409", code)
+	}
+	if code := send("  "); code != http.StatusBadRequest {
+		t.Errorf("empty message = %d, want 400", code)
 	}
 }
 

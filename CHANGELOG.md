@@ -8,11 +8,14 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ### Added
 
-- A local web page over every swarm on the machine: each worker's state
-  (active, waiting on you, idle) and task, the day's journal per project,
-  and the master's questions waiting on you. Started in the background by
-  the first `acw` that finds none running, opened in the browser, stopped
-  once no master is left.
+- `--web` (or `"web": true` in the config): a local web page over every
+  swarm launched with it. It shows each worker's state (active, waiting on
+  you, idle) and task, the day's journal per project, the master's
+  questions waiting on you, and the conversation with the master, read
+  from its transcript, which you can write to from the page. Started in the
+  background by the first `acw --web` that finds none running, opened in
+  the browser, stopped once no master is left. Off by default: without it,
+  nothing changes.
 - A decision queue for a `claude` master: instead of asking in the
   conversation, it files each question with concrete options, their
   consequences and its recommendation (`acw __decision add`), and carries

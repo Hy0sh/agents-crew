@@ -5,179 +5,443 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>acw</title>
 <style>
-:root {
-  --bg: #f6f5f2; --panel: #fff; --ink: #1d1d1b; --muted: #6b6a66; --line: #e2e0da;
-  --accent: #2f5bd3; --active: #1f9d55; --waiting: #d97706; --idle: #a8a6a0; --danger: #b42318;
-  color-scheme: light dark;
+:root{
+  color-scheme: light;
+  --bg:#f7f7f5; --panel:#fbfbfa; --panel-2:#f1f1ee; --text:#1f211f;
+  --muted:#73766f; --faint:#a1a49d; --line:#dedfd9; --line-strong:#c9cbc3;
+  --accent:#4b55c7; --accent-bg:#eef0ff; --danger:#b5473f; --danger-bg:#fff0ee;
+  --ok:#39744e; --waiting:#b07a24; --focus:#2638c9;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #161615; --panel: #1f1f1d; --ink: #ecebe7; --muted: #9a9892; --line: #33322f;
-    --accent: #7b9cff; --active: #3fcf7e; --waiting: #f5a524; --idle: #6b6a66; --danger: #ff6b5e;
+@media (prefers-color-scheme: dark){
+  :root{
+    color-scheme:dark; --bg:#171816; --panel:#1b1c1a; --panel-2:#222421; --text:#eceee8;
+    --muted:#a1a59d; --faint:#747971; --line:#30332f; --line-strong:#41443f;
+    --accent:#9ca6ff; --accent-bg:#282d52; --danger:#ef8f86; --danger-bg:#3a2220;
+    --ok:#80c894; --waiting:#e0a94a; --focus:#aab2ff;
   }
 }
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, sans-serif; }
-main { max-width: 1040px; margin: 0 auto; padding: 20px 16px 64px; }
-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-h1 { font-size: 20px; margin: 0; }
-h2 { font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 28px 0 10px; }
-select, textarea, button { font: inherit; color: inherit; }
-select, textarea { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
-.muted { color: var(--muted); }
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; }
-.card.blocking { border-left: 4px solid var(--waiting); }
-.meta { font-size: 13px; color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; }
-.question { font-weight: 600; margin: 6px 0 2px; }
-.task { font-size: 14px; color: var(--muted); }
-.options { margin: 10px 0; display: grid; gap: 6px; }
-.options label { display: flex; gap: 8px; align-items: baseline; cursor: pointer; }
-.reco { font-size: 12px; color: var(--accent); font-weight: 600; }
-.card textarea { width: 100%; min-height: 38px; resize: vertical; }
-.actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 8px; }
-button { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 6px 14px; cursor: pointer; }
-button:disabled { opacity: .5; cursor: default; }
-.error { color: var(--danger); font-size: 13px; }
-table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-td, th { text-align: left; padding: 7px 10px; border-top: 1px solid var(--line); vertical-align: top; font-size: 14px; }
-th { font-weight: 600; background: color-mix(in srgb, var(--line) 35%, transparent); border-top: 0; }
-.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
-.active .dot { background: var(--active); } .waiting .dot { background: var(--waiting); } .idle .dot { background: var(--idle); }
-.tablewrap { overflow-x: auto; margin-bottom: 12px; }
-.empty { color: var(--muted); font-style: italic; }
-a { color: var(--accent); }
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:13px/1.45 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer}
+button:disabled{cursor:default;opacity:.55}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,a:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+a{color:inherit}
+[hidden]{display:none!important}
+.app{height:100vh;display:grid;grid-template-columns:200px minmax(0,1fr);grid-template-rows:48px minmax(0,1fr)}
+.topbar{grid-column:1/-1;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 16px;gap:16px;background:var(--panel)}
+.brand{font-weight:700;letter-spacing:-.02em}
+.conn{color:var(--muted);display:flex;align-items:center}
+.conn i{width:7px;height:7px;border-radius:50%;background:var(--ok);display:inline-block;margin-right:6px}
+.conn.off{color:var(--danger)} .conn.off i{background:var(--danger)}
+.top-spacer{flex:1}
+.updated{font-size:11px;color:var(--faint)}
+.sidebar{border-right:1px solid var(--line);background:var(--panel);padding:12px 10px;overflow:auto}
+.side-heading{font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:var(--faint);padding:7px 8px;font-weight:700}
+.side-divider{height:1px;background:var(--line);margin:12px 8px 6px}
+.nav-view{width:100%;border:0;background:transparent;text-align:left;padding:8px;border-radius:5px;color:var(--muted)}
+.nav-view:hover,.nav-view.active{background:var(--panel-2);color:var(--text)}
+.project{width:100%;border:0;background:transparent;text-align:left;padding:8px;border-radius:5px;display:flex;align-items:flex-start;gap:8px;margin-bottom:2px}
+.project:hover,.project.active{background:var(--panel-2)}
+.project .mark{width:7px;height:7px;border-radius:50%;margin-top:5px;flex:none;border:1px solid var(--line-strong)}
+.project.live .mark{background:var(--ok);border-color:var(--ok)}
+.project-text{min-width:0}
+.project-name{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-meta{display:block;font-size:11px;color:var(--muted);margin-top:1px}
+.badge{margin-left:auto;min-width:19px;height:19px;border-radius:10px;padding:1px 6px;text-align:center;font-size:11px;font-weight:700;background:var(--danger-bg);color:var(--danger)}
+.workspace{min-width:0;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr)}
+.project-header{padding:14px 22px 12px;border-bottom:1px solid var(--line);background:var(--panel)}
+.header-row{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+h1{font-size:18px;line-height:1.2;margin:0;font-weight:650;letter-spacing:-.025em}
+.repo{font-size:11px;color:var(--muted);overflow-wrap:anywhere}
+.header-sub{margin-top:4px;color:var(--muted);font-size:12px}
+.content{min-height:0;display:grid;grid-template-rows:minmax(0,1fr) auto}
+.main{min-height:0;overflow:auto;padding:0 22px 24px}
+.section{border-bottom:1px solid var(--line);padding:16px 0}
+.section:last-child{border-bottom:0}
+.section-title{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+.section-title h2{font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin:0;color:var(--muted);font-weight:700}
+.section-count{font-size:11px;color:var(--faint)}
+.workers{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));border:1px solid var(--line);background:var(--panel)}
+.worker{padding:12px 14px;min-width:0;border-right:1px solid var(--line)}
+.worker:last-child{border-right:0}
+.worker-top{display:flex;align-items:center;gap:7px}
+.state-dot{width:7px;height:7px;border-radius:50%;flex:none;border:1px solid var(--line-strong)}
+.state-active{background:var(--ok);border-color:var(--ok)}
+.state-waiting{background:var(--waiting);border-color:var(--waiting)}
+.worker-name{font-weight:650}
+.state-label{font-size:11px;color:var(--muted);margin-left:auto}
+.task{font-weight:600;margin-top:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.summary{color:var(--muted);margin-top:2px;min-height:19px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.worker-foot{display:flex;align-items:center;gap:10px;margin-top:8px;font-size:11px;color:var(--faint)}
+.worker-foot a,.jrow a{color:var(--accent);text-decoration:none}
+.worker-foot a:hover,.jrow a:hover{text-decoration:underline}
+.decisions{display:flex;flex-direction:column;gap:8px}
+.decision{border:1px solid var(--line);background:var(--panel);padding:13px 15px}
+.decision.blocked{border-left:3px solid var(--danger)}
+.decision-head{display:flex;align-items:center;gap:9px}
+.decision-id{font-weight:750}
+.decision-task{color:var(--muted);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.blocked-label{margin-left:auto;color:var(--danger);font-size:11px;font-weight:700;white-space:nowrap}
+.question{font-size:14px;font-weight:600;margin:8px 0 10px}
+.options{display:grid;gap:6px}
+.option{display:grid;grid-template-columns:20px minmax(0,1fr);gap:8px;padding:8px 10px;border:1px solid var(--line);cursor:pointer}
+.option:has(input:checked){border-color:var(--accent);background:var(--accent-bg)}
+.option input{margin:2px 0 0}
+.option-label{font-weight:600}
+.consequence{display:block;color:var(--muted);margin-top:1px}
+.reco{display:inline-block;font-size:10px;color:var(--accent);font-weight:700;margin-left:6px;letter-spacing:.04em}
+.decision-actions{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:9px;margin-top:10px;align-items:start}
+.comment,.composer textarea{width:100%;border:1px solid var(--line);background:var(--bg);padding:7px 9px;border-radius:4px}
+.comment{min-height:34px;max-height:100px;resize:vertical}
+.primary{border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:4px;padding:7px 12px;font-weight:650}
+.primary:hover:not(:disabled){filter:brightness(.96)}
+.error{color:var(--danger);font-size:12px;margin-top:6px}
+.empty{color:var(--muted);padding:6px 0}
+.conversation{display:flex;flex-direction:column;gap:12px;max-width:920px}
+.msg{display:grid;grid-template-columns:90px minmax(0,1fr);gap:13px}
+.msg-meta{color:var(--faint);font-size:11px;padding-top:2px}
+.msg-role{font-weight:700;color:var(--muted);display:block}
+.msg.user .msg-role{color:var(--accent)}
+.msg-body{min-width:0;overflow-wrap:anywhere}
+.msg-body p{margin:0 0 7px} .msg-body p:last-child{margin-bottom:0}
+.msg-body ul{margin:4px 0 7px;padding-left:19px}
+.msg-body code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:var(--panel-2);padding:1px 4px;border-radius:3px}
+.msg-body pre{overflow:auto;background:var(--panel-2);padding:10px;border:1px solid var(--line);border-radius:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+.msg-body a{color:var(--accent)}
+.composer{border-top:1px solid var(--line);background:var(--panel);padding:10px 22px}
+.composer-row{display:flex;gap:8px;align-items:flex-end}
+.composer textarea{min-width:0;flex:1;resize:none;min-height:38px;max-height:140px}
+.journal-view{min-height:0;overflow:auto;padding:20px 22px}
+.journal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;border-bottom:1px solid var(--line);padding-bottom:14px}
+.eyebrow{font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:var(--faint);font-weight:700}
+.journal-head h2{font-size:20px;letter-spacing:-.03em;margin:3px 0 2px}
+.journal-head p{margin:0;color:var(--muted)}
+.day-select{border:1px solid var(--line);background:var(--panel);padding:5px 7px;border-radius:4px}
+.journal{max-width:950px;font-size:12px}
+.jrow{display:grid;grid-template-columns:48px 70px minmax(120px,1.2fr) minmax(90px,.6fr) minmax(0,1.4fr);gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
+.jrow:last-child{border-bottom:0}
+.jtime,.jworker,.jsummary{color:var(--muted)}
+.jstate{font-weight:600}
+@media (max-width:800px){
+  .app{grid-template-columns:1fr;grid-template-rows:48px auto minmax(0,1fr)}
+  .sidebar{grid-row:2;border-right:0;border-bottom:1px solid var(--line);padding:6px 10px;display:flex;gap:4px;overflow-x:auto}
+  .side-heading,.side-divider{display:none}
+  #projectList{display:flex;gap:4px}
+  .project,.nav-view{min-width:140px;margin:0}
+  .worker{border-right:0;border-bottom:1px solid var(--line)}
+  .worker:last-child{border-bottom:0}
+  .main,.journal-view{padding-left:14px;padding-right:14px}
+  .project-header{padding:12px 14px}
+  .composer{padding:9px 14px}
+}
+@media (max-width:520px){
+  .updated{display:none}
+  .decision-actions{grid-template-columns:1fr}
+  .msg{grid-template-columns:1fr;gap:3px}
+  .msg-meta{display:flex;gap:7px}
+  .jrow{grid-template-columns:44px 60px 1fr}
+  .jstate,.jsummary{grid-column:3}
+}
 </style>
 </head>
 <body>
-<main>
-  <header>
-    <h1>acw</h1>
-    <label class="muted">Journal du <select id="day"></select></label>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">acw</div>
+    <div class="conn" id="conn"><i></i><span>connecté</span></div>
+    <div class="top-spacer"></div>
+    <div class="updated" id="lastRefresh"></div>
   </header>
-  <h2>À trancher</h2>
-  <div id="decisions"></div>
-  <h2>Workers</h2>
-  <div id="workers"></div>
-  <h2 id="journal-title">Journal</h2>
-  <div id="journal"></div>
-</main>
+
+  <aside class="sidebar" aria-label="Projets">
+    <div class="side-heading">Projets</div>
+    <div id="projectList"></div>
+    <div class="side-divider"></div>
+    <div class="side-heading">Vues</div>
+    <button class="nav-view" id="journalNav" type="button">Journal</button>
+  </aside>
+
+  <section class="workspace">
+    <header class="project-header">
+      <div class="header-row"><h1 id="projectTitle">acw</h1><span class="repo" id="projectRepo"></span></div>
+      <div class="header-sub" id="projectSub"></div>
+    </header>
+
+    <div class="content">
+      <main class="main" id="mainScroll">
+        <section class="section">
+          <div class="section-title"><h2>Décisions</h2><span class="section-count" id="decisionCount"></span></div>
+          <div class="decisions" id="decisions"></div>
+        </section>
+        <section class="section">
+          <div class="section-title"><h2>Workers</h2><span class="section-count" id="workerCount"></span></div>
+          <div class="workers" id="workers"></div>
+        </section>
+        <section class="section">
+          <div class="section-title"><h2>Conversation avec le master</h2><span class="section-count" id="masterState"></span></div>
+          <div class="conversation" id="conversation" aria-live="polite"></div>
+        </section>
+      </main>
+
+      <section class="journal-view" id="journalView" hidden>
+        <div class="journal-head">
+          <div>
+            <div class="eyebrow">Historique</div>
+            <h2>Journal</h2>
+            <p id="journalProjectLabel"></p>
+          </div>
+          <select class="day-select" id="journalDaySelect" aria-label="Jour du journal"></select>
+        </div>
+        <div class="journal" id="journal"></div>
+      </section>
+
+      <form class="composer" id="composer">
+        <div class="composer-row">
+          <textarea id="messageInput" rows="1" placeholder="Écrire au master… (Entrée pour envoyer, Maj+Entrée pour aller à la ligne)" aria-label="Message au master"></textarea>
+          <button class="primary" type="submit" id="sendBtn">Envoyer</button>
+        </div>
+        <div class="error" id="sendError" hidden></div>
+      </form>
+    </div>
+  </section>
+</div>
+
 <script>
 const token = new URLSearchParams(location.search).get("t") || "";
-const daySel = document.getElementById("day");
-let day = "";
+const withToken = url => url + (url.includes("?") ? "&" : "?") + "t=" + encodeURIComponent(token);
 
-function h(tag, attrs, ...children) {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs || {})) {
-    if (v === false || v == null) continue;
-    if (k === "class") el.className = v; else if (k.startsWith("on")) el.addEventListener(k.slice(2), v); else el.setAttribute(k, v === true ? "" : v);
-  }
-  for (const c of children.flat()) if (c != null && c !== false) el.append(c);
-  return el;
+// Every data access goes through these, the rest only renders.
+async function fetchState(day){
+  const r = await fetch(withToken("/api/state" + (day ? "?day=" + day : "")));
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+async function fetchConversation(slug){
+  const r = await fetch(withToken("/api/conversation/" + slug));
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+async function post(url, body){
+  const r = await fetch(withToken(url), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+  return {ok:r.ok, status:r.status, text: r.ok ? "" : (await r.text()).trim()};
 }
 
-function ago(iso) {
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
+const fmtTime = iso => iso ? new Intl.DateTimeFormat("fr-FR",{hour:"2-digit",minute:"2-digit"}).format(new Date(iso)) : "";
+function age(iso){
   if (!iso) return "";
-  const s = (Date.now() - new Date(iso)) / 1000;
-  if (isNaN(s)) return iso;
-  if (s < 60) return "à l'instant";
-  if (s < 3600) return `il y a ${Math.round(s / 60)} min`;
-  if (s < 86400) return `il y a ${Math.round(s / 3600)} h`;
+  const t = new Date(iso).getTime(); if (isNaN(t)) return esc(iso);
+  const mins = Math.max(0, Math.floor((Date.now() - t) / 60000));
+  if (mins < 1) return "à l'instant";
+  if (mins < 60) return `il y a ${mins} min`;
+  if (mins < 1440) return `il y a ${Math.floor(mins / 60)} h`;
   return new Date(iso).toLocaleDateString("fr-FR");
 }
-const hhmm = iso => new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-const STATE = { active: "actif", waiting: "en attente", idle: "inactif" };
+const plural = (n, word) => `${n} ${word}${n > 1 ? "s" : ""}`;
 
-// A card being filled in is never redrawn: the refresh would wipe the
-// choice or the comment the user is typing.
-const dirty = new Set();
+// Enough Markdown for the master's replies: code blocks, inline code,
+// bold, links, lists. The text is escaped first; only https links pass.
+function md(text){
+  const blocks = [];
+  let s = esc(text).replace(/```[^\n]*\n?([\s\S]*?)```/g, (_, code) => `\u0000${blocks.push(code) - 1}\u0000`);
+  const inline = t => t
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+  return s.split(/\n{2,}/).map(par => {
+    const m = par.trim().match(/^\u0000(\d+)\u0000$/);
+    if (m) return `<pre>${blocks[m[1]]}</pre>`;
+    const lines = par.split("\n");
+    if (lines.every(l => /^\s*([-*]|\d+\.)\s+/.test(l)))
+      return `<ul>${lines.map(l => `<li>${inline(l.replace(/^\s*([-*]|\d+\.)\s+/, ""))}</li>`).join("")}</ul>`;
+    return `<p>${inline(par).replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${blocks[i]}</code>`).replace(/\n/g, "<br>")}</p>`;
+  }).join("");
+}
 
-function decisionCard(p, d) {
-  const key = p.slug + "/" + d.id;
-  const err = h("span", { class: "error" });
-  const comment = h("textarea", { placeholder: "Commentaire (facultatif)", oninput: () => dirty.add(key), onfocus: () => dirty.add(key) });
-  const opts = d.options.map((o, i) => h("label", {},
-    h("input", { type: "radio", name: key, value: i + 1, checked: i === d.reco, onchange: () => dirty.add(key) }),
-    h("span", {}, h("strong", {}, o.label), o.consequence ? " : " + o.consequence : "", i === d.reco ? h("span", { class: "reco" }, "  recommandée") : null)));
-  const btn = h("button", {}, "Trancher");
-  btn.addEventListener("click", async () => {
-    const picked = document.querySelector(`input[name="${CSS.escape(key)}"]:checked`);
-    btn.disabled = true; err.textContent = "";
-    const body = { comment: comment.value };
-    if (picked) body.option = Number(picked.value);
-    const r = await fetch(`/api/decisions/${p.slug}/${d.id}?t=${encodeURIComponent(token)}`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
-    }).catch(e => ({ ok: false, statusText: e.message }));
-    if (r.ok) { dirty.delete(key); refresh(); return; }
-    btn.disabled = false;
-    err.textContent = r.status === 409 ? "Déjà tranchée ailleurs." : `Échec : ${r.statusText || r.status}`;
-    if (r.status === 409) { dirty.delete(key); refresh(); }
+const STATE_LABEL = {active:"actif", waiting:"en attente de moi", idle:"inactif"};
+const MASTER_LABEL = {working:"travaille…", waiting:"en attente de moi", stopped:"arrêté"};
+
+let state = {day:"", days:[], projects:[]};
+let selectedSlug = null;
+let currentView = "project";
+let viewDay = "";                 // "" is today, as the server sees it
+const drafts = new Map();         // "slug/id" -> {option, comment}: survives redraws
+const rendered = {};              // section -> last data drawn, to redraw only on change
+
+const openDecisions = p => (p.decisions || []).filter(d => d.status === "open");
+const current = () => state.projects.find(p => p.slug === selectedSlug);
+
+// Redraws a section only when its data changed: a redraw every 3 s would
+// otherwise drop focus, the caret and the scroll position.
+function draw(key, data, fn){
+  const sig = JSON.stringify(data);
+  if (rendered[key] === sig) return false;
+  rendered[key] = sig; fn(); return true;
+}
+
+function renderSidebar(){
+  draw("sidebar", [state.projects.map(p => [p.slug, p.label, p.live, openDecisions(p).length, (p.workers||[]).filter(w => w.state === "active").length]), selectedSlug, currentView], () => {
+    $("#projectList").innerHTML = state.projects.map(p => {
+      const n = openDecisions(p).length, active = (p.workers || []).filter(w => w.state === "active").length;
+      const meta = p.live ? plural(active, "actif") : "arrêté";
+      return `<button type="button" class="project ${p.live ? "live" : ""} ${p.slug === selectedSlug && currentView === "project" ? "active" : ""}" data-slug="${esc(p.slug)}" aria-label="${esc(p.label)}${n ? `, ${plural(n, "décision")} en attente` : ""}">
+        <span class="mark"></span><span class="project-text"><span class="project-name">${esc(p.label)}</span><span class="project-meta">${meta}</span></span>${n ? `<span class="badge">${n}</span>` : ""}</button>`;
+    }).join("") || '<div class="empty" style="padding:8px">Aucun projet.</div>';
+    document.querySelectorAll(".project").forEach(b => b.addEventListener("click", () => {
+      selectedSlug = b.dataset.slug; currentView = "project"; render(); loadConversation(true); $("#mainScroll").scrollTop = 0;
+    }));
+    $("#journalNav").classList.toggle("active", currentView === "journal");
   });
-  return h("div", { class: "card" + (d.blocks ? " blocking" : ""), "data-key": key },
-    h("div", { class: "meta" }, h("strong", {}, p.label), h("span", {}, d.id), d.blocks ? h("span", {}, "bloque " + d.blocks) : null, h("span", {}, ago(d.created_at))),
-    h("div", { class: "question" }, d.question),
-    h("div", { class: "task" }, d.task),
-    h("div", { class: "options" }, opts),
-    comment,
-    h("div", { class: "actions" }, err, btn));
 }
 
-function renderDecisions(projects) {
-  const box = document.getElementById("decisions");
-  const open = projects.flatMap(p => (p.decisions || []).filter(d => d.status === "open").map(d => ({ p, d })));
-  open.sort((a, b) => (!!b.d.blocks - !!a.d.blocks) || a.d.created_at.localeCompare(b.d.created_at));
-  document.title = open.length ? `(${open.length}) acw` : "acw";
-  const keep = new Map([...box.children].filter(c => dirty.has(c.dataset.key)).map(c => [c.dataset.key, c]));
-  box.replaceChildren(...open.map(({ p, d }) => keep.get(p.slug + "/" + d.id) || decisionCard(p, d)));
-  if (!open.length) box.append(h("p", { class: "empty" }, "Rien n'attend ton avis."));
+function renderHeader(p){
+  const journal = currentView === "journal";
+  $("#projectTitle").textContent = journal ? "Journal" : (p ? p.label : "acw");
+  $("#projectRepo").textContent = journal || !p ? "" : p.repo;
+  if (journal) { $("#projectSub").textContent = "Activité des workers et décisions de la journée"; return; }
+  if (!p) { $("#projectSub").textContent = "Aucun swarm lancé avec --web pour l'instant."; return; }
+  const waiting = (p.workers || []).filter(w => w.state === "waiting").length;
+  $("#projectSub").textContent = p.live
+    ? `${plural(openDecisions(p).length, "décision")} ouverte${openDecisions(p).length > 1 ? "s" : ""} · ${plural(waiting, "worker")} en attente`
+    : "Swarm arrêté : historique seulement.";
 }
 
-function renderWorkers(projects) {
-  const live = projects.filter(p => p.live);
-  const box = document.getElementById("workers");
-  box.replaceChildren(...live.map(p => h("div", { class: "tablewrap" }, h("table", {},
-    h("tr", {}, h("th", { colspan: 5 }, p.label, " ", h("span", { class: "muted" }, p.repo))),
-    (p.workers || []).map(w => h("tr", { class: w.state },
-      h("td", {}, h("span", { class: "dot" }), w.label),
-      h("td", {}, STATE[w.state] || w.state),
-      h("td", {}, w.tache || h("span", { class: "muted" }, "-"), w.summary ? h("div", { class: "muted" }, w.summary) : null),
-      h("td", { class: "muted" }, ago(w.updated_at)),
-      h("td", {}, w.pr_url ? h("a", { href: w.pr_url, target: "_blank", rel: "noopener" }, "PR") : null)))))));
-  if (!live.length) box.append(h("p", { class: "empty" }, "Aucun swarm en cours."));
+function renderWorkers(p){
+  const ws = p.workers || [];
+  draw("workers", [p.slug, ws], () => {
+    $("#workerCount").textContent = ws.length ? plural(ws.length, "agent") : "";
+    $("#workers").hidden = !ws.length;
+    $("#workers").innerHTML = ws.map(w => `<article class="worker">
+      <div class="worker-top"><span class="state-dot state-${esc(w.state)}"></span><span class="worker-name">${esc(w.label)}</span><span class="state-label">${STATE_LABEL[w.state] || esc(w.state)}</span></div>
+      ${w.tache ? `<div class="task" title="${esc(w.tache)}">${esc(w.tache)}</div><div class="summary" title="${esc(w.summary)}">${esc(w.summary)}</div>`
+                : `<div class="task">Aucune tâche</div><div class="summary">Disponible</div>`}
+      <div class="worker-foot"><span>${age(w.updated_at)}</span>${w.pr_url ? `<a href="${esc(w.pr_url)}" target="_blank" rel="noreferrer">ouvrir la PR ↗</a>` : ""}</div>
+    </article>`).join("");
+    if (!ws.length) $("#workerCount").textContent = p.live ? "aucun worker prêt" : "swarm arrêté";
+  });
 }
 
-function renderJournal(projects) {
-  const box = document.getElementById("journal");
-  const rows = projects.map(p => {
-    const items = (p.journal || []).map(e => ({ at: e.at, who: e.worker, what: e.tache, how: e.state, extra: e.summary }))
-      .concat((p.decisions || []).filter(d => d.status !== "open").map(d => ({
-        at: d.answered_at, who: d.id, what: d.question,
-        how: d.status === "abandoned" ? "abandonnée" : "tranchée (" + (d.answered_via === "ui" ? "page" : "terminal") + ")",
-        extra: d.answer,
-      })));
-    items.sort((a, b) => a.at.localeCompare(b.at));
-    return { p, items };
-  }).filter(r => r.items.length);
-  box.replaceChildren(...rows.map(({ p, items }) => h("div", { class: "tablewrap" }, h("table", {},
-    h("tr", {}, h("th", { colspan: 4 }, p.label)),
-    items.map(i => h("tr", {}, h("td", { class: "muted" }, hhmm(i.at)), h("td", {}, i.who), h("td", {}, i.what, i.extra ? h("div", { class: "muted" }, i.extra) : null), h("td", {}, i.how)))))));
-  if (!rows.length) box.append(h("p", { class: "empty" }, "Rien ce jour-là."));
+function renderDecisions(p){
+  const ds = openDecisions(p).sort((a, b) => (!!b.blocks - !!a.blocks) || a.created_at.localeCompare(b.created_at));
+  draw("decisions", [p.slug, ds], () => {
+    $("#decisionCount").textContent = ds.length ? `${ds.length} ouverte${ds.length > 1 ? "s" : ""}` : "aucune";
+    if (!ds.length) { $("#decisions").innerHTML = '<div class="empty">Rien n\'attend ton avis.</div>'; return; }
+    $("#decisions").innerHTML = ds.map(d => {
+      const key = p.slug + "/" + d.id, draft = drafts.get(key) || {option:d.reco, comment:""};
+      return `<article class="decision ${d.blocks ? "blocked" : ""}" data-key="${esc(key)}">
+        <div class="decision-head"><span class="decision-id">${esc(d.id)}</span><span class="decision-task" title="${esc(d.task)}">${esc(d.task)}</span>${d.blocks ? `<span class="blocked-label">bloque ${esc(d.blocks)}</span>` : ""}</div>
+        <div class="question">${esc(d.question)}</div>
+        <div class="options" role="radiogroup" aria-label="Options de ${esc(d.id)}">${d.options.map((o, i) => `<label class="option"><input type="radio" name="opt-${esc(key)}" value="${i}" ${draft.option === i ? "checked" : ""}><span><span class="option-label">${esc(o.label)}</span>${d.reco === i ? '<span class="reco">RECOMMANDÉE</span>' : ""}<span class="consequence">${esc(o.consequence)}</span></span></label>`).join("")}</div>
+        <div class="decision-actions"><textarea class="comment" aria-label="Commentaire" placeholder="Commentaire facultatif…">${esc(draft.comment)}</textarea><button type="button" class="primary answer">Trancher</button></div>
+        <div class="error" hidden></div>
+      </article>`;
+    }).join("");
+    document.querySelectorAll(".decision").forEach(el => {
+      const key = el.dataset.key, d = ds.find(x => p.slug + "/" + x.id === key);
+      const save = patch => drafts.set(key, {...(drafts.get(key) || {option:d.reco, comment:""}), ...patch});
+      el.querySelectorAll("input[type=radio]").forEach(r => r.addEventListener("change", e => save({option:Number(e.target.value)})));
+      el.querySelector(".comment").addEventListener("input", e => save({comment:e.target.value}));
+      el.querySelector(".answer").addEventListener("click", () => answer(p.slug, d, el));
+    });
+  });
 }
 
-async function refresh() {
-  const r = await fetch(`/api/state?t=${encodeURIComponent(token)}&day=${day}`).catch(() => null);
-  if (!r || !r.ok) { document.title = "acw (hors ligne)"; return; }
-  const s = await r.json();
-  if (!day) day = s.day;
-  const days = [...s.days].reverse();
-  if (daySel.options.length !== days.length) daySel.replaceChildren(...days.map(d => h("option", { value: d }, d)));
-  daySel.value = day;
-  document.getElementById("journal-title").textContent = "Journal du " + day;
-  const projects = s.projects || [];
-  renderDecisions(projects); renderWorkers(projects); renderJournal(projects);
+async function answer(slug, d, el){
+  const key = slug + "/" + d.id, draft = drafts.get(key) || {option:d.reco, comment:""};
+  const btn = el.querySelector(".answer"), err = el.querySelector(".error");
+  btn.disabled = true; err.hidden = true;
+  const r = await post(`/api/decisions/${slug}/${d.id}`, {option:draft.option + 1, comment:draft.comment}).catch(e => ({ok:false, text:e.message}));
+  if (r.ok || r.status === 409) { drafts.delete(key); delete rendered.decisions; refresh(); return; }
+  btn.disabled = false; err.hidden = false; err.textContent = "Échec : " + (r.text || r.status);
 }
-daySel.addEventListener("change", () => { day = daySel.value; refresh(); });
-refresh();
+
+function renderConversation(c){
+  const box = $("#conversation"), main = $("#mainScroll");
+  $("#masterState").textContent = MASTER_LABEL[c.master_state] || "";
+  const atBottom = main.scrollHeight - main.scrollTop - main.clientHeight < 40;
+  draw("conversation", [selectedSlug, c.available, c.messages], () => {
+    if (!c.available) { box.innerHTML = '<div class="empty">Conversation indisponible : elle ne s\'affiche que pour un master claude lancé avec --web.</div>'; return; }
+    box.innerHTML = c.messages.map(m => `<article class="msg ${m.role === "user" ? "user" : ""}"><div class="msg-meta"><span class="msg-role">${m.role === "user" ? "Toi" : "Master"}</span>${fmtTime(m.at)}</div><div class="msg-body">${md(m.text)}</div></article>`).join("")
+      || '<div class="empty">Pas encore d\'échange.</div>';
+    // Follow new messages only when already at the bottom, never pull the
+    // user away from what they scrolled back to read.
+    if (atBottom) main.scrollTop = main.scrollHeight;
+  });
+}
+
+function renderJournal(){
+  const days = [...state.days].reverse();
+  draw("days", [days, state.day], () => {
+    $("#journalDaySelect").innerHTML = days.map(d => `<option value="${esc(d)}" ${d === state.day ? "selected" : ""}>${esc(d)}</option>`).join("");
+  });
+  const p = current();
+  const rows = p ? (p.journal || []).map(j => ({at:j.at, who:j.worker, what:j.tache, how:j.state, extra:j.summary, pr:j.pr_url}))
+    .concat((p.decisions || []).filter(d => d.status !== "open").map(d => ({at:d.answered_at, who:d.id, what:d.question,
+      how: d.status === "abandoned" ? "abandonnée" : `tranchée (${d.answered_via === "ui" ? "page" : "terminal"})`, extra:d.answer || ""})))
+    .sort((a, b) => (b.at || "").localeCompare(a.at || "")) : [];
+  draw("journal", [selectedSlug, state.day, rows], () => {
+    $("#journalProjectLabel").textContent = p ? `${p.label} · ${state.day}` : "";
+    $("#journal").innerHTML = rows.map(j => `<div class="jrow"><span class="jtime">${fmtTime(j.at)}</span><span class="jworker">${esc(j.who)}</span><span>${esc(j.what)}</span><span class="jstate">${esc(j.how)}</span><span class="jsummary">${esc(j.extra)}${j.pr ? ` · <a href="${esc(j.pr)}" target="_blank" rel="noreferrer">PR ↗</a>` : ""}</span></div>`).join("")
+      || '<div class="empty" style="padding-top:12px">Rien ce jour-là pour ce projet.</div>';
+  });
+}
+
+function render(){
+  if (!current()) {
+    const needed = state.projects.find(p => openDecisions(p).length) || state.projects.find(p => p.live) || state.projects[0];
+    selectedSlug = needed ? needed.slug : null;
+  }
+  const p = current(), journal = currentView === "journal";
+  renderSidebar(); renderHeader(p);
+  $("#mainScroll").hidden = journal || !p;
+  $("#journalView").hidden = !journal;
+  $("#composer").hidden = journal || !p || !p.live;
+  if (journal) renderJournal();
+  else if (p) { renderDecisions(p); renderWorkers(p); }
+  const n = state.projects.reduce((n, p) => n + openDecisions(p).length, 0);
+  document.title = `${n ? `(${n}) ` : ""}acw`;
+}
+
+async function loadConversation(reset){
+  if (currentView !== "project" || !current()) return;
+  if (reset) delete rendered.conversation;
+  try { renderConversation(await fetchConversation(selectedSlug)); } catch {}
+}
+
+async function refresh(){
+  try {
+    state = await fetchState(viewDay);
+    $("#conn").className = "conn"; $("#conn span").textContent = "connecté";
+    $("#lastRefresh").textContent = "mis à jour à " + fmtTime(new Date().toISOString());
+  } catch {
+    $("#conn").className = "conn off"; $("#conn span").textContent = "hors ligne";
+    return;
+  }
+  render();
+  loadConversation(false);
+}
+
+const input = $("#messageInput");
+input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 140) + "px"; });
+input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("#composer").requestSubmit(); } });
+$("#composer").addEventListener("submit", async e => {
+  e.preventDefault();
+  const text = input.value.trim(); if (!text || !selectedSlug) return;
+  const btn = $("#sendBtn"), err = $("#sendError");
+  btn.disabled = true; err.hidden = true;
+  const r = await post(`/api/conversation/${selectedSlug}`, {text}).catch(e => ({ok:false, text:e.message}));
+  btn.disabled = false;
+  if (!r.ok) { err.hidden = false; err.textContent = "Non envoyé : " + (r.text || r.status); return; }
+  input.value = ""; input.style.height = "";
+  const main = $("#mainScroll"); main.scrollTop = main.scrollHeight;
+  setTimeout(() => loadConversation(false), 800);
+});
+$("#journalNav").addEventListener("click", () => { currentView = "journal"; render(); });
+$("#journalDaySelect").addEventListener("change", e => { viewDay = e.target.value; refresh(); });
+
+refresh().then(() => loadConversation(true));
 setInterval(refresh, 3000);
 </script>
 </body>

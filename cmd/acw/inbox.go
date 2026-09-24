@@ -48,9 +48,13 @@ func inboxWatchCommand(masterKind, customBrief, exe, inbox string) (cmd string, 
 // every re-arm. Scoped to acw's own watch command, not Monitor in
 // general, which would run any command unasked. Same for the decision
 // queue: a master asking approval to file a question for the user would
-// be asking the question anyway.
-func masterArgs(model, exe, inboxWatch, decisionCmd string) []string {
+// be asking the question anyway. sessionID, "" for none, fixes the
+// session so the page finds its transcript (see readConversation).
+func masterArgs(model, exe, inboxWatch, decisionCmd, sessionID string) []string {
 	args := modelArgs(model)
+	if sessionID != "" {
+		args = append(args, "--session-id", sessionID)
+	}
 	if inboxWatch == "" {
 		return args
 	}

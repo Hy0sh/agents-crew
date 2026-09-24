@@ -80,7 +80,7 @@ func TestInboxWatchCommand(t *testing.T) {
 // command the brief gives, and only that command.
 func TestMasterArgsAllowOnlyTheInboxWatch(t *testing.T) {
 	watch, _ := inboxWatchCommand("claude", "", "/bin/acw", "/repo/inbox")
-	got := masterArgs("opus", "/bin/acw", watch, "")
+	got := masterArgs("opus", "/bin/acw", watch, "", "")
 	i := slices.Index(got, "--allowedTools")
 	if i < 0 || i+1 >= len(got) || got[i+1] != "Bash(/bin/acw __inbox-watch:*)" {
 		t.Errorf("masterArgs() = %v, want --allowedTools Bash(/bin/acw __inbox-watch:*)", got)
@@ -92,7 +92,7 @@ func TestMasterArgsAllowOnlyTheInboxWatch(t *testing.T) {
 		t.Errorf("masterArgs() = %v, dropped the model", got)
 	}
 
-	if got := masterArgs("opus", "/bin/acw", "", ""); slices.Contains(got, "--allowedTools") {
+	if got := masterArgs("opus", "/bin/acw", "", "", ""); slices.Contains(got, "--allowedTools") {
 		t.Errorf("masterArgs() without inbox = %v; --allowedTools is Claude Code's own flag", got)
 	}
 }
@@ -102,10 +102,15 @@ func TestMasterArgsAllowOnlyTheInboxWatch(t *testing.T) {
 func TestMasterArgsAllowTheDecisionQueue(t *testing.T) {
 	watch, _ := inboxWatchCommand("claude", "", "/bin/acw", "/repo/inbox")
 	decide, _ := decisionCommand("claude", "", "/bin/acw", "/repo", watch)
-	got := masterArgs("opus", "/bin/acw", watch, decide)
+	got := masterArgs("opus", "/bin/acw", watch, decide, "0b8c-uuid")
 	i := slices.Index(got, "--allowedTools")
 	if i < 0 || !slices.Contains(got[i+1:], "Bash(/bin/acw __decision:*)") {
 		t.Fatalf("masterArgs() = %v, want the decision rule after --allowedTools", got)
+	}
+	// --allowedTools takes every value after it: the session ID must come
+	// before, or it would be read as a tool rule.
+	if s := slices.Index(got, "--session-id"); s < 0 || s > i || got[s+1] != "0b8c-uuid" {
+		t.Errorf("masterArgs() = %v, want --session-id 0b8c-uuid before --allowedTools", got)
 	}
 	if !strings.HasPrefix(decide, "/bin/acw __decision ") {
 		t.Errorf("decision command %q is not covered by the rule", decide)

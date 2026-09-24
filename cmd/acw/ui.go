@@ -53,6 +53,10 @@ type projectInfo struct {
 	Repo  string `json:"repo"`
 	Label string `json:"label"`
 	Inbox string `json:"inbox,omitempty"`
+	// SessionID is the claude master's session, whose transcript the page
+	// shows; BriefHead is how the brief is told apart in it.
+	SessionID string `json:"session_id,omitempty"`
+	BriefHead string `json:"brief_head,omitempty"`
 }
 
 func (s serverInfo) url() string {
@@ -88,7 +92,7 @@ func serveUI(agents func() ([]herdr.Agent, error), every time.Duration) error {
 	}
 	defer os.Remove(names.ServerFile())
 
-	srv := &http.Server{Handler: newUIHandler(info, agents), ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Handler: newUIHandler(info, agents, herdr.AgentPrompt), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		for range time.Tick(every) {
 			list, err := agents()
@@ -118,7 +122,7 @@ func anyMaster(agents []herdr.Agent) bool {
 // answer becomes an instruction to a master allowed to commit and push,
 // so neither another site open in the browser (CSRF) nor a DNS name
 // rebound to 127.0.0.1 may send one.
-func newUIHandler(info serverInfo, agents func() ([]herdr.Agent, error)) http.Handler {
+func newUIHandler(info serverInfo, agents func() ([]herdr.Agent, error), prompt func(name, text string) error) http.Handler {
 	host := fmt.Sprintf("127.0.0.1:%d", info.Port)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
@@ -140,6 +144,62 @@ func newUIHandler(info serverInfo, agents func() ([]herdr.Agent, error)) http.Ha
 		json.NewEncoder(w).Encode(state)
 	})
 	mux.HandleFunc("POST /api/decisions/{slug}/{id}", answerDecision)
+	mux.HandleFunc("GET /api/conversation/{slug}", func(w http.ResponseWriter, r *http.Request) {
+		info, ok := readProject(w, r.PathValue("slug"))
+		if !ok {
+			return
+		}
+		out := struct {
+			MasterState string        `json:"master_state"` // working, waiting, or stopped
+			Available   bool          `json:"available"`    // a transcript was found
+			Messages    []chatMessage `json:"messages"`
+		}{MasterState: "stopped", Messages: []chatMessage{}}
+		list, _ := agents()
+		if a, ok := herdr.FindAgent(list, names.Master(r.PathValue("slug"))); ok {
+			out.MasterState = "waiting"
+			if a.Status == "working" {
+				out.MasterState = "working"
+			}
+		}
+		if path := transcriptPath(info.SessionID); info.SessionID != "" && path != "" {
+			msgs, err := readConversation(path, info.BriefHead)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			out.Available = true
+			if len(msgs) > 200 {
+				msgs = msgs[len(msgs)-200:]
+			}
+			out.Messages = append(out.Messages, msgs...)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(out)
+	})
+	// Typed into the master's input, as if from its terminal: it lands in
+	// the conversation as the user's own message, and Claude Code queues it
+	// while the master works.
+	mux.HandleFunc("POST /api/conversation/{slug}", func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := readProject(w, r.PathValue("slug")); !ok {
+			return
+		}
+		var body struct {
+			Text string `json:"text"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || strings.TrimSpace(body.Text) == "" {
+			http.Error(w, "message vide", http.StatusBadRequest)
+			return
+		}
+		if err := prompt(names.Master(r.PathValue("slug")), strings.TrimSpace(body.Text)); err != nil {
+			if strings.Contains(err.Error(), "agent_blocked") {
+				http.Error(w, "le master attend une réponse dans son terminal (approbation ou question)", http.StatusConflict)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := r.URL.Query().Get("t")
@@ -282,13 +342,33 @@ func workerState(herdrStatus string, blocked bool) string {
 // reach a file path.
 var slugPattern = regexp.MustCompile(`^[0-9a-f]{6}$`)
 
+// readProject reads slug's project.json, answering 404 itself when there
+// is none.
+func readProject(w http.ResponseWriter, slug string) (projectInfo, bool) {
+	var info projectInfo
+	if !slugPattern.MatchString(slug) {
+		http.Error(w, "projet inconnu", http.StatusNotFound)
+		return info, false
+	}
+	content, err := os.ReadFile(names.ProjectFile(slug))
+	if err != nil || json.Unmarshal(content, &info) != nil {
+		http.Error(w, "projet inconnu", http.StatusNotFound)
+		return info, false
+	}
+	return info, true
+}
+
 // answerDecision records the user's answer and tells the master through
 // its inbox, pointing at the answer rather than carrying it: the inbox is
 // read line by line, and a comment may hold several.
 func answerDecision(w http.ResponseWriter, r *http.Request) {
 	slug, id := r.PathValue("slug"), r.PathValue("id")
-	if !slugPattern.MatchString(slug) {
-		http.Error(w, "projet inconnu", http.StatusNotFound)
+	info, ok := readProject(w, slug)
+	if !ok {
+		return
+	}
+	if info.Inbox == "" {
+		http.Error(w, "projet sans inbox", http.StatusNotFound)
 		return
 	}
 	var body struct {
@@ -297,12 +377,6 @@ func answerDecision(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	var info projectInfo
-	content, err := os.ReadFile(names.ProjectFile(slug))
-	if err != nil || json.Unmarshal(content, &info) != nil || info.Inbox == "" {
-		http.Error(w, "projet inconnu ou sans inbox", http.StatusNotFound)
 		return
 	}
 	path := names.DecisionsFile(slug)

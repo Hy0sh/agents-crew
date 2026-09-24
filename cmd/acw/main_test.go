@@ -42,6 +42,21 @@ func TestCompleteFlagsOnBareTab(t *testing.T) {
 	}
 }
 
+// `--web=false` on the command line must beat `"web": true` in the config.
+func TestApplyConfigWeb(t *testing.T) {
+	on := true
+	opts := &startOptions{}
+	applyConfig(opts, &config.Project{Web: &on}, func(string) bool { return false })
+	if !opts.web {
+		t.Error(`"web": true in the config should turn the page on`)
+	}
+	opts = &startOptions{}
+	applyConfig(opts, &config.Project{Web: &on}, func(name string) bool { return name == "web" })
+	if opts.web {
+		t.Error("--web=false given on the command line must win over the config")
+	}
+}
+
 func TestApplyConfigFlagWinsOverConfig(t *testing.T) {
 	workers, workerModel, masterModel, profile := 5, "haiku", "", "light"
 	project := &config.Project{Workers: &workers, WorkerModel: &workerModel, MasterModel: &masterModel, Profile: &profile}

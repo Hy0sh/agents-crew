@@ -39,6 +39,7 @@ type startOptions struct {
 	notesPath   string                           // same
 	masterDir   string                           // same
 	overrides   map[string]config.WorkerOverride // same
+	web         bool
 }
 
 // applyConfig copies the project entry's values into opts, except for
@@ -67,6 +68,9 @@ func applyConfig(opts *startOptions, p *config.Project, changed func(string) boo
 	setStr("profile", &opts.profile, p.Profile)
 	setStr("notes", &opts.notesPath, p.Notes)
 	setStr("master-dir", &opts.masterDir, p.MasterDir)
+	if p.Web != nil && !changed("web") {
+		opts.web = *p.Web
+	}
 	opts.overrides = p.WorkerOverrides
 }
 
@@ -205,6 +209,7 @@ func main() {
 	root.Flags().StringVar(&opts.masterModel, "master-model", "opus", "model for the master agent; empty means no --model is passed to its CLI (per-project: master-model)")
 	root.Flags().StringVar(&opts.workerModel, "worker-model", "sonnet", "model for worker agents; empty means no --model is passed to their CLI (per-project: worker-model)")
 	root.Flags().StringVar(&opts.preset, "preset", "", "named preset of the per-project config entry, laid over it (see presets in the config)")
+	root.Flags().BoolVar(&opts.web, "web", false, "local web page over every swarm, where the master's questions are answered instead of in its conversation (per-project: web)")
 	root.Flags().StringVar(&opts.briefPath, "brief", "", "path to a custom master brief template (Go text/template), variables in the README; default: built-in template (per-project: brief)")
 
 	stop := &cobra.Command{

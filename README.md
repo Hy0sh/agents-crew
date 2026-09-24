@@ -75,6 +75,7 @@ acw [flags]
 | `--worker-kind` | `claude` | Herdr agent kind for the workers |
 | `--master-model` | `opus` | model for the master agent; **empty means no `--model` is passed** to its CLI, for a kind that has no such flag |
 | `--worker-model` | `sonnet` | model for worker agents; same empty-means-nothing rule |
+| `--web` | off | local web page and decision queue, see [The page and the decision queue](#the-page-and-the-decision-queue) |
 | `--preset` | *(none)* | named preset of the repo's config entry, laid over it — see [Presets](#presets) |
 | `--brief` | *(built-in)* | path to a custom master brief template, for when you want to change the operating rules without forking the tool — see [Custom brief template](#custom-brief-template) for the variables |
 
@@ -127,17 +128,29 @@ only way to actually stop it.
 
 ## The page and the decision queue
 
+Opt-in: `acw --web`, or `"web": true` in the project's config entry.
+Without it, acw runs as before: no page, and the master asks its
+questions in the conversation.
+
 With a `claude` master, the questions it has for you don't block its
 conversation any more. It files each one in a queue, with concrete
 options, their consequences and its recommendation, tells you in one line
 (`D4 ajoutée, bloque worker2`), and carries on with everything else. You
 answer from a local web page, whenever and in whatever order you like.
 
-The page also shows, for every swarm running on the machine, each
-worker's state (active, waiting on you, idle) and task, and what the
-workers went through during the day, project by project.
+The page also shows, for every swarm launched with `--web`, each worker's
+state (active, waiting on you, idle) and task, the conversation with the
+master, and what the workers went through during the day, project by
+project.
 
-- **One server for all projects.** The first `acw` that finds none running
+- **The conversation** is read from the master's Claude Code transcript:
+  acw starts it with a fixed `--session-id` to find it. Your messages and
+  its text replies show; tool calls and the swarm's own messages don't.
+  What you write on the page is typed into the master's input, as if from
+  its terminal, so writing in both at the same moment mixes the two. A
+  `/clear` typed to the master starts a new session, which the page no
+  longer follows.
+- **One server for all projects.** The first `acw --web` that finds none running
   starts it in the background and opens the page. Its URL is on the
   launch line, e.g. `http://127.0.0.1:53817/?t=<token>`. The server stops
   itself once Herdr has no acw master left.
@@ -156,8 +169,10 @@ workers went through during the day, project by project.
   read with `jq`. Nothing is ever purged, and the page has a day picker.
   `acw stop` marks decisions still open as abandoned, since no master is
   left to relay an answer.
-- **The journal** is fed by a second `Stop` hook on each `claude` worker.
-  It copies the worker's status file whenever its task or state changed.
+- **The journal** is fed by a second `Stop` hook on each `claude` worker,
+  with or without `--web`, so the history is complete when you turn the
+  page on. It copies the worker's status file whenever its task or state
+  changed.
   A worker of another kind has no hook, so it doesn't show up in the
   journal.
 - A master of another kind has no inbox to receive answers through, and
@@ -183,7 +198,7 @@ and keep the variables you need:
 | `{{.PingingWorkers}}` | the names of the workers that ping the master on each turn (the `claude` ones, which have the Stop hook), empty when none does |
 | `{{.WorkerOverrides}}` | each worker configured apart in `worker-overrides`: its kind, model and standing instructions in full, and whether the master must copy them into its briefs; empty when none is |
 | `{{.InboxWatch}}` | the command the master must arm a Monitor on to receive pings and "workers ready", empty when the master is not `claude`. A custom brief that doesn't mention it gets pings typed into the master's input, as before, with a warning at launch |
-| `{{.DecisionCmd}}` | the command prefix the master files its questions for the user with (`add`, `show`, `close`), see [The page and the decision queue](#the-page-and-the-decision-queue); empty when there is no inbox. A custom brief that doesn't mention it keeps its master asking in the conversation, with a warning at launch |
+| `{{.DecisionCmd}}` | the command prefix the master files its questions for the user with (`add`, `show`, `close`), see [The page and the decision queue](#the-page-and-the-decision-queue); empty without `--web` or when there is no inbox. A custom brief that doesn't mention it keeps its master asking in the conversation, with a warning at launch |
 
 Before `worker-overrides`, a template could test `{{if eq .WorkerAgent
 "claude"}}` to know whether pings come in. That still works when all
@@ -247,6 +262,7 @@ needs no answers to work, so the file only changes the defaults.
 | `notes` | *(no flag)* | none |
 | `worker-overrides` | *(no flag)* | none: every worker as above |
 | `master-dir` | *(no flag)* | none: the master starts in the repo |
+| `web` | `--web` | `false` |
 | `presets` | *(picked with `--preset`)* | none |
 
 **`profile`** is one of the project's wtm profiles (`wtm project edit

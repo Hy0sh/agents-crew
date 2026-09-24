@@ -37,6 +37,8 @@ type Project struct {
 	// MasterDir is where the master starts instead of the repo, e.g. a
 	// folder whose .claude it needs. Checked by the caller.
 	MasterDir *string `json:"master-dir"`
+	// Web turns on the local page and the decision queue, like --web.
+	Web *bool `json:"web"`
 	// WorkerOverrides is keyed by worker index, 1 to workers, as a
 	// string because JSON keys are. The range is checked by the caller,
 	// once the flags have had their say on the worker count.
@@ -172,6 +174,9 @@ func (p *Project) Summary() string {
 	addStr("profile", p.Profile)
 	addStr("notes", p.Notes)
 	addStr("master-dir", p.MasterDir)
+	if p.Web != nil {
+		parts = append(parts, fmt.Sprintf("web=%t", *p.Web))
+	}
 	if len(p.WorkerOverrides) > 0 {
 		keys := slices.Sorted(maps.Keys(p.WorkerOverrides))
 		parts = append(parts, "worker-overrides="+strings.Join(keys, ","))
