@@ -37,6 +37,7 @@ type startOptions struct {
 	preset      string                           // picks the config entry's variant, not a config key itself
 	profile     string                           // from the per-project config only, no flag
 	notesPath   string                           // same
+	masterDir   string                           // same
 	overrides   map[string]config.WorkerOverride // same
 }
 
@@ -65,6 +66,7 @@ func applyConfig(opts *startOptions, p *config.Project, changed func(string) boo
 	setStr("brief", &opts.briefPath, p.Brief)
 	setStr("profile", &opts.profile, p.Profile)
 	setStr("notes", &opts.notesPath, p.Notes)
+	setStr("master-dir", &opts.masterDir, p.MasterDir)
 	opts.overrides = p.WorkerOverrides
 }
 
@@ -88,7 +90,7 @@ agents, in the current directory.
 Per-project config (optional): ~/.config/acw/config.json, or
 $XDG_CONFIG_HOME/acw/config.json. It lives outside the repo, so it works
 where nothing may be committed. Entries are keyed by the directory acw is
-launched from, keys are the flag names, plus four with no flag:
+launched from, keys are the flag names, plus five with no flag:
 
   {
     "projects": {
@@ -110,7 +112,12 @@ launched from, keys are the flag names, plus four with no flag:
   worker-overrides  per worker index (1 to workers): its own kind, model,
                     and prompt, a file of standing instructions (system
                     prompt for a claude worker, copied into each of its
-                    briefs by the master otherwise)
+                    briefs by the master otherwise), and dir, an absolute
+                    folder outside the repo that makes it a worker outside
+                    the code: it starts there, with no worktree,
+                    environment or branch
+  master-dir        absolute folder outside the repo the master starts in
+                    (default: the repo)
   presets           named variants of the entry, picked with --preset: same
                     keys, each one set replacing the entry's whole value
                     (worker-overrides included)
@@ -152,6 +159,11 @@ func main() {
 			workers, err := resolveWorkers(opts, cwd)
 			if err != nil {
 				return fmt.Errorf("config acw: %w", err)
+			}
+			if opts.masterDir != "" {
+				if _, err := validateAgentDir(cwd, opts.masterDir); err != nil {
+					return fmt.Errorf("config acw: master-dir: %w", err)
+				}
 			}
 			if err := preflight.CheckStart(append([]string{opts.masterKind}, distinctKinds(workers)...)...); err != nil {
 				return err

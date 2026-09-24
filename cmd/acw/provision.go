@@ -38,16 +38,21 @@ func provisionWorkers(plan provisionPlan) {
 	currentPane := plan.MasterPane
 
 	var adopting sync.WaitGroup
+	stacked := stackedWorkers(plan.Workers, plan.MaxStacks)
 
 	for i := 1; i <= n; i++ {
 		label := fmt.Sprintf("worker%d", i) // cosmetic pane label, kept short
 		name := names.Worker(slug, i)       // actual herdr agent name, unique per repo
-		wt := names.WorkerWorktree(repo, i, stamp)
-		branch := names.WorkerBranch(i, stamp)
+		w := plan.Workers[i-1]
 
-		if err := gitutil.WorktreeAdd(repo, wt, branch, baseRef); err != nil {
-			fmt.Fprintf(os.Stderr, "%s: git worktree add: %v\n", name, err)
-			continue
+		// A worker outside the code starts in its own dir: no worktree.
+		wt := w.Dir
+		if wt == "" {
+			wt = names.WorkerWorktree(repo, i, stamp)
+			if err := gitutil.WorktreeAdd(repo, wt, names.WorkerBranch(i, stamp), baseRef); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: git worktree add: %v\n", name, err)
+				continue
+			}
 		}
 
 		split := splits[i-1]
@@ -61,13 +66,12 @@ func provisionWorkers(plan provisionPlan) {
 		if err := herdr.PaneRename(newPane, label); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: herdr pane rename: %v\n", name, err)
 		}
-		w := plan.Workers[i-1]
 		if err := herdr.AgentStart(name, w.Kind, newPane, workerArgs(w, label, pingCommand(plan.Inbox, masterName, label))...); err != nil {
-			fmt.Fprintf(os.Stderr, "%s: herdr agent start: %v\n", name, err)
+			fmt.Fprintf(os.Stderr, "%s: herdr agent start: %v\n", name, explainStart(err, wt))
 			continue
 		}
 
-		if i <= plan.MaxStacks && wtm.Available() {
+		if stacked[i-1] && wtm.Available() {
 			adopting.Add(1)
 			go func(name, wt string) {
 				defer adopting.Done()

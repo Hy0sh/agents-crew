@@ -73,6 +73,8 @@ type Worker struct {
 	// Overridden is set when the config gave this worker its own
 	// settings, so the brief only lists workers that differ.
 	Overridden bool
+	// Dir is where a worker outside the code runs, "" for a coder.
+	Dir string
 }
 
 // Variables lists what a custom template can reference, e.g.
@@ -94,7 +96,7 @@ func newMasterData(p Params) MasterData {
 		N:                n,
 		WorkerAgent:      workerAgent(p.Slug, p.Workers),
 		WorkerNames:      workerNamesList(p.Slug, n),
-		EnvCapRule:       envCapRule(n, p.MaxStacks),
+		EnvCapRule:       envCapRule(coders(p.Workers), p.MaxStacks),
 		StackProfileRule: stackProfileRule(p.Profile),
 		RepoRules:        strings.TrimSpace(p.Notes),
 		PingingWorkers:   pingingWorkers(p.Slug, p.Workers),
@@ -127,6 +129,17 @@ func workerAgent(slug string, workers []Worker) string {
 	return "mixte : " + strings.Join(parts, ", ")
 }
 
+// coders counts the workers in the code: only they need an environment.
+func coders(workers []Worker) int {
+	n := 0
+	for _, w := range workers {
+		if w.Dir == "" {
+			n++
+		}
+	}
+	return n
+}
+
 // pingingWorkers names the claude workers: only they get the Stop hook
 // (see workerArgs in cmd/acw).
 func pingingWorkers(slug string, workers []Worker) string {
@@ -154,6 +167,11 @@ func workerOverrides(slug string, workers []Worker) string {
 		}
 		name := names.Worker(slug, i+1)
 		fmt.Fprintf(&b, "- %s tourne sur %s", name, DescribeAgent(w.Kind, w.Model))
+		if w.Dir != "" {
+			fmt.Fprintf(&b, ", hors code, dans %s : ni worktree, ni environnement, ni branche. Ne lui confie JAMAIS de code, "+
+				"et les règles de worktree, de branche, d'environnement et de PR ci-dessus ne s'appliquent pas à lui ; "+
+				"son fichier de statut est au même chemin absolu que celui des autres, sous le dépôt", w.Dir)
+		}
 		if w.Prompt == "" {
 			b.WriteString(", sans consignes propres.\n")
 			continue
@@ -223,7 +241,7 @@ func WorkersReadyMessage(slug string, n int) string {
 }
 
 func envCapRule(n, maxStacks int) string {
-	rule := fmt.Sprintf("il y a %d workers mais la machine ne supporte que %d environnements isolés (stacks) en même temps. ", n, maxStacks)
+	rule := fmt.Sprintf("il y a %d workers dans le code mais la machine ne supporte que %d environnements isolés (stacks) en même temps. ", n, maxStacks)
 	if maxStacks < n {
 		return rule + fmt.Sprintf(
 			"Seuls les %d premiers workers ont un environnement au démarrage ; les autres ont leur worktree mais pas d'environnement monté. "+

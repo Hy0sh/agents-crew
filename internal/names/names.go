@@ -49,16 +49,9 @@ func Label(repo string) string {
 	return "acw " + base
 }
 
-const masterPrefix = "master-"
-
 // Master is the master agent's name for a run identified by slug.
 func Master(slug string) string {
-	return masterPrefix + slug
-}
-
-// IsMaster reports whether an agent name is a master's, whatever its run.
-func IsMaster(agentName string) bool {
-	return strings.HasPrefix(agentName, masterPrefix)
+	return "master-" + slug
 }
 
 // WorktreesDir is where a run in repo puts its workers' worktrees.

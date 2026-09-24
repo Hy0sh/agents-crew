@@ -20,12 +20,11 @@ import (
 // provisioning, then execs into the Herdr TUI so the caller can start
 // talking to the master immediately.
 func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSpec) error {
+	// Only coders need an environment; a worker outside the code has none.
+	coders := coderCount(workers)
 	maxStacks := opts.maxStacks
-	if maxStacks <= 0 {
-		maxStacks = opts.workers
-	}
-	if maxStacks > opts.workers {
-		maxStacks = opts.workers
+	if maxStacks <= 0 || maxStacks > coders {
+		maxStacks = coders
 	}
 
 	slug := names.Slug(repo)
@@ -37,17 +36,15 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 
 	// Scoped to this directory, not global: two different repos each get
 	// their own master/worker names (see internal/names), and a swarm
-	// already running for a DIFFERENT repo never blocks this one — only an
-	// agent whose own pane cwd is exactly this repo does.
+	// already running for a DIFFERENT repo never blocks this one. Found by
+	// name, not by its pane's cwd: with master-dir it runs elsewhere.
 	agents, err := herdr.AgentList()
 	if err != nil {
 		return fmt.Errorf("herdr agent list: %w", err)
 	}
-	for _, a := range agents {
-		if a.Cwd == repo && names.IsMaster(a.Name) {
-			return fmt.Errorf("un master tourne déjà dans le workspace %s pour ce répertoire. Attache-toi-y (herdr workspace focus %s) "+
-				"au lieu d'en relancer un — ou ferme-le d'abord (acw stop)", a.WorkspaceID, a.WorkspaceID)
-		}
+	if a, ok := herdr.FindAgent(agents, masterName); ok {
+		return fmt.Errorf("un master tourne déjà dans le workspace %s pour ce répertoire. Attache-toi-y (herdr workspace focus %s) "+
+			"au lieu d'en relancer un — ou ferme-le d'abord (acw stop)", a.WorkspaceID, a.WorkspaceID)
 	}
 
 	// Before anything is created: a custom brief with a typo'd variable
@@ -86,7 +83,11 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		return err
 	}
 
-	workspaceID, masterPane, err := herdr.WorkspaceCreate(repo, names.Label(repo), true)
+	masterDir := repo
+	if opts.masterDir != "" {
+		masterDir = opts.masterDir
+	}
+	workspaceID, masterPane, err := herdr.WorkspaceCreate(masterDir, names.Label(repo), true)
 	if err != nil {
 		return fmt.Errorf("herdr workspace create: %w", err)
 	}
@@ -102,7 +103,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		return err
 	}
 	if err := herdr.AgentStart(masterName, opts.masterKind, masterPane, masterArgs(opts.masterModel, self, inboxWatch)...); err != nil {
-		return fmt.Errorf("herdr agent start master: %w", err)
+		return fmt.Errorf("herdr agent start master: %w", explainStart(err, masterDir))
 	}
 
 	if err := herdr.AgentPrompt(masterName, masterBrief); err != nil {

@@ -20,6 +20,9 @@ type workerSpec struct {
 	PromptPath string `json:"prompt_path,omitempty"`
 	Prompt     string `json:"-"` // content, for the master's brief only
 	Overridden bool   `json:"overridden,omitempty"`
+	// Dir, when set, is where a worker outside the code starts: no
+	// worktree, environment or branch (see validateAgentDir).
+	Dir string `json:"dir,omitempty"`
 }
 
 // resolveWorkers builds the spec of each of the opts.workers workers. An
@@ -55,6 +58,13 @@ func resolveWorkers(opts *startOptions, repo string) ([]workerSpec, error) {
 			}
 			w.PromptPath, w.Prompt = path, string(content)
 		}
+		if o.Dir != nil {
+			dir, err := validateAgentDir(repo, *o.Dir)
+			if err != nil {
+				return nil, fmt.Errorf("worker-overrides %s: dir: %w", key, err)
+			}
+			w.Dir = dir
+		}
 	}
 	return workers, nil
 }
@@ -75,7 +85,7 @@ func distinctKinds(workers []workerSpec) []string {
 func briefWorkers(workers []workerSpec) []brief.Worker {
 	out := make([]brief.Worker, len(workers))
 	for i, w := range workers {
-		out[i] = brief.Worker{Kind: w.Kind, Model: w.Model, Prompt: w.Prompt, Overridden: w.Overridden}
+		out[i] = brief.Worker{Kind: w.Kind, Model: w.Model, Prompt: w.Prompt, Overridden: w.Overridden, Dir: w.Dir}
 	}
 	return out
 }

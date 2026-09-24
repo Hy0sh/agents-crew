@@ -31,6 +31,19 @@ func TestBuildTellsTheMasterToWatchTheInbox(t *testing.T) {
 	}
 }
 
+func TestBuildListsOutsideWorkersAndCountsOnlyCodersForStacks(t *testing.T) {
+	p := params("claude", 3, 2)
+	p.Workers[0] = Worker{Kind: "claude", Dir: "/Users/me/studio", Overridden: true}
+	got := Build(p)
+	if !strings.Contains(got, "/Users/me/studio") || !strings.Contains(got, "hors code") {
+		t.Error("brief should list worker1 as outside the code, with its folder")
+	}
+	// 2 coders, 2 environments: no arbitration, even with 3 workers.
+	if strings.Contains(got, "C'est TOI qui arbitres") {
+		t.Error("the stack rule must count coders only; worker1 needs no environment")
+	}
+}
+
 func TestBuildNamesAllWorkers(t *testing.T) {
 	got := Build(params("claude", 3, 3))
 	for _, want := range []string{"worker1-testslug", "worker2-testslug", "worker3-testslug"} {

@@ -34,6 +34,9 @@ type Project struct {
 	Brief       *string `json:"brief"`
 	Profile     *string `json:"profile"`
 	Notes       *string `json:"notes"`
+	// MasterDir is where the master starts instead of the repo, e.g. a
+	// folder whose .claude it needs. Checked by the caller.
+	MasterDir *string `json:"master-dir"`
 	// WorkerOverrides is keyed by worker index, 1 to workers, as a
 	// string because JSON keys are. The range is checked by the caller,
 	// once the flags have had their say on the worker count.
@@ -50,6 +53,9 @@ type WorkerOverride struct {
 	Kind   *string `json:"kind"`
 	Model  *string `json:"model"`
 	Prompt *string `json:"prompt"`
+	// Dir makes the worker one outside the code: it starts there, with no
+	// worktree, environment or branch. Checked by the caller.
+	Dir *string `json:"dir"`
 }
 
 type file struct {
@@ -106,9 +112,9 @@ func Load(repo string) (*Project, error) {
 // expandPaths expands ~ in p's file paths. p is a copy, but its fields
 // are pointers, so the expansion lands in the caller's entry.
 func expandPaths(p Project) {
-	paths := []*string{p.Brief, p.Notes}
+	paths := []*string{p.Brief, p.Notes, p.MasterDir}
 	for _, o := range p.WorkerOverrides {
-		paths = append(paths, o.Prompt)
+		paths = append(paths, o.Prompt, o.Dir)
 	}
 	for _, s := range paths {
 		if s != nil {
@@ -165,6 +171,7 @@ func (p *Project) Summary() string {
 	addStr("brief", p.Brief)
 	addStr("profile", p.Profile)
 	addStr("notes", p.Notes)
+	addStr("master-dir", p.MasterDir)
 	if len(p.WorkerOverrides) > 0 {
 		keys := slices.Sorted(maps.Keys(p.WorkerOverrides))
 		parts = append(parts, "worker-overrides="+strings.Join(keys, ","))
