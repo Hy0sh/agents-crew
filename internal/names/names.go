@@ -71,6 +71,12 @@ func StatusDir(repo string) string {
 	return filepath.Join(WorktreesDir(repo), ".acw-status")
 }
 
+// Inbox is the file workers' pings are appended to, for the master to
+// watch.
+func Inbox(repo string) string {
+	return filepath.Join(StatusDir(repo), "inbox")
+}
+
 // WorkerWorktree is worker i's worktree for the run started at stamp.
 func WorkerWorktree(repo string, i int, stamp string) string {
 	return filepath.Join(WorktreesDir(repo), fmt.Sprintf("worker%d-%s", i, stamp))

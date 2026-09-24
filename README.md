@@ -97,6 +97,18 @@ which worker moved and nothing more (a hook can't know what changed); it
 points the master at that worker's status file. Workers of any other kind
 have no hooks and keep the previous behaviour, where the master polls.
 
+With a `claude` master, the ping is not typed into the master's input:
+typed text merged with whatever you were writing to the master at that
+moment. The hook appends a line to an inbox in the status directory, and
+the master's first action is to arm a Claude Code Monitor on it, whose
+events start a turn without touching your draft. "Workers ready" goes the
+same way. A Monitor expires after 30 minutes and the master re-arms it;
+lines written in between wait in the inbox instead of being lost. Claude
+Code asks approval for each Monitor, with no "don't ask again", so acw
+starts the master allowed to run that one watch command
+(`--allowedTools "Bash(<acw> __inbox-watch:*)"`), and nothing broader. A
+master of another kind has no Monitor and still gets pings typed in.
+
 Runs are scoped to the current directory, not global: agent names carry a
 hash of the full repo path (see `internal/names`), so several swarms — one
 per project — can run at the same time without colliding. The repo's own name
@@ -132,6 +144,7 @@ and keep the variables you need:
 | `{{.RepoRules}}` | the `notes` file's content, empty when none is configured |
 | `{{.PingingWorkers}}` | the names of the workers that ping the master on each turn (the `claude` ones, which have the Stop hook), empty when none does |
 | `{{.WorkerOverrides}}` | each worker configured apart in `worker-overrides`: its kind, model and standing instructions in full, and whether the master must copy them into its briefs; empty when none is |
+| `{{.InboxWatch}}` | the command the master must arm a Monitor on to receive pings and "workers ready", empty when the master is not `claude`. A custom brief that doesn't mention it gets pings typed into the master's input, as before, with a warning at launch |
 
 Before `worker-overrides`, a template could test `{{if eq .WorkerAgent
 "claude"}}` to know whether pings come in. That still works when all

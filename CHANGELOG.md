@@ -16,6 +16,18 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   becomes flag > preset > entry > built-in. An unknown preset, a `--preset`
   on a repo with no entry, and a preset inside a preset refuse to start.
 
+### Fixed
+
+- A worker's ping merged into what you were typing to the master: `herdr
+  agent prompt` types into the master's input. With a `claude` master,
+  pings and "workers ready" now go to an inbox file the master watches
+  with a Claude Code Monitor, whose events leave your draft alone. Lines
+  written while the Monitor is being re-armed wait in the file. The master
+  is started allowed to run that one watch command, so a re-arm never stalls
+  on an approval prompt. A master of another kind keeps pings typed in. A
+  custom brief gets the inbox only if it uses the new `{{.InboxWatch}}`
+  variable; otherwise acw warns and keeps typing pings in.
+
 ## [0.4.0] - 2026-09-23
 
 Settings per repo and per worker, outside the repo. One breaking change:

@@ -47,6 +47,9 @@ type MasterData struct {
 	// WorkerOverrides describes the workers configured apart from the
 	// others (kind, model, standing instructions), empty when none is.
 	WorkerOverrides string
+	// InboxWatch is the command the master arms a Monitor on to receive
+	// pings, empty when they are typed into its input instead.
+	InboxWatch string
 }
 
 // Params is what a brief is built from. N is len(Workers).
@@ -57,6 +60,8 @@ type Params struct {
 	Profile   string // stack profile environments start on, "" for the whole stack
 	Notes     string // content of the per-project notes file, "" when none
 	Workers   []Worker
+	// InboxWatch is the master's inbox watch command, "" for none.
+	InboxWatch string
 }
 
 // Worker is one worker as it was actually started.
@@ -94,6 +99,7 @@ func newMasterData(p Params) MasterData {
 		RepoRules:        strings.TrimSpace(p.Notes),
 		PingingWorkers:   pingingWorkers(p.Slug, p.Workers),
 		WorkerOverrides:  workerOverrides(p.Slug, p.Workers),
+		InboxWatch:       p.InboxWatch,
 	}
 }
 
