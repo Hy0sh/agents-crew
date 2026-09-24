@@ -168,7 +168,8 @@ project.
   `decisions.json` and `journal/YYYY-MM-DD.jsonl`, plain files you can
   read with `jq`. Nothing is ever purged, and the page has a day picker.
   `acw stop` marks decisions still open as abandoned, since no master is
-  left to relay an answer.
+  left to relay an answer; so does the next `acw --web` for a swarm that
+  ended another way (its workspace closed from Herdr).
 - **The journal** is fed by a second `Stop` hook on each `claude` worker,
   with or without `--web`, so the history is complete when you turn the
   page on. It copies the worker's status file whenever its task or state

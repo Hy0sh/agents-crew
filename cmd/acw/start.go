@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Hy0sh/agents-crew/internal/brief"
+	"github.com/Hy0sh/agents-crew/internal/decision"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
 	"github.com/Hy0sh/agents-crew/internal/preflight"
@@ -45,6 +46,13 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if a, ok := herdr.FindAgent(agents, masterName); ok {
 		return fmt.Errorf("un master tourne déjà dans le workspace %s pour ce répertoire. Attache-toi-y (herdr workspace focus %s) "+
 			"au lieu d'en relancer un — ou ferme-le d'abord (acw stop)", a.WorkspaceID, a.WorkspaceID)
+	}
+	// No master, so a decision still open belongs to a swarm that ended
+	// without acw stop (workspace closed from Herdr): nobody will relay it.
+	if opts.web {
+		if _, err := decision.AbandonOpen(names.DecisionsFile(slug), time.Now()); err != nil {
+			fmt.Fprintln(out, "⚠ décisions ouvertes du swarm précédent:", err)
+		}
 	}
 
 	// Before anything is created: a custom brief with a typo'd variable

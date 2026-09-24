@@ -25,7 +25,8 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 - History kept outside any repo, in `~/.local/state/acw/`
   (`$XDG_STATE_HOME/acw`): decisions and one JSONL journal per day, fed by
   a second `Stop` hook on each `claude` worker. `acw stop` marks decisions
-  still open as abandoned.
+  still open as abandoned, and so does the next `acw --web` when the swarm
+  ended without it.
 - `{{.DecisionCmd}}` for custom brief templates. A custom brief without it
   keeps its master asking in the conversation, with a warning at launch.
 

@@ -140,7 +140,8 @@ func Close(path, id, answer, via string, now time.Time) (Decision, error) {
 	return out, err
 }
 
-// AbandonOpen marks every open decision abandoned, for `acw stop`: their
+// AbandonOpen marks every open decision abandoned, for `acw stop` and a
+// start that finds no master: their
 // swarm is gone, nobody would relay an answer. It returns how many.
 func AbandonOpen(path string, now time.Time) (int, error) {
 	n := 0
