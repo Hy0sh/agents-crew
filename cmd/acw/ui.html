@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>acw</title>
+<style>
+:root {
+  --bg: #f6f5f2; --panel: #fff; --ink: #1d1d1b; --muted: #6b6a66; --line: #e2e0da;
+  --accent: #2f5bd3; --active: #1f9d55; --waiting: #d97706; --idle: #a8a6a0; --danger: #b42318;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615; --panel: #1f1f1d; --ink: #ecebe7; --muted: #9a9892; --line: #33322f;
+    --accent: #7b9cff; --active: #3fcf7e; --waiting: #f5a524; --idle: #6b6a66; --danger: #ff6b5e;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, sans-serif; }
+main { max-width: 1040px; margin: 0 auto; padding: 20px 16px 64px; }
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 28px 0 10px; }
+select, textarea, button { font: inherit; color: inherit; }
+select, textarea { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+.muted { color: var(--muted); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; }
+.card.blocking { border-left: 4px solid var(--waiting); }
+.meta { font-size: 13px; color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; }
+.question { font-weight: 600; margin: 6px 0 2px; }
+.task { font-size: 14px; color: var(--muted); }
+.options { margin: 10px 0; display: grid; gap: 6px; }
+.options label { display: flex; gap: 8px; align-items: baseline; cursor: pointer; }
+.reco { font-size: 12px; color: var(--accent); font-weight: 600; }
+.card textarea { width: 100%; min-height: 38px; resize: vertical; }
+.actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 8px; }
+button { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 6px 14px; cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+.error { color: var(--danger); font-size: 13px; }
+table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+td, th { text-align: left; padding: 7px 10px; border-top: 1px solid var(--line); vertical-align: top; font-size: 14px; }
+th { font-weight: 600; background: color-mix(in srgb, var(--line) 35%, transparent); border-top: 0; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+.active .dot { background: var(--active); } .waiting .dot { background: var(--waiting); } .idle .dot { background: var(--idle); }
+.tablewrap { overflow-x: auto; margin-bottom: 12px; }
+.empty { color: var(--muted); font-style: italic; }
+a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>acw</h1>
+    <label class="muted">Journal du <select id="day"></select></label>
+  </header>
+  <h2>À trancher</h2>
+  <div id="decisions"></div>
+  <h2>Workers</h2>
+  <div id="workers"></div>
+  <h2 id="journal-title">Journal</h2>
+  <div id="journal"></div>
+</main>
+<script>
+const token = new URLSearchParams(location.search).get("t") || "";
+const daySel = document.getElementById("day");
+let day = "";
+
+function h(tag, attrs, ...children) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === false || v == null) continue;
+    if (k === "class") el.className = v; else if (k.startsWith("on")) el.addEventListener(k.slice(2), v); else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of children.flat()) if (c != null && c !== false) el.append(c);
+  return el;
+}
+
+function ago(iso) {
+  if (!iso) return "";
+  const s = (Date.now() - new Date(iso)) / 1000;
+  if (isNaN(s)) return iso;
+  if (s < 60) return "à l'instant";
+  if (s < 3600) return `il y a ${Math.round(s / 60)} min`;
+  if (s < 86400) return `il y a ${Math.round(s / 3600)} h`;
+  return new Date(iso).toLocaleDateString("fr-FR");
+}
+const hhmm = iso => new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+const STATE = { active: "actif", waiting: "en attente", idle: "inactif" };
+
+// A card being filled in is never redrawn: the refresh would wipe the
+// choice or the comment the user is typing.
+const dirty = new Set();
+
+function decisionCard(p, d) {
+  const key = p.slug + "/" + d.id;
+  const err = h("span", { class: "error" });
+  const comment = h("textarea", { placeholder: "Commentaire (facultatif)", oninput: () => dirty.add(key), onfocus: () => dirty.add(key) });
+  const opts = d.options.map((o, i) => h("label", {},
+    h("input", { type: "radio", name: key, value: i + 1, checked: i === d.reco, onchange: () => dirty.add(key) }),
+    h("span", {}, h("strong", {}, o.label), o.consequence ? " : " + o.consequence : "", i === d.reco ? h("span", { class: "reco" }, "  recommandée") : null)));
+  const btn = h("button", {}, "Trancher");
+  btn.addEventListener("click", async () => {
+    const picked = document.querySelector(`input[name="${CSS.escape(key)}"]:checked`);
+    btn.disabled = true; err.textContent = "";
+    const body = { comment: comment.value };
+    if (picked) body.option = Number(picked.value);
+    const r = await fetch(`/api/decisions/${p.slug}/${d.id}?t=${encodeURIComponent(token)}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    }).catch(e => ({ ok: false, statusText: e.message }));
+    if (r.ok) { dirty.delete(key); refresh(); return; }
+    btn.disabled = false;
+    err.textContent = r.status === 409 ? "Déjà tranchée ailleurs." : `Échec : ${r.statusText || r.status}`;
+    if (r.status === 409) { dirty.delete(key); refresh(); }
+  });
+  return h("div", { class: "card" + (d.blocks ? " blocking" : ""), "data-key": key },
+    h("div", { class: "meta" }, h("strong", {}, p.label), h("span", {}, d.id), d.blocks ? h("span", {}, "bloque " + d.blocks) : null, h("span", {}, ago(d.created_at))),
+    h("div", { class: "question" }, d.question),
+    h("div", { class: "task" }, d.task),
+    h("div", { class: "options" }, opts),
+    comment,
+    h("div", { class: "actions" }, err, btn));
+}
+
+function renderDecisions(projects) {
+  const box = document.getElementById("decisions");
+  const open = projects.flatMap(p => (p.decisions || []).filter(d => d.status === "open").map(d => ({ p, d })));
+  open.sort((a, b) => (!!b.d.blocks - !!a.d.blocks) || a.d.created_at.localeCompare(b.d.created_at));
+  document.title = open.length ? `(${open.length}) acw` : "acw";
+  const keep = new Map([...box.children].filter(c => dirty.has(c.dataset.key)).map(c => [c.dataset.key, c]));
+  box.replaceChildren(...open.map(({ p, d }) => keep.get(p.slug + "/" + d.id) || decisionCard(p, d)));
+  if (!open.length) box.append(h("p", { class: "empty" }, "Rien n'attend ton avis."));
+}
+
+function renderWorkers(projects) {
+  const live = projects.filter(p => p.live);
+  const box = document.getElementById("workers");
+  box.replaceChildren(...live.map(p => h("div", { class: "tablewrap" }, h("table", {},
+    h("tr", {}, h("th", { colspan: 5 }, p.label, " ", h("span", { class: "muted" }, p.repo))),
+    (p.workers || []).map(w => h("tr", { class: w.state },
+      h("td", {}, h("span", { class: "dot" }), w.label),
+      h("td", {}, STATE[w.state] || w.state),
+      h("td", {}, w.tache || h("span", { class: "muted" }, "-"), w.summary ? h("div", { class: "muted" }, w.summary) : null),
+      h("td", { class: "muted" }, ago(w.updated_at)),
+      h("td", {}, w.pr_url ? h("a", { href: w.pr_url, target: "_blank", rel: "noopener" }, "PR") : null)))))));
+  if (!live.length) box.append(h("p", { class: "empty" }, "Aucun swarm en cours."));
+}
+
+function renderJournal(projects) {
+  const box = document.getElementById("journal");
+  const rows = projects.map(p => {
+    const items = (p.journal || []).map(e => ({ at: e.at, who: e.worker, what: e.tache, how: e.state, extra: e.summary }))
+      .concat((p.decisions || []).filter(d => d.status !== "open").map(d => ({
+        at: d.answered_at, who: d.id, what: d.question,
+        how: d.status === "abandoned" ? "abandonnée" : "tranchée (" + (d.answered_via === "ui" ? "page" : "terminal") + ")",
+        extra: d.answer,
+      })));
+    items.sort((a, b) => a.at.localeCompare(b.at));
+    return { p, items };
+  }).filter(r => r.items.length);
+  box.replaceChildren(...rows.map(({ p, items }) => h("div", { class: "tablewrap" }, h("table", {},
+    h("tr", {}, h("th", { colspan: 4 }, p.label)),
+    items.map(i => h("tr", {}, h("td", { class: "muted" }, hhmm(i.at)), h("td", {}, i.who), h("td", {}, i.what, i.extra ? h("div", { class: "muted" }, i.extra) : null), h("td", {}, i.how)))))));
+  if (!rows.length) box.append(h("p", { class: "empty" }, "Rien ce jour-là."));
+}
+
+async function refresh() {
+  const r = await fetch(`/api/state?t=${encodeURIComponent(token)}&day=${day}`).catch(() => null);
+  if (!r || !r.ok) { document.title = "acw (hors ligne)"; return; }
+  const s = await r.json();
+  if (!day) day = s.day;
+  const days = [...s.days].reverse();
+  if (daySel.options.length !== days.length) daySel.replaceChildren(...days.map(d => h("option", { value: d }, d)));
+  daySel.value = day;
+  document.getElementById("journal-title").textContent = "Journal du " + day;
+  const projects = s.projects || [];
+  renderDecisions(projects); renderWorkers(projects); renderJournal(projects);
+}
+daySel.addEventListener("change", () => { day = daySel.value; refresh(); });
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

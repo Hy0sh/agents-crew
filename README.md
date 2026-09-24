@@ -125,6 +125,44 @@ Herdr workspace. A swarm running for a different repo is left alone.
 outlives it, and so do any environments workers started. `acw stop` is the
 only way to actually stop it.
 
+## The page and the decision queue
+
+With a `claude` master, the questions it has for you don't block its
+conversation any more. It files each one in a queue, with concrete
+options, their consequences and its recommendation, tells you in one line
+(`D4 ajoutée, bloque worker2`), and carries on with everything else. You
+answer from a local web page, whenever and in whatever order you like.
+
+The page also shows, for every swarm running on the machine, each
+worker's state (active, waiting on you, idle) and task, and what the
+workers went through during the day, project by project.
+
+- **One server for all projects.** The first `acw` that finds none running
+  starts it in the background and opens the page. Its URL is on the
+  launch line, e.g. `http://127.0.0.1:53817/?t=<token>`. The server stops
+  itself once Herdr has no acw master left.
+- **Answering**: pick an option (the recommended one is preselected), add
+  a comment if you want, and click "Trancher". The master is woken
+  through its inbox, reads your answer and relays it to the worker. The
+  terminal still works: answer there and the master closes the decision
+  itself. A decision already answered on the page is never overwritten.
+- **Local only.** It listens on `127.0.0.1`, and every request must carry
+  the token in the URL plus the page's own `Host`, and `Origin` for an
+  answer. An answer is an instruction to an agent allowed to commit and
+  push, so no other site open in your browser may send one.
+- **History is kept**, outside any repo, in `~/.local/state/acw/`
+  (`$XDG_STATE_HOME/acw` if set): one folder per project, with
+  `decisions.json` and `journal/YYYY-MM-DD.jsonl`, plain files you can
+  read with `jq`. Nothing is ever purged, and the page has a day picker.
+  `acw stop` marks decisions still open as abandoned, since no master is
+  left to relay an answer.
+- **The journal** is fed by a second `Stop` hook on each `claude` worker.
+  It copies the worker's status file whenever its task or state changed.
+  A worker of another kind has no hook, so it doesn't show up in the
+  journal.
+- A master of another kind has no inbox to receive answers through, and
+  keeps asking in the conversation.
+
 ## Custom brief template
 
 `--brief` (or the `brief` config key) replaces the master's built-in brief
@@ -145,6 +183,7 @@ and keep the variables you need:
 | `{{.PingingWorkers}}` | the names of the workers that ping the master on each turn (the `claude` ones, which have the Stop hook), empty when none does |
 | `{{.WorkerOverrides}}` | each worker configured apart in `worker-overrides`: its kind, model and standing instructions in full, and whether the master must copy them into its briefs; empty when none is |
 | `{{.InboxWatch}}` | the command the master must arm a Monitor on to receive pings and "workers ready", empty when the master is not `claude`. A custom brief that doesn't mention it gets pings typed into the master's input, as before, with a warning at launch |
+| `{{.DecisionCmd}}` | the command prefix the master files its questions for the user with (`add`, `show`, `close`), see [The page and the decision queue](#the-page-and-the-decision-queue); empty when there is no inbox. A custom brief that doesn't mention it keeps its master asking in the conversation, with a warning at launch |
 
 Before `worker-overrides`, a template could test `{{if eq .WorkerAgent
 "claude"}}` to know whether pings come in. That still works when all
@@ -366,6 +405,10 @@ can't be read only warns, and the swarm starts without it.
 - `internal/config` — reads the per-project config file (see
   [Per-project config](#per-project-config)).
 - `internal/teardown` — the `acw stop` logic.
+- `internal/decision` — the master's decision queue, one file per project
+  written by both the master and the page, under a lock.
+- `internal/journal` — the day's worker activity, one JSONL file per day.
+- `cmd/acw/ui.go` + `ui.html` — the local page and its API.
 - `internal/version` — `--version`, via `runtime/debug.ReadBuildInfo` (no ldflags).
 
 ## What it is not for

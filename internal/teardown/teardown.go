@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/Hy0sh/agents-crew/internal/decision"
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
@@ -56,6 +58,14 @@ func Run() error {
 		return fmt.Errorf("herdr workspace close: %w", err)
 	}
 	fmt.Println("fait.")
+
+	// Kept, not deleted: they stay in the page's history. Only no longer
+	// answerable, since no master is left to relay the answer.
+	if n, err := decision.AbandonOpen(names.DecisionsFile(names.Slug(repo)), time.Now()); err != nil {
+		fmt.Fprintf(os.Stderr, "décisions ouvertes: %v\n", err)
+	} else if n > 0 {
+		fmt.Printf("%d décision(s) encore ouverte(s) marquée(s) abandonnée(s).\n", n)
+	}
 
 	statusDir := names.StatusDir(repo)
 	if err := os.RemoveAll(statusDir); err != nil {

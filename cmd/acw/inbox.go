@@ -46,13 +46,19 @@ func inboxWatchCommand(masterKind, customBrief, exe, inbox string) (cmd string, 
 // Claude Code asks approval for a Monitor it has no rule for, with no
 // "don't ask again", so without it the master would stall on a prompt at
 // every re-arm. Scoped to acw's own watch command, not Monitor in
-// general, which would run any command unasked.
-func masterArgs(model, exe, inboxWatch string) []string {
+// general, which would run any command unasked. Same for the decision
+// queue: a master asking approval to file a question for the user would
+// be asking the question anyway.
+func masterArgs(model, exe, inboxWatch, decisionCmd string) []string {
 	args := modelArgs(model)
 	if inboxWatch == "" {
 		return args
 	}
-	return append(args, "--allowedTools", "Bash("+shellWord(exe)+" "+inboxWatchUse+":*)")
+	args = append(args, "--allowedTools", "Bash("+shellWord(exe)+" "+inboxWatchUse+":*)")
+	if decisionCmd != "" {
+		args = append(args, "Bash("+shellWord(exe)+" "+decisionUse+":*)")
+	}
+	return args
 }
 
 // watchInbox prints every line appended to inbox, forever, until the

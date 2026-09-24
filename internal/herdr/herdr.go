@@ -50,6 +50,9 @@ func runResult(v any, args ...string) error {
 type Agent struct {
 	Name        string `json:"name"`
 	WorkspaceID string `json:"workspace_id"`
+	// Status is herdr's lifecycle state: idle, working, blocked, done or
+	// unknown.
+	Status string `json:"agent_status"`
 }
 
 // AgentList returns every live agent across all workspaces.

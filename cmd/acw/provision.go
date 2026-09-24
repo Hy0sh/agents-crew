@@ -33,6 +33,9 @@ func provisionWorkers(plan provisionPlan) {
 		fmt.Fprintln(os.Stderr, "git fetch:", err)
 	}
 	baseRef := gitutil.DefaultBaseRef(repo)
+	// The journal hook runs this same binary; without its path, workers
+	// just go unjournaled.
+	self, _ := os.Executable()
 
 	splits := layout.WorkerSplits(n)
 	currentPane := plan.MasterPane
@@ -66,7 +69,11 @@ func provisionWorkers(plan provisionPlan) {
 		if err := herdr.PaneRename(newPane, label); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: herdr pane rename: %v\n", name, err)
 		}
-		if err := herdr.AgentStart(name, w.Kind, newPane, workerArgs(w, label, pingCommand(plan.Inbox, masterName, label))...); err != nil {
+		journal := ""
+		if self != "" {
+			journal = journalCommand(self, repo, label)
+		}
+		if err := herdr.AgentStart(name, w.Kind, newPane, workerArgs(w, label, pingCommand(plan.Inbox, masterName, label), journal)...); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: herdr agent start: %v\n", name, explainStart(err, wt))
 			continue
 		}
@@ -118,7 +125,10 @@ func provisionWorkers(plan provisionPlan) {
 // Its standing instructions, when it has some, go in as a system prompt
 // for the same reason: that also survives `/clear`. Claude only as well;
 // another kind gets them from the master, copied into each of its briefs.
-func workerArgs(w workerSpec, label, ping string) []string {
+//
+// The Stop hook also snapshots the worker's status into the day's
+// journal (journalCommand), "" for none.
+func workerArgs(w workerSpec, label, ping, journal string) []string {
 	args := modelArgs(w.Model)
 	if w.Kind != "claude" {
 		return args
@@ -126,7 +136,11 @@ func workerArgs(w workerSpec, label, ping string) []string {
 	if w.PromptPath != "" {
 		args = append(args, "--append-system-prompt-file", w.PromptPath)
 	}
-	hooks, err := stopHookSettings(ping)
+	stopHooks := []string{ping}
+	if journal != "" {
+		stopHooks = append(stopHooks, journal)
+	}
+	hooks, err := stopHookSettings(stopHooks...)
 	if err != nil {
 		// Only json.Marshal of a literal struct can fail here, which it
 		// cannot; the worker still starts, just without its ping.
@@ -152,10 +166,14 @@ func pingCommand(inbox, masterName, label string) string {
 	return "herdr agent prompt " + shellWord(masterName) + " " + msg
 }
 
-func stopHookSettings(ping string) (string, error) {
+func stopHookSettings(commands ...string) (string, error) {
 	type command struct {
 		Type    string `json:"type"`
 		Command string `json:"command"`
+	}
+	hooks := make([]command, len(commands))
+	for i, c := range commands {
+		hooks[i] = command{Type: "command", Command: c}
 	}
 	settings := struct {
 		Hooks map[string][]struct {
@@ -165,7 +183,7 @@ func stopHookSettings(ping string) (string, error) {
 		Hooks: map[string][]struct {
 			Hooks []command `json:"hooks"`
 		}{
-			"Stop": {{Hooks: []command{{Type: "command", Command: ping}}}},
+			"Stop": {{Hooks: hooks}},
 		},
 	}
 	out, err := json.Marshal(settings)

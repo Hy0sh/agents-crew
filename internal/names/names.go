@@ -13,6 +13,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -68,6 +69,43 @@ func StatusDir(repo string) string {
 // watch.
 func Inbox(repo string) string {
 	return filepath.Join(StatusDir(repo), "inbox")
+}
+
+// StateDir is where what must outlive `acw stop` goes (decisions, the
+// day's journal, the UI server's address): $XDG_STATE_HOME/acw, else
+// ~/.local/state/acw. Not under the repo, which a stop cleans, and not
+// os.UserConfigDir for the same reason as the config (see config.Path).
+func StateDir() string {
+	if dir := os.Getenv("XDG_STATE_HOME"); dir != "" {
+		return filepath.Join(dir, "acw")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".local", "state", "acw")
+}
+
+// ProjectStateDir holds one repo's persistent state, keyed by its slug.
+func ProjectStateDir(slug string) string {
+	return filepath.Join(StateDir(), slug)
+}
+
+// ProjectFile says which repo a ProjectStateDir belongs to.
+func ProjectFile(slug string) string {
+	return filepath.Join(ProjectStateDir(slug), "project.json")
+}
+
+// DecisionsFile holds every decision of a repo, open or closed.
+func DecisionsFile(slug string) string {
+	return filepath.Join(ProjectStateDir(slug), "decisions.json")
+}
+
+// JournalDir holds one JSONL file per day of a repo's worker activity.
+func JournalDir(slug string) string {
+	return filepath.Join(ProjectStateDir(slug), "journal")
+}
+
+// ServerFile is where the running UI server writes its port and token.
+func ServerFile() string {
+	return filepath.Join(StateDir(), "server.json")
 }
 
 // WorkerWorktree is worker i's worktree for the run started at stamp.

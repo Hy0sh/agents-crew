@@ -66,14 +66,19 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if inboxWatch == "" {
 		inbox = ""
 	}
+	decisionCmd, warn := decisionCommand(opts.masterKind, customBrief, self, repo, inboxWatch)
+	if warn {
+		fmt.Fprintln(out, "⚠ le brief personnalisé ne contient pas {{.DecisionCmd}} : le master posera ses questions dans la conversation, comme avant")
+	}
 	masterBrief, err := buildBrief(customBrief, brief.Params{
-		RepoPath:   repo,
-		Slug:       slug,
-		MaxStacks:  maxStacks,
-		Profile:    opts.profile,
-		Notes:      readNotes(out, repo, opts.notesPath),
-		Workers:    briefWorkers(workers),
-		InboxWatch: inboxWatch,
+		RepoPath:    repo,
+		Slug:        slug,
+		MaxStacks:   maxStacks,
+		Profile:     opts.profile,
+		Notes:       readNotes(out, repo, opts.notesPath),
+		Workers:     briefWorkers(workers),
+		InboxWatch:  inboxWatch,
+		DecisionCmd: decisionCmd,
 	})
 	if err != nil {
 		return err
@@ -102,7 +107,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if err := herdr.PaneRename(masterPane, "master"); err != nil {
 		return err
 	}
-	if err := herdr.AgentStart(masterName, opts.masterKind, masterPane, masterArgs(opts.masterModel, self, inboxWatch)...); err != nil {
+	if err := herdr.AgentStart(masterName, opts.masterKind, masterPane, masterArgs(opts.masterModel, self, inboxWatch, decisionCmd)...); err != nil {
 		return fmt.Errorf("herdr agent start master: %w", explainStart(err, masterDir))
 	}
 
@@ -122,6 +127,15 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	success = true
 	fmt.Fprintf(out, "→ master (%s) prêt, tu peux déjà lui parler. %d worker(s) (%s) en provisionnement en tâche de fond.\n",
 		brief.DescribeAgent(opts.masterKind, opts.masterModel), len(workers), describeWorkers(workers))
+
+	// After the master exists: the server stops itself once it finds no
+	// master in Herdr. Without it the swarm still runs, only the page is
+	// missing.
+	if url, err := ensureUI(self, projectInfo{Repo: repo, Label: filepath.Base(repo), Inbox: inbox}); err != nil {
+		fmt.Fprintln(out, "⚠ page acw indisponible:", err)
+	} else {
+		fmt.Fprintln(out, "→ page acw :", url)
+	}
 
 	// Replace this process with the Herdr TUI, attaching to the workspace just built.
 	return syscall.Exec(mustLookPath("herdr"), []string{"herdr"}, os.Environ())

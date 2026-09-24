@@ -100,8 +100,18 @@ func TestAppendLineAppends(t *testing.T) {
 	}
 }
 
+func TestStopHookSettingsCarriesTheJournalToo(t *testing.T) {
+	got, err := stopHookSettings("ping", journalCommand("/bin/acw", "/repo", "worker2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, `"command":"ping"`) || !strings.Contains(got, "__journal /repo/.claude/worktrees/.acw-status/worker2.json") {
+		t.Errorf("settings = %s, want the ping and the journal hook", got)
+	}
+}
+
 func TestWorkerArgsOnlyHooksClaudeWorkers(t *testing.T) {
-	claude := workerArgs(workerSpec{Kind: "claude", Model: "sonnet"}, "worker1", "true")
+	claude := workerArgs(workerSpec{Kind: "claude", Model: "sonnet"}, "worker1", "true", "")
 	if !slices.Contains(claude, "--settings") {
 		t.Errorf("workerArgs(claude) = %v, want a --settings carrying the Stop hook", claude)
 	}
@@ -109,14 +119,14 @@ func TestWorkerArgsOnlyHooksClaudeWorkers(t *testing.T) {
 		t.Errorf("workerArgs(claude) = %v, dropped the model", claude)
 	}
 
-	codex := workerArgs(workerSpec{Kind: "codex", Model: "gpt-5"}, "worker1", "true")
+	codex := workerArgs(workerSpec{Kind: "codex", Model: "gpt-5"}, "worker1", "true", "")
 	if slices.Contains(codex, "--settings") {
 		t.Errorf("workerArgs(codex) = %v, --settings is Claude Code's own flag and would break the CLI", codex)
 	}
 }
 
 func TestWorkerArgsPromptIsASystemPromptForClaudeOnly(t *testing.T) {
-	claude := workerArgs(workerSpec{Kind: "claude", PromptPath: "/cfg/verifier.md"}, "worker1", "true")
+	claude := workerArgs(workerSpec{Kind: "claude", PromptPath: "/cfg/verifier.md"}, "worker1", "true", "")
 	i := slices.Index(claude, "--append-system-prompt-file")
 	if i < 0 || i+1 >= len(claude) || claude[i+1] != "/cfg/verifier.md" {
 		t.Errorf("workerArgs(claude with prompt) = %v, want --append-system-prompt-file /cfg/verifier.md", claude)
@@ -125,7 +135,7 @@ func TestWorkerArgsPromptIsASystemPromptForClaudeOnly(t *testing.T) {
 		t.Errorf("workerArgs(claude with prompt) = %v, lost the Stop hook", claude)
 	}
 
-	codex := workerArgs(workerSpec{Kind: "codex", PromptPath: "/cfg/verifier.md"}, "worker1", "true")
+	codex := workerArgs(workerSpec{Kind: "codex", PromptPath: "/cfg/verifier.md"}, "worker1", "true", "")
 	if slices.Contains(codex, "--append-system-prompt-file") {
 		t.Errorf("workerArgs(codex with prompt) = %v, passed a Claude Code flag to another CLI", codex)
 	}

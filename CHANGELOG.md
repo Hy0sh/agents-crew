@@ -6,6 +6,26 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- A local web page over every swarm on the machine: each worker's state
+  (active, waiting on you, idle) and task, the day's journal per project,
+  and the master's questions waiting on you. Started in the background by
+  the first `acw` that finds none running, opened in the browser, stopped
+  once no master is left.
+- A decision queue for a `claude` master: instead of asking in the
+  conversation, it files each question with concrete options, their
+  consequences and its recommendation (`acw __decision add`), and carries
+  on. You answer from the page in any order; the answer reaches the master
+  through its inbox. Answering in the terminal still works, and an answer
+  given on the page is never overwritten.
+- History kept outside any repo, in `~/.local/state/acw/`
+  (`$XDG_STATE_HOME/acw`): decisions and one JSONL journal per day, fed by
+  a second `Stop` hook on each `claude` worker. `acw stop` marks decisions
+  still open as abandoned.
+- `{{.DecisionCmd}}` for custom brief templates. A custom brief without it
+  keeps its master asking in the conversation, with a warning at launch.
+
 ## [0.5.0] - 2026-09-24
 
 Several ways to run one repo, agents that start outside the code, and

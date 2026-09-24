@@ -31,6 +31,26 @@ func TestBuildTellsTheMasterToWatchTheInbox(t *testing.T) {
 	}
 }
 
+// With the queue, a question in the conversation is exactly what the
+// brief must no longer ask for.
+func TestBuildRoutesQuestionsThroughTheDecisionQueue(t *testing.T) {
+	p := params("claude", 2, 2)
+	p.DecisionCmd = "/bin/acw __decision --repo /repo"
+	got := Build(p)
+	for _, want := range []string{p.DecisionCmd + " add", p.DecisionCmd + " show Dn", p.DecisionCmd + " close Dn"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("brief with a queue should give %q", want)
+		}
+	}
+	if strings.Contains(got, "Remonte-moi la question ICI") {
+		t.Error("brief with a queue still tells the master to ask in the conversation")
+	}
+
+	if got := Build(params("claude", 2, 2)); !strings.Contains(got, "Remonte-moi la question ICI") || strings.Contains(got, "__decision") {
+		t.Error("brief without a queue must keep asking in the conversation")
+	}
+}
+
 func TestBuildListsOutsideWorkersAndCountsOnlyCodersForStacks(t *testing.T) {
 	p := params("claude", 3, 2)
 	p.Workers[0] = Worker{Kind: "claude", Dir: "/Users/me/studio", Overridden: true}

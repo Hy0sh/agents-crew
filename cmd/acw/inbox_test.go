@@ -80,7 +80,7 @@ func TestInboxWatchCommand(t *testing.T) {
 // command the brief gives, and only that command.
 func TestMasterArgsAllowOnlyTheInboxWatch(t *testing.T) {
 	watch, _ := inboxWatchCommand("claude", "", "/bin/acw", "/repo/inbox")
-	got := masterArgs("opus", "/bin/acw", watch)
+	got := masterArgs("opus", "/bin/acw", watch, "")
 	i := slices.Index(got, "--allowedTools")
 	if i < 0 || i+1 >= len(got) || got[i+1] != "Bash(/bin/acw __inbox-watch:*)" {
 		t.Errorf("masterArgs() = %v, want --allowedTools Bash(/bin/acw __inbox-watch:*)", got)
@@ -92,8 +92,37 @@ func TestMasterArgsAllowOnlyTheInboxWatch(t *testing.T) {
 		t.Errorf("masterArgs() = %v, dropped the model", got)
 	}
 
-	if got := masterArgs("opus", "/bin/acw", ""); slices.Contains(got, "--allowedTools") {
+	if got := masterArgs("opus", "/bin/acw", "", ""); slices.Contains(got, "--allowedTools") {
 		t.Errorf("masterArgs() without inbox = %v; --allowedTools is Claude Code's own flag", got)
+	}
+}
+
+// Filing a question for the user must not itself stall on an approval
+// prompt, and the rule must cover the command the brief gives.
+func TestMasterArgsAllowTheDecisionQueue(t *testing.T) {
+	watch, _ := inboxWatchCommand("claude", "", "/bin/acw", "/repo/inbox")
+	decide, _ := decisionCommand("claude", "", "/bin/acw", "/repo", watch)
+	got := masterArgs("opus", "/bin/acw", watch, decide)
+	i := slices.Index(got, "--allowedTools")
+	if i < 0 || !slices.Contains(got[i+1:], "Bash(/bin/acw __decision:*)") {
+		t.Fatalf("masterArgs() = %v, want the decision rule after --allowedTools", got)
+	}
+	if !strings.HasPrefix(decide, "/bin/acw __decision ") {
+		t.Errorf("decision command %q is not covered by the rule", decide)
+	}
+}
+
+func TestDecisionCommand(t *testing.T) {
+	const watch = "/bin/acw __inbox-watch /repo/inbox"
+	if got, warn := decisionCommand("claude", "", "/bin/acw", "/repo", watch); got != "/bin/acw __decision --repo /repo" || warn {
+		t.Errorf("decisionCommand() = %q, %v", got, warn)
+	}
+	// Answers come back through the inbox: no inbox, no queue.
+	if got, _ := decisionCommand("claude", "", "/bin/acw", "/repo", ""); got != "" {
+		t.Errorf("decisionCommand() without inbox = %q, want none", got)
+	}
+	if got, warn := decisionCommand("claude", "{{.InboxWatch}}", "/bin/acw", "/repo", watch); got != "" || !warn {
+		t.Errorf("custom brief without {{.DecisionCmd}} = %q, %v; want no queue and a warning", got, warn)
 	}
 }
 

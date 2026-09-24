@@ -246,7 +246,7 @@ func main() {
 		},
 	}
 
-	root.AddCommand(stop, provision, inboxWatch)
+	root.AddCommand(stop, provision, inboxWatch, newDecisionCmd(), newJournalCmd(), newUICmd())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)

@@ -50,6 +50,10 @@ type MasterData struct {
 	// InboxWatch is the command the master arms a Monitor on to receive
 	// pings, empty when they are typed into its input instead.
 	InboxWatch string
+	// DecisionCmd is the command prefix the master files its questions
+	// for the user with (add/show/close), empty when it asks them in the
+	// conversation instead.
+	DecisionCmd string
 }
 
 // Params is what a brief is built from. N is len(Workers).
@@ -62,6 +66,8 @@ type Params struct {
 	Workers   []Worker
 	// InboxWatch is the master's inbox watch command, "" for none.
 	InboxWatch string
+	// DecisionCmd is the decision queue's command prefix, "" for none.
+	DecisionCmd string
 }
 
 // Worker is one worker as it was actually started.
@@ -103,6 +109,7 @@ func newMasterData(p Params) MasterData {
 		PingingWorkers:   pingingWorkers(p.Slug, p.Workers),
 		WorkerOverrides:  workerOverrides(p.Slug, p.Workers),
 		InboxWatch:       p.InboxWatch,
+		DecisionCmd:      p.DecisionCmd,
 	}
 }
 
