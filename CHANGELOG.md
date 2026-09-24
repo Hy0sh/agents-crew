@@ -8,6 +8,21 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ### Added
 
+- A working directory per agent: `master-dir`, and `dir` in
+  `worker-overrides`, e.g. an agent in a folder whose `.claude` brings the
+  project's product tooling. `dir` makes a worker one outside the code: no
+  worktree, environment or branch, no `max-stacks` slot, and the master is
+  told never to give it code. Whoever codes stays in a worktree: a folder
+  inside the repo is refused. Each agent loads the instructions of the
+  folder it starts in. When an agent never becomes ready, acw names
+  Claude Code's trust prompt for a new folder as the likely cause.
+
+### Changed
+
+- acw finds the master by its name instead of its pane's directory, for
+  `acw stop` and the "already running" check, so a master started in
+  `master-dir` is found too.
+
 - `presets` in a project's config entry, picked with `--preset <name>`:
   named variants of the entry, e.g. a planner, coders and a reviewer next to
   the everyday multitask swarm. A preset takes the entry's keys; each one it

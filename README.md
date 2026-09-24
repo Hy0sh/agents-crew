@@ -207,6 +207,7 @@ needs no answers to work, so the file only changes the defaults.
 | `profile` | *(no flag)* | none: the whole stack |
 | `notes` | *(no flag)* | none |
 | `worker-overrides` | *(no flag)* | none: every worker as above |
+| `master-dir` | *(no flag)* | none: the master starts in the repo |
 | `presets` | *(picked with `--preset`)* | none |
 
 **`profile`** is one of the project's wtm profiles (`wtm project edit
@@ -265,6 +266,38 @@ write in its prompt file.
   can't be read. Unlike `notes`, that last one is not just a warning: a
   worker meant to verify that silently becomes a generic one would skew
   every dispatch.
+
+### Working directories: `master-dir` and `dir`
+
+By default the master starts in the repo and every worker in a worktree
+of it. Some agents are better off elsewhere, e.g. in a folder whose
+`.claude` brings the project's product tooling, next to the code:
+
+```json
+"master-dir": "~/Drive/some-project-studio",
+"worker-overrides": {
+  "1": { "dir": "~/Drive/some-project-studio", "prompt": "~/.config/acw/po.md" }
+}
+```
+
+- **`dir` makes a worker one outside the code.** It starts in that
+  folder with no worktree, no environment and no branch, and the master's
+  brief says never to give it code. A worker without `dir` is a coder, in
+  its worktree, as before. No role to declare: the folder decides.
+- **Whoever codes stays in a worktree.** A `dir` or `master-dir` inside
+  the repo (or the repo itself) is refused: that agent would work on your
+  main checkout, with no isolation from the others.
+- Environments go to the coders only: a worker outside the code takes no
+  `max-stacks` slot, and `max-stacks` is capped to the number of coders.
+- Each agent loads the instructions (`CLAUDE.md`, `.claude`) of the folder
+  it starts in, not the repo's. For the master that is usually the point;
+  the repo's hard rules still reach it through `notes`.
+- The folder must be absolute (`~` allowed) and exist. Claude Code asks
+  whether to trust a folder it has never opened, and an agent started
+  there waits on that prompt: open `claude` there once beforehand. acw
+  names that likely cause when an agent never becomes ready.
+- `acw stop` is still run from the repo: the master is found by name,
+  wherever it started.
 
 ### Presets
 

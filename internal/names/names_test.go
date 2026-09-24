@@ -22,12 +22,6 @@ func TestIsWorkerWorktreeMatchesWhatWorkerWorktreeMakes(t *testing.T) {
 	}
 }
 
-func TestIsMaster(t *testing.T) {
-	if !IsMaster(Master("3f9a1c")) || IsMaster(Worker("3f9a1c", 1)) {
-		t.Error("IsMaster must recognize Master's names and only them")
-	}
-}
-
 func TestSlugIsDeterministic(t *testing.T) {
 	path := "/repo/a"
 	first, second := Slug(path), Slug(path)

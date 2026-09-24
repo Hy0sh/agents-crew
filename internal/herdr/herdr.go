@@ -50,7 +50,6 @@ func runResult(v any, args ...string) error {
 type Agent struct {
 	Name        string `json:"name"`
 	WorkspaceID string `json:"workspace_id"`
-	Cwd         string `json:"cwd"`
 }
 
 // AgentList returns every live agent across all workspaces.
@@ -156,6 +155,16 @@ func AgentStart(name, kind, paneID string, extraArgs ...string) error {
 		return nil
 	}
 	return fmt.Errorf("pane %s never became available after %d attempts: %w", paneID, maxAttempts, lastErr)
+}
+
+// FindAgent returns the agent named name among agents.
+func FindAgent(agents []Agent, name string) (Agent, bool) {
+	for _, a := range agents {
+		if a.Name == name {
+			return a, true
+		}
+	}
+	return Agent{}, false
 }
 
 // AgentPrompt submits text to a running agent, without waiting for it to

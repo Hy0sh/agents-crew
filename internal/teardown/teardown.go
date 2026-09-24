@@ -31,18 +31,15 @@ func Run() error {
 		return fmt.Errorf("herdr agent list: %w", err)
 	}
 
-	var workspaceID, repo string
-	for _, a := range agents {
-		if a.Cwd == cwd && names.IsMaster(a.Name) {
-			workspaceID = a.WorkspaceID
-			repo = a.Cwd
-			break
-		}
-	}
-	if workspaceID == "" {
+	// By name, not by the master's pane cwd: with master-dir it runs
+	// elsewhere, and the name already carries this directory's hash.
+	repo := cwd
+	master, ok := herdr.FindAgent(agents, names.Master(names.Slug(repo)))
+	if !ok {
 		fmt.Println("Aucun master acw en cours pour ce répertoire.")
 		return nil
 	}
+	workspaceID := master.WorkspaceID
 	fmt.Printf("Arrêt du swarm de %s (workspace %s).\n", repo, workspaceID)
 
 	// Discovered by scanning .claude/worktrees/ for the workerN-* naming

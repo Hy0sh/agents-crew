@@ -162,6 +162,28 @@ func TestWithPresetUnknownNamesTheAvailableOnes(t *testing.T) {
 	}
 }
 
+func TestLoadAgentDirs(t *testing.T) {
+	writeConfig(t, `{"projects": {"/repo": {
+		"master-dir": "~/studio",
+		"worker-overrides": {"1": {"dir": "~/docs"}},
+		"presets": {"p": {"master-dir": "~/other"}}
+	}}}`)
+	p, err := Load("/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, _ := os.UserHomeDir()
+	if *p.MasterDir != filepath.Join(home, "studio") || *p.WorkerOverrides["1"].Dir != filepath.Join(home, "docs") {
+		t.Errorf("master-dir = %q, dir = %q; ~ not expanded", *p.MasterDir, *p.WorkerOverrides["1"].Dir)
+	}
+	if got := *p.Presets["p"].MasterDir; got != filepath.Join(home, "other") {
+		t.Errorf("preset master-dir = %q, ~ not expanded", got)
+	}
+	if !strings.Contains(p.Summary(), `master-dir="`+filepath.Join(home, "studio")+`"`) {
+		t.Errorf("Summary() = %q, missing master-dir", p.Summary())
+	}
+}
+
 func TestLoadRejectsNestedPreset(t *testing.T) {
 	writeConfig(t, `{"projects": {"/repo": {"presets": {"a": {"presets": {"b": {}}}}}}}`)
 	if _, err := Load("/repo"); err == nil {
