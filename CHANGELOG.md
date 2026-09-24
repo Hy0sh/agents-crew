@@ -8,6 +8,11 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ### Added
 
+- Shell completion offers acw's flags on a bare Tab, next to the
+  subcommands, instead of only once a `-` is typed; flags already on the
+  command line are left out. `--brief`'s help no longer inlines every
+  template variable (they are in the README), so it fits on one line.
+
 - A working directory per agent: `master-dir`, and `dir` in
   `worker-overrides`, e.g. an agent in a folder whose `.claude` brings the
   project's product tooling. `dir` makes a worker one outside the code: no

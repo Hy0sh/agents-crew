@@ -1,7 +1,11 @@
 package main
 
 import (
+	"slices"
+	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	"github.com/Hy0sh/agents-crew/internal/config"
 )
@@ -10,6 +14,31 @@ func TestLoadProjectPresetWithoutEntryFails(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	if _, err := loadProject("/repo", "feature"); err == nil {
 		t.Error("loadProject() with --preset and no entry = nil error, want one")
+	}
+}
+
+// Cobra lists flags only once a "-" is typed; a bare Tab on acw should
+// offer them too, minus those already on the command line.
+func TestCompleteFlagsOnBareTab(t *testing.T) {
+	cmd := &cobra.Command{Use: "acw"}
+	cmd.Flags().IntP("workers", "n", 3, "number of worker agents")
+	cmd.Flags().String("preset", "", "named preset")
+	if err := cmd.Flags().Set("workers", "2"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _ := completeFlags(cmd, nil, "")
+	if !slices.Contains(got, cobra.CompletionWithDesc("--preset", "named preset")) {
+		t.Errorf("completeFlags() = %v, want --preset offered", got)
+	}
+	for _, c := range got {
+		if strings.HasPrefix(c, "--workers") {
+			t.Errorf("completeFlags() = %v, offered --workers already given", got)
+		}
+	}
+
+	if got, _ := completeFlags(cmd, nil, "st"); len(got) != 0 {
+		t.Errorf("completeFlags(\"st\") = %v; a started word is a subcommand, cobra completes it", got)
 	}
 }
 

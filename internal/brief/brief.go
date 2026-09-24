@@ -78,8 +78,9 @@ type Worker struct {
 }
 
 // Variables lists what a custom template can reference, e.g.
-// "{{.RepoPath}}, {{.N}}, ...", read off MasterData itself so --help can
-// never list a variable that doesn't exist or miss a new one.
+// "{{.RepoPath}}, {{.N}}, ...", read off MasterData itself so the error
+// on a bad custom template can never list a variable that doesn't exist
+// or miss a new one.
 func Variables() string {
 	t := reflect.TypeOf(MasterData{})
 	vars := make([]string, t.NumField())

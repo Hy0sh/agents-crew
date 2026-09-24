@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
-	"github.com/Hy0sh/agents-crew/internal/brief"
 	"github.com/Hy0sh/agents-crew/internal/config"
 	"github.com/Hy0sh/agents-crew/internal/preflight"
 	"github.com/Hy0sh/agents-crew/internal/teardown"
@@ -68,6 +68,22 @@ func applyConfig(opts *startOptions, p *config.Project, changed func(string) boo
 	setStr("notes", &opts.notesPath, p.Notes)
 	setStr("master-dir", &opts.masterDir, p.MasterDir)
 	opts.overrides = p.WorkerOverrides
+}
+
+// completeFlags offers the root's flags on a bare Tab, next to the
+// subcommands: cobra only lists flags once a "-" is typed. A started word
+// is left to cobra, which completes subcommands (and flags after "-").
+func completeFlags(cmd *cobra.Command, _ []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
+	if toComplete != "" {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	var flags []cobra.Completion
+	cmd.NonInheritedFlags().VisitAll(func(f *pflag.Flag) {
+		if !f.Changed && !f.Hidden {
+			flags = append(flags, cobra.CompletionWithDesc("--"+f.Name, f.Usage))
+		}
+	})
+	return flags, cobra.ShellCompDirectiveNoFileComp
 }
 
 // loadProject returns the repo's config entry, with the preset laid over
@@ -139,6 +155,8 @@ func main() {
 		Long:    rootLong,
 		Version: version.String(),
 		Args:    cobra.NoArgs,
+		// Flags on a bare Tab; see completeFlags.
+		ValidArgsFunction: completeFlags,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, err := os.Getwd()
 			if err != nil {
@@ -187,7 +205,7 @@ func main() {
 	root.Flags().StringVar(&opts.masterModel, "master-model", "opus", "model for the master agent; empty means no --model is passed to its CLI (per-project: master-model)")
 	root.Flags().StringVar(&opts.workerModel, "worker-model", "sonnet", "model for worker agents; empty means no --model is passed to their CLI (per-project: worker-model)")
 	root.Flags().StringVar(&opts.preset, "preset", "", "named preset of the per-project config entry, laid over it (see presets in the config)")
-	root.Flags().StringVar(&opts.briefPath, "brief", "", "path to a custom master brief template (Go text/template) with these variables: "+brief.Variables()+"; see the README; default: built-in template (per-project: brief)")
+	root.Flags().StringVar(&opts.briefPath, "brief", "", "path to a custom master brief template (Go text/template), variables in the README; default: built-in template (per-project: brief)")
 
 	stop := &cobra.Command{
 		Use:   "stop",
