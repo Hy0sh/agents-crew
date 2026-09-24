@@ -53,13 +53,30 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	// Before anything is created: a custom brief with a typo'd variable
 	// must fail here, not after a workspace and a master agent were started
 	// for nothing.
-	masterBrief, err := buildBrief(opts.briefPath, brief.Params{
-		RepoPath:  repo,
-		Slug:      slug,
-		MaxStacks: maxStacks,
-		Profile:   opts.profile,
-		Notes:     readNotes(out, repo, opts.notesPath),
-		Workers:   briefWorkers(workers),
+	customBrief, err := readCustomBrief(opts.briefPath)
+	if err != nil {
+		return err
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	inbox := names.Inbox(repo)
+	inboxWatch, warn := inboxWatchCommand(opts.masterKind, customBrief, self, inbox)
+	if warn {
+		fmt.Fprintln(out, "⚠ le brief personnalisé ne contient pas {{.InboxWatch}} : les pings des workers seront tapés dans la saisie du master, comme avant")
+	}
+	if inboxWatch == "" {
+		inbox = ""
+	}
+	masterBrief, err := buildBrief(customBrief, brief.Params{
+		RepoPath:   repo,
+		Slug:       slug,
+		MaxStacks:  maxStacks,
+		Profile:    opts.profile,
+		Notes:      readNotes(out, repo, opts.notesPath),
+		Workers:    briefWorkers(workers),
+		InboxWatch: inboxWatch,
 	})
 	if err != nil {
 		return err
@@ -84,7 +101,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if err := herdr.PaneRename(masterPane, "master"); err != nil {
 		return err
 	}
-	if err := herdr.AgentStart(masterName, opts.masterKind, masterPane, modelArgs(opts.masterModel)...); err != nil {
+	if err := herdr.AgentStart(masterName, opts.masterKind, masterPane, masterArgs(opts.masterModel, self, inboxWatch)...); err != nil {
 		return fmt.Errorf("herdr agent start master: %w", err)
 	}
 
@@ -96,7 +113,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	}
 
 	stamp := time.Now().Format("20060102150405")
-	plan := provisionPlan{Repo: repo, MasterPane: masterPane, Stamp: stamp, MaxStacks: maxStacks, Profile: opts.profile, Workers: workers}
+	plan := provisionPlan{Repo: repo, MasterPane: masterPane, Stamp: stamp, MaxStacks: maxStacks, Profile: opts.profile, Workers: workers, Inbox: inbox}
 	if err := launchBackgroundProvisioning(plan); err != nil {
 		return fmt.Errorf("lancement du provisioning des workers: %w", err)
 	}
@@ -109,17 +126,25 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	return syscall.Exec(mustLookPath("herdr"), []string{"herdr"}, os.Environ())
 }
 
-// buildBrief uses a custom template file if path is non-empty, the
-// built-in one otherwise.
-func buildBrief(path string, p brief.Params) (string, error) {
+// readCustomBrief returns the custom template's source, "" when path is.
+func readCustomBrief(path string) (string, error) {
 	if path == "" {
-		return brief.Build(p), nil
+		return "", nil
 	}
 	source, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("lecture du brief personnalisé %s: %w", path, err)
 	}
-	return brief.BuildFromSource(string(source), p)
+	return string(source), nil
+}
+
+// buildBrief uses the custom template source if non-empty, the built-in
+// one otherwise.
+func buildBrief(source string, p brief.Params) (string, error) {
+	if source == "" {
+		return brief.Build(p), nil
+	}
+	return brief.BuildFromSource(source, p)
 }
 
 // readNotes returns the per-project notes file's content, or "" when none

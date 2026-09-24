@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -205,7 +206,17 @@ func main() {
 		},
 	}
 
-	root.AddCommand(stop, provision)
+	// Internal: what the master's Monitor runs (see inboxWatchCommand).
+	inboxWatch := &cobra.Command{
+		Use:    inboxWatchUse + " <inbox>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return watchInbox(args[0], cmd.OutOrStdout(), 500*time.Millisecond)
+		},
+	}
+
+	root.AddCommand(stop, provision, inboxWatch)
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)

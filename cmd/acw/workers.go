@@ -112,4 +112,7 @@ type provisionPlan struct {
 	MaxStacks  int          `json:"max_stacks"`
 	Profile    string       `json:"profile"`
 	Workers    []workerSpec `json:"workers"`
+	// Inbox is where pings go for a master that watches one, "" when they
+	// are typed into it (see inboxWatchCommand).
+	Inbox string `json:"inbox,omitempty"`
 }

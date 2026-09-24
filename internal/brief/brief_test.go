@@ -18,6 +18,19 @@ func params(kind string, n, maxStacks int) Params {
 	return Params{RepoPath: "/repo", Slug: testSlug, MaxStacks: maxStacks, Workers: workers}
 }
 
+func TestBuildTellsTheMasterToWatchTheInbox(t *testing.T) {
+	p := params("claude", 2, 2)
+	p.InboxWatch = "'/bin/acw' __inbox-watch '/repo/inbox'"
+	got := Build(p)
+	if !strings.Contains(got, p.InboxWatch) || !strings.Contains(got, "Monitor") {
+		t.Errorf("brief with an inbox should tell the master to arm a Monitor on %q", p.InboxWatch)
+	}
+
+	if got := Build(params("claude", 2, 2)); strings.Contains(got, "Monitor") {
+		t.Error("brief without an inbox (master that can't watch one) must not mention a Monitor")
+	}
+}
+
 func TestBuildNamesAllWorkers(t *testing.T) {
 	got := Build(params("claude", 3, 3))
 	for _, want := range []string{"worker1-testslug", "worker2-testslug", "worker3-testslug"} {

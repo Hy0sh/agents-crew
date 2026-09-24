@@ -62,7 +62,7 @@ func provisionWorkers(plan provisionPlan) {
 			fmt.Fprintf(os.Stderr, "%s: herdr pane rename: %v\n", name, err)
 		}
 		w := plan.Workers[i-1]
-		if err := herdr.AgentStart(name, w.Kind, newPane, workerArgs(w, masterName, label)...); err != nil {
+		if err := herdr.AgentStart(name, w.Kind, newPane, workerArgs(w, label, pingCommand(plan.Inbox, masterName, label))...); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: herdr agent start: %v\n", name, err)
 			continue
 		}
@@ -80,7 +80,14 @@ func provisionWorkers(plan provisionPlan) {
 
 	adopting.Wait()
 
-	if err := herdr.AgentPrompt(masterName, brief.WorkersReadyMessage(slug, n)); err != nil {
+	ready := brief.WorkersReadyMessage(slug, n)
+	if plan.Inbox != "" {
+		if err := appendLine(plan.Inbox, ready); err != nil {
+			fmt.Fprintln(os.Stderr, "inbox du master (workers ready):", err)
+		}
+		return
+	}
+	if err := herdr.AgentPrompt(masterName, ready); err != nil {
 		fmt.Fprintln(os.Stderr, "herdr agent prompt master (workers ready):", err)
 	}
 }
@@ -107,7 +114,7 @@ func provisionWorkers(plan provisionPlan) {
 // Its standing instructions, when it has some, go in as a system prompt
 // for the same reason: that also survives `/clear`. Claude only as well;
 // another kind gets them from the master, copied into each of its briefs.
-func workerArgs(w workerSpec, masterName, label string) []string {
+func workerArgs(w workerSpec, label, ping string) []string {
 	args := modelArgs(w.Model)
 	if w.Kind != "claude" {
 		return args
@@ -115,7 +122,7 @@ func workerArgs(w workerSpec, masterName, label string) []string {
 	if w.PromptPath != "" {
 		args = append(args, "--append-system-prompt-file", w.PromptPath)
 	}
-	hooks, err := stopHookSettings(masterName, label)
+	hooks, err := stopHookSettings(ping)
 	if err != nil {
 		// Only json.Marshal of a literal struct can fail here, which it
 		// cannot; the worker still starts, just without its ping.
@@ -125,14 +132,23 @@ func workerArgs(w workerSpec, masterName, label string) []string {
 	return append(args, "--settings", hooks)
 }
 
-func stopHookSettings(masterName, label string) (string, error) {
+// pingCommand is the shell command a worker's Stop hook runs: one line
+// appended to the master's inbox, or, when there is none (see
+// inboxWatchCommand), the same text typed into the master's input.
+func pingCommand(inbox, masterName, label string) string {
 	// Deliberately says nothing about WHAT changed: the hook cannot know,
 	// and a ping that guesses would be worse than one that points at the
 	// status file the worker just updated.
-	ping := fmt.Sprintf("herdr agent prompt %s %q", masterName, fmt.Sprintf(
+	msg := shellWord(fmt.Sprintf(
 		"%s a rendu la main. Lis son fichier de statut (champs state, decision, pr_url, proof_path) avant toute réaction. "+
 			"Si rien n'a changé depuis ton dernier point, ne fais rien et ne lui écris pas.", label))
+	if inbox != "" {
+		return "printf '%s\\n' " + msg + " >> " + shellWord(inbox)
+	}
+	return "herdr agent prompt " + shellWord(masterName) + " " + msg
+}
 
+func stopHookSettings(ping string) (string, error) {
 	type command struct {
 		Type    string `json:"type"`
 		Command string `json:"command"`
