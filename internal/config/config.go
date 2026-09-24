@@ -16,6 +16,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 )
@@ -37,6 +38,10 @@ type Project struct {
 	// string because JSON keys are. The range is checked by the caller,
 	// once the flags have had their say on the worker count.
 	WorkerOverrides map[string]WorkerOverride `json:"worker-overrides"`
+	// Presets are named variants of the entry, picked with --preset: same
+	// keys, laid over it by WithPreset. A preset holding presets of its own
+	// is refused by Load.
+	Presets map[string]Project `json:"presets"`
 }
 
 // WorkerOverride replaces worker-kind / worker-model for one worker and
@@ -86,18 +91,55 @@ func Load(repo string) (*Project, error) {
 		if filepath.Clean(expandHome(key)) != repo {
 			continue
 		}
-		paths := []*string{p.Brief, p.Notes}
-		for _, o := range p.WorkerOverrides {
-			paths = append(paths, o.Prompt)
-		}
-		for _, s := range paths {
-			if s != nil {
-				*s = expandHome(*s)
+		expandPaths(p)
+		for name, preset := range p.Presets {
+			if len(preset.Presets) > 0 {
+				return nil, fmt.Errorf("%s: preset %q: un preset ne peut pas contenir de presets", path, name)
 			}
+			expandPaths(preset)
 		}
 		return &p, nil
 	}
 	return nil, nil
+}
+
+// expandPaths expands ~ in p's file paths. p is a copy, but its fields
+// are pointers, so the expansion lands in the caller's entry.
+func expandPaths(p Project) {
+	paths := []*string{p.Brief, p.Notes}
+	for _, o := range p.WorkerOverrides {
+		paths = append(paths, o.Prompt)
+	}
+	for _, s := range paths {
+		if s != nil {
+			*s = expandHome(*s)
+		}
+	}
+}
+
+// WithPreset returns the entry with the named preset laid over it. A key
+// the preset sets replaces the entry's whole value, worker-overrides
+// included: merged index by index, a preset would inherit roles written
+// for another composition of the swarm.
+func (p *Project) WithPreset(name string) (*Project, error) {
+	preset, ok := p.Presets[name]
+	if !ok {
+		available := "aucun n'est défini"
+		if len(p.Presets) > 0 {
+			available = "disponibles : " + strings.Join(slices.Sorted(maps.Keys(p.Presets)), ", ")
+		}
+		return nil, fmt.Errorf("preset %q inconnu (%s)", name, available)
+	}
+	merged := *p
+	dst, src := reflect.ValueOf(&merged).Elem(), reflect.ValueOf(preset)
+	for i := range src.NumField() {
+		// Every field is a pointer or a map: nil is exactly "not set".
+		if f := src.Field(i); !f.IsNil() {
+			dst.Field(i).Set(f)
+		}
+	}
+	merged.Presets = nil
+	return &merged, nil
 }
 
 // Summary lists the keys the entry sets, for the launch line that tells

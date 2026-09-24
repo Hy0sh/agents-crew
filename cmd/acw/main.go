@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -32,6 +33,7 @@ type startOptions struct {
 	masterModel string
 	workerModel string
 	briefPath   string
+	preset      string                           // picks the config entry's variant, not a config key itself
 	profile     string                           // from the per-project config only, no flag
 	notesPath   string                           // same
 	overrides   map[string]config.WorkerOverride // same
@@ -65,13 +67,27 @@ func applyConfig(opts *startOptions, p *config.Project, changed func(string) boo
 	opts.overrides = p.WorkerOverrides
 }
 
+// loadProject returns the repo's config entry, with the preset laid over
+// it when one is named. A preset asked for on a repo with no entry is an
+// error, not a silent launch with the defaults.
+func loadProject(repo, preset string) (*config.Project, error) {
+	project, err := config.Load(repo)
+	if err != nil || preset == "" {
+		return project, err
+	}
+	if project == nil {
+		return nil, fmt.Errorf("--preset %s: aucune entrée pour %s dans %s", preset, repo, config.Path())
+	}
+	return project.WithPreset(preset)
+}
+
 const rootLong = `Launches a Herdr workspace with one master agent supervising N worker
 agents, in the current directory.
 
 Per-project config (optional): ~/.config/acw/config.json, or
 $XDG_CONFIG_HOME/acw/config.json. It lives outside the repo, so it works
 where nothing may be committed. Entries are keyed by the directory acw is
-launched from, keys are the flag names, plus three with no flag:
+launched from, keys are the flag names, plus four with no flag:
 
   {
     "projects": {
@@ -94,13 +110,17 @@ launched from, keys are the flag names, plus three with no flag:
                     and prompt, a file of standing instructions (system
                     prompt for a claude worker, copied into each of its
                     briefs by the master otherwise)
+  presets           named variants of the entry, picked with --preset: same
+                    keys, each one set replacing the entry's whole value
+                    (worker-overrides included)
 
 Paths accept ~, and a relative one is read from the repo, for a file the
 team commits there.
 
-Precedence: a flag given on the command line > the project's entry > the
-built-in default. No file or no entry: acw behaves as without config. An
-unknown key refuses to start, so a typo never goes unnoticed.`
+Precedence: a flag given on the command line > the preset given with
+--preset > the project's entry > the built-in default. No file or no
+entry: acw behaves as without config. An unknown key refuses to start, so
+a typo never goes unnoticed.`
 
 func main() {
 	opts := &startOptions{}
@@ -116,13 +136,17 @@ func main() {
 			if err != nil {
 				return err
 			}
-			project, err := config.Load(cwd)
+			project, err := loadProject(cwd, opts.preset)
 			if err != nil {
 				return fmt.Errorf("config acw: %w", err)
 			}
 			if project != nil {
 				applyConfig(opts, project, cmd.Flags().Changed)
-				fmt.Fprintf(cmd.ErrOrStderr(), "config: %s → %s\n", config.Path(), project.Summary())
+				summary := project.Summary()
+				if opts.preset != "" {
+					summary = strings.TrimSuffix(fmt.Sprintf("preset=%q, %s", opts.preset, summary), ", ")
+				}
+				fmt.Fprintf(cmd.ErrOrStderr(), "config: %s → %s\n", config.Path(), summary)
 			}
 			workers, err := resolveWorkers(opts, cwd)
 			if err != nil {
@@ -149,6 +173,7 @@ func main() {
 	root.Flags().StringVar(&opts.workerKind, "worker-kind", "claude", "herdr agent kind for the workers (claude, codex, gemini...) (per-project: worker-kind)")
 	root.Flags().StringVar(&opts.masterModel, "master-model", "opus", "model for the master agent; empty means no --model is passed to its CLI (per-project: master-model)")
 	root.Flags().StringVar(&opts.workerModel, "worker-model", "sonnet", "model for worker agents; empty means no --model is passed to their CLI (per-project: worker-model)")
+	root.Flags().StringVar(&opts.preset, "preset", "", "named preset of the per-project config entry, laid over it (see presets in the config)")
 	root.Flags().StringVar(&opts.briefPath, "brief", "", "path to a custom master brief template (Go text/template) with these variables: "+brief.Variables()+"; see the README; default: built-in template (per-project: brief)")
 
 	stop := &cobra.Command{

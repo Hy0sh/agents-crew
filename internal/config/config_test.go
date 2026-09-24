@@ -124,6 +124,51 @@ func TestLoadRejectsUnknownKeyInWorkerOverride(t *testing.T) {
 	}
 }
 
+func TestWithPresetReplacesWholeKeys(t *testing.T) {
+	writeConfig(t, `{"projects": {"/repo": {
+		"workers": 3, "profile": "light",
+		"worker-overrides": {"2": {"model": "haiku"}, "3": {"model": "haiku"}},
+		"presets": {"feature": {"workers": 4, "worker-overrides": {"1": {"prompt": "~/planner.md"}}}}
+	}}}`)
+	p, err := Load("/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.WithPreset("feature")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *got.Workers != 4 || *got.Profile != "light" {
+		t.Errorf("workers = %d, profile = %q; want the preset's workers and the entry's profile", *got.Workers, *got.Profile)
+	}
+	if len(got.WorkerOverrides) != 1 || got.WorkerOverrides["1"].Prompt == nil {
+		t.Errorf("worker-overrides = %v; the preset's must replace the entry's, not merge index by index", got.WorkerOverrides)
+	}
+	home, _ := os.UserHomeDir()
+	if *got.WorkerOverrides["1"].Prompt != filepath.Join(home, "planner.md") {
+		t.Errorf("prompt = %q, ~ not expanded in a preset", *got.WorkerOverrides["1"].Prompt)
+	}
+	if *p.Workers != 3 {
+		t.Error("WithPreset must not modify the entry it is called on")
+	}
+}
+
+func TestWithPresetUnknownNamesTheAvailableOnes(t *testing.T) {
+	writeConfig(t, `{"projects": {"/repo": {"presets": {"review": {}, "feature": {}}}}}`)
+	p, _ := Load("/repo")
+	_, err := p.WithPreset("featur")
+	if err == nil || !strings.Contains(err.Error(), "feature, review") {
+		t.Errorf("WithPreset() error = %v; want one listing feature, review", err)
+	}
+}
+
+func TestLoadRejectsNestedPreset(t *testing.T) {
+	writeConfig(t, `{"projects": {"/repo": {"presets": {"a": {"presets": {"b": {}}}}}}}`)
+	if _, err := Load("/repo"); err == nil {
+		t.Error("Load() with a preset inside a preset = nil error, want one")
+	}
+}
+
 func TestSummaryListsWorkerOverrideIndexes(t *testing.T) {
 	p := &Project{WorkerOverrides: map[string]WorkerOverride{"3": {}, "1": {}}}
 	if got := p.Summary(); got != "worker-overrides=1,3" {
