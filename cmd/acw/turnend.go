@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -41,7 +42,7 @@ func normalizeStatus(path string, now time.Time) error {
 	written := info.ModTime()
 	status["updated_at"] = written.UTC().Format(time.RFC3339)
 	status["last_turn_end"] = now.UTC().Format(time.RFC3339)
-	if _, ok := status["blocked_on"]; ok && status["state"] != "blocked" {
+	if _, ok := status["blocked_on"]; ok && !blockedState(status["state"]) {
 		status["blocked_on"] = ""
 	}
 
@@ -55,4 +56,14 @@ func normalizeStatus(path string, now time.Time) error {
 	// Given back, so the next turn's updated_at is still the worker's own
 	// last write and not this rewrite.
 	return os.Chtimes(path, written, written)
+}
+
+// blockedState reports whether a worker's state says it is blocked, in
+// whatever words it chose: state is free text, often French. Erring this
+// way keeps a stale blocked_on at worst; erring the other way would wipe
+// the very question the master was pinged to read.
+func blockedState(state any) bool {
+	s, _ := state.(string)
+	s = strings.ToLower(s)
+	return strings.Contains(s, "block") || strings.Contains(s, "bloq")
 }

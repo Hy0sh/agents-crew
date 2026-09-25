@@ -100,7 +100,8 @@ have no hooks and keep the previous behaviour, where the master polls.
 Before pinging, the same hook runs `acw __turn-end` on that status file:
 `updated_at` becomes the file's real modification time in UTC,
 `last_turn_end` the time the turn ended, and `blocked_on` is cleared once
-`state` is no longer `blocked`. These were the fields workers got wrong in
+`state` no longer says blocked (any wording holding `block` or `bloq`,
+since workers write it freely). These were the fields workers got wrong in
 practice (a local time written with a `Z`, a block left set long after the
 answer). Everything else in the file stays the worker's own; a file that
 is missing or not a JSON object is left alone.

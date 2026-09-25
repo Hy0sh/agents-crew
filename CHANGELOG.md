@@ -10,8 +10,8 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 - A claude worker's `Stop` hook now normalizes its status file before
   pinging the master: `updated_at` from the file's real modification time
-  in UTC, a new `last_turn_end`, and `blocked_on` cleared once `state` is
-  no longer `blocked`. A master can now tell a worker that works without
+  in UTC, a new `last_turn_end`, and `blocked_on` cleared once `state` no
+  longer says blocked, in whatever words. A master can now tell a worker that works without
   updating its status from one that stopped.
 - The master's brief tells workers to get their ports from the project's
   environment tooling instead of asking the underlying container tool

@@ -93,6 +93,20 @@ func TestNormalizeStatusKeepsBlockedOnWhileBlocked(t *testing.T) {
 	}
 }
 
+// state is free text written by the worker, in French as often as not:
+// a question must survive whatever word it used for being blocked.
+func TestNormalizeStatusKeepsBlockedOnForAnyBlockedWording(t *testing.T) {
+	for _, state := range []string{"bloqué", "BLOCKED", "blocked_on_decision", "Bloque"} {
+		path := writeStatus(t, `{"state":"`+state+`","blocked_on":"option A ou B ?"}`, time.Now())
+		if err := normalizeStatus(path, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		if got := readStatus(t, path)["blocked_on"]; got != "option A ou B ?" {
+			t.Errorf("state %q: blocked_on = %v, the question must survive", state, got)
+		}
+	}
+}
+
 func TestNormalizeStatusAddsNoBlockedOnKey(t *testing.T) {
 	path := writeStatus(t, `{"state":"in_progress"}`, time.Now())
 	if err := normalizeStatus(path, time.Now()); err != nil {

@@ -255,8 +255,14 @@ func TestBuildCarriesTheWorkerHygieneRules(t *testing.T) {
 // Only workers with the Stop hook get their stamps from acw; the others
 // must still be asked for a real UTC time.
 func TestBuildSaysWhoStampsTheStatus(t *testing.T) {
-	if got := Build(params("claude", 2, 2)); !strings.Contains(got, "last_turn_end") {
+	hooked := Build(params("claude", 2, 2))
+	if !strings.Contains(hooked, "last_turn_end") {
 		t.Error("with claude workers, the brief should say acw stamps updated_at and last_turn_end")
+	}
+	// blocked_on is only cleared by acw, never filled: the master must keep
+	// asking for it, so the brief names exactly which fields it can drop.
+	if !strings.Contains(hooked, "Ne leur demande pas de tenir `updated_at` ni `last_turn_end`") {
+		t.Error("the brief should name the two stamped fields, not a vague « ces champs » that swallows blocked_on")
 	}
 	got := Build(params("codex", 2, 2))
 	if strings.Contains(got, "last_turn_end") {
