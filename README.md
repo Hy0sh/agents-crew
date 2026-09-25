@@ -97,6 +97,14 @@ which worker moved and nothing more (a hook can't know what changed); it
 points the master at that worker's status file. Workers of any other kind
 have no hooks and keep the previous behaviour, where the master polls.
 
+Before pinging, the same hook runs `acw __turn-end` on that status file:
+`updated_at` becomes the file's real modification time in UTC,
+`last_turn_end` the time the turn ended, and `blocked_on` is cleared once
+`state` is no longer `blocked`. These were the fields workers got wrong in
+practice (a local time written with a `Z`, a block left set long after the
+answer). Everything else in the file stays the worker's own; a file that
+is missing or not a JSON object is left alone.
+
 With a `claude` master, the ping is not typed into the master's input:
 typed text merged with whatever you were writing to the master at that
 moment. The hook appends a line to an inbox in the status directory, and
@@ -402,7 +410,8 @@ a branch and a PR; run reviews separately.
   running workers interactively actually hits it.
 - **`agent read` is a TUI capture, not text** — truncated lines, spinners,
   occasional corruption mid-redraw. The shared per-worker status file
-  (`.claude/worktrees/.acw-status/workerN.json`, worker-written) is cheaper
+  (`.claude/worktrees/.acw-status/workerN.json`, worker-written, timestamps
+  stamped by acw) is cheaper
   and more reliable for routine checks; it's still self-reported, so the
   brief also tells the master to cross-check objective signals (git status,
   CI) before trusting a push.

@@ -6,6 +6,21 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- A claude worker's `Stop` hook now normalizes its status file before
+  pinging the master: `updated_at` from the file's real modification time
+  in UTC, a new `last_turn_end`, and `blocked_on` cleared once `state` is
+  no longer `blocked`. A master can now tell a worker that works without
+  updating its status from one that stopped.
+- The master's brief tells workers to get their ports from the project's
+  environment tooling instead of asking the underlying container tool
+  (which froze workers on a permission prompt), to keep temporary files in
+  `/tmp` rather than `rm -rf` inside the worktree (a prompt that denies
+  itself after a few minutes), and to check that no proof file is staged
+  before a push. Two status fields join the list: `base_branch`, to see
+  stacked PRs at a glance, and `ports`.
+
 ## [0.5.0] - 2026-09-24
 
 Several ways to run one repo, agents that start outside the code, and
