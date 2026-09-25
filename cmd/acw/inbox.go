@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -19,7 +20,10 @@ import (
 // the inbox and the master watches it with a Claude Code Monitor, whose
 // events start a turn without touching the input.
 
-const inboxWatchUse = "__inbox-watch"
+const (
+	inboxWatchUse = "__inbox-watch"
+	inboxNextUse  = "__inbox-next"
+)
 
 // drainSettle is how long drainOnce waits after taking the inbox, so an
 // append that opened the file just before the rename still lands in what
@@ -35,24 +39,33 @@ func inboxWatchCommand(masterKind, customBrief, exe, inbox string) (cmd string, 
 	if masterKind != "claude" {
 		return "", false
 	}
-	if customBrief != "" && !strings.Contains(customBrief, ".InboxWatch") {
+	if customBrief != "" && !strings.Contains(customBrief, ".InboxWatch") && !strings.Contains(customBrief, ".InboxNext") {
 		return "", true
 	}
 	return shellWord(exe) + " " + inboxWatchUse + " " + shellWord(inbox), false
 }
 
+// inboxNextCommand is what the master runs in the background to get its
+// next messages (see nextInbox).
+func inboxNextCommand(exe, inbox string) string {
+	return shellWord(exe) + " " + inboxNextUse + " " + shellWord(inbox)
+}
+
 // masterArgs is what gets forwarded to the master's CLI: its model and,
-// when it watches an inbox, the permission to arm that one Monitor.
-// Claude Code asks approval for a Monitor it has no rule for, with no
-// "don't ask again", so without it the master would stall on a prompt at
-// every re-arm. Scoped to acw's own watch command, not Monitor in
-// general, which would run any command unasked.
+// when it watches an inbox, the permission to run acw's two inbox
+// commands: the Monitor one (__inbox-watch, for a custom brief that still
+// arms one) and the background one (__inbox-next). Claude Code asks
+// approval for a Monitor it has no rule for, with no "don't ask again",
+// and a prompt at every re-run would stall the master just the same.
+// Scoped to acw's own commands, not Bash in general.
 func masterArgs(model, exe, inboxWatch string) []string {
 	args := modelArgs(model)
 	if inboxWatch == "" {
 		return args
 	}
-	return append(args, "--allowedTools", "Bash("+shellWord(exe)+" "+inboxWatchUse+":*)")
+	return append(args, "--allowedTools",
+		"Bash("+shellWord(exe)+" "+inboxWatchUse+":*)",
+		"Bash("+shellWord(exe)+" "+inboxNextUse+":*)")
 }
 
 // watchInbox prints every line appended to inbox, forever, until the
@@ -66,6 +79,29 @@ func watchInbox(inbox string, w io.Writer, interval time.Duration) error {
 			return nil
 		}
 		if err := drainOnce(inbox, w); err != nil {
+			return err
+		}
+		time.Sleep(interval)
+	}
+}
+
+// nextInbox waits until at least one line is in the inbox, writes out
+// every line waiting there, and returns. The master runs it as a
+// background command and runs it again after each return: unlike a
+// Monitor, a background command has no 30-minute expiry, so a quiet
+// swarm costs the master nothing, and the end of the command is what
+// wakes it. A removed status dir (acw stop) ends it with nothing written.
+func nextInbox(inbox string, w io.Writer, interval time.Duration) error {
+	for {
+		if _, err := os.Stat(filepath.Dir(inbox)); errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		var got bytes.Buffer
+		if err := drainOnce(inbox, &got); err != nil {
+			return err
+		}
+		if got.Len() > 0 {
+			_, err := w.Write(got.Bytes())
 			return err
 		}
 		time.Sleep(interval)

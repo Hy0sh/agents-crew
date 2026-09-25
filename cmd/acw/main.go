@@ -247,6 +247,16 @@ func main() {
 		},
 	}
 
+	// Internal: what the master runs in the background (see nextInbox).
+	inboxNext := &cobra.Command{
+		Use:    inboxNextUse + " <inbox>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return nextInbox(args[0], cmd.OutOrStdout(), 500*time.Millisecond)
+		},
+	}
+
 	// Internal: what a claude worker's Stop hook runs (see stopCommand).
 	turnEnd := &cobra.Command{
 		Use:    turnEndUse + " <status-dir> <worker>",
@@ -257,7 +267,7 @@ func main() {
 		},
 	}
 
-	root.AddCommand(stop, provision, inboxWatch, turnEnd)
+	root.AddCommand(stop, provision, inboxWatch, inboxNext, turnEnd)
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
