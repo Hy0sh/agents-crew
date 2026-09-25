@@ -8,6 +8,27 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ### Added
 
+- A watcher, started with the swarm, that tells the master when a worker
+  becomes blocked (with the last lines of its pane, and a hint from the
+  second block of a task on), when a working worker shows no activity for
+  `silence-minutes` (new config key, default 30: no turn end, status update
+  or file change in its worktree), and when a worker without the Stop hook
+  hands control back. It stops with `acw stop`.
+- `acw __inbox-next`, which the master runs in the background to read its
+  messages: it waits for the next ones, prints them and exits. acw types a
+  reminder into the master's input when messages wait unread for 5
+  minutes.
+
+### Changed
+
+- The built-in brief no longer has the master keep an `agent wait` running
+  on every worker, nor re-arm a Monitor every 30 minutes: the watcher and
+  `__inbox-next` replace both. `{{.InboxWatch}}` still works for a custom
+  brief that arms a Monitor; new variables `{{.InboxNext}}` and
+  `{{.SilenceMinutes}}`.
+- A status file is now rewritten atomically, so the watcher never reads a
+  half-written one.
+
 - A claude worker's `Stop` hook now normalizes its status file before
   pinging the master: `updated_at` from the file's real modification time
   in UTC, a new `last_turn_end`, and `blocked_on` cleared once `state` no
