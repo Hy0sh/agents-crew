@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/names"
@@ -52,7 +51,7 @@ func eachStack(repo string, out io.Writer, done string, step func(dir, branch st
 		}
 		// A worker beyond max-stacks, or whose adopt failed, has a worktree
 		// wtm never gave a stack to: nothing to stop or start there.
-		if err != nil && (strings.Contains(err.Error(), "no worktree for branch") || strings.Contains(err.Error(), "is not registered")) {
+		if errors.Is(err, wtm.ErrNoStack) {
 			fmt.Fprintf(out, "%s : pas de stack, ignoré.\n", name)
 			continue
 		}
@@ -63,7 +62,13 @@ func eachStack(repo string, out io.Writer, done string, step func(dir, branch st
 		}
 		fmt.Fprintf(out, "%s : fait.\n", name)
 	}
-	if err := appendLine(names.Inbox(repo), done); err != nil {
+	inbox := run.Inbox
+	if run.MasterName == "" {
+		// A run.json from an older acw names no master: its inbox is all
+		// there is.
+		inbox = names.Inbox(repo)
+	}
+	if err := deliver(inbox, run.MasterName, done); err != nil {
 		fmt.Fprintln(out, "message au master:", err)
 	}
 	if failed > 0 {

@@ -13,14 +13,21 @@ import (
 )
 
 func run(repo string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+	out, err := output(append([]string{"-C", repo}, args...)...)
+	return strings.TrimSpace(string(out)), err
+}
+
+// output runs git with args as given, global flags included, and returns
+// its stdout untouched.
+func output(args ...string) ([]byte, error) {
+	cmd := exec.Command("git", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git %v (in %s): %w: %s", args, repo, err, stderr.String())
+		return nil, fmt.Errorf("git %v: %w: %s", args, err, stderr.String())
 	}
-	return strings.TrimSpace(stdout.String()), nil
+	return stdout.Bytes(), nil
 }
 
 // Fetch runs `git fetch origin` in repo.
@@ -83,7 +90,7 @@ func LastActivity(dir string) time.Time {
 	// first " M path" entry. --no-optional-locks: a plain status refreshes
 	// the index under index.lock, and this runs every few seconds next to
 	// a worker's own git add.
-	out, err := exec.Command("git", "--no-optional-locks", "-C", dir, "status", "--porcelain", "-z", "--untracked-files=all").Output()
+	out, err := output("--no-optional-locks", "-C", dir, "status", "--porcelain", "-z", "--untracked-files=all")
 	if err != nil {
 		return latest
 	}

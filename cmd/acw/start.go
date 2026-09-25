@@ -90,7 +90,8 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
 		return err
 	}
-	if err := writeRunInfo(repo, runInfo{Profile: opts.profile}); err != nil {
+	stamp := time.Now().Format("20060102150405")
+	if err := writeRunInfo(repo, runInfo{Profile: opts.profile, Stamp: stamp, MasterName: masterName, Inbox: inbox}); err != nil {
 		return err
 	}
 
@@ -124,7 +125,6 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		return err
 	}
 
-	stamp := time.Now().Format("20060102150405")
 	plan := provisionPlan{Repo: repo, MasterPane: masterPane, Stamp: stamp, MaxStacks: maxStacks, Profile: opts.profile, Workers: workers, Inbox: inbox}
 	if err := launchBackgroundProvisioning(plan); err != nil {
 		return fmt.Errorf("lancement du provisioning des workers: %w", err)
@@ -133,11 +133,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	// less. Said, so the user knows why.
 	watch := watchPlanFor(repo, masterName, inbox, inboxNext, opts.silenceMinutes, workers)
 	watch.Stamp = stamp
-	err = os.WriteFile(filepath.Join(names.StatusDir(repo), "stamp"), []byte(stamp+"\n"), 0o644)
-	if err == nil {
-		err = launchBackgroundWatch(watch, stamp)
-	}
-	if err != nil {
+	if err := launchBackgroundWatch(watch); err != nil {
 		fmt.Fprintf(out, "⚠ veilleur acw non lancé, le master ne sera pas prévenu des blocages ni des silences : %v\n", err)
 	}
 
@@ -149,11 +145,16 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	return syscall.Exec(mustLookPath("herdr"), []string{"herdr"}, os.Environ())
 }
 
-// runInfo is what a swarm was started with that acw resume needs again:
-// the profile the config gave at launch, which a later config change or
-// another --preset must not silently replace.
+// runInfo is what a swarm was started with that later commands need
+// again: the profile the config gave at launch (acw resume), which a later
+// config change or another --preset must not silently replace; the run's
+// stamp, by which acw's watcher knows the status dir is still its own; and
+// how to reach the master (its inbox, "" when messages are typed in).
 type runInfo struct {
-	Profile string `json:"profile"`
+	Profile    string `json:"profile"`
+	Stamp      string `json:"stamp"`
+	MasterName string `json:"master_name"`
+	Inbox      string `json:"inbox,omitempty"`
 }
 
 func writeRunInfo(repo string, info runInfo) error {
@@ -231,8 +232,8 @@ func launchBackgroundProvisioning(plan provisionPlan) error {
 }
 
 // launchBackgroundWatch starts acw's watcher (see runWatch) the same way.
-func launchBackgroundWatch(plan watchPlan, stamp string) error {
-	return launchDetached(fmt.Sprintf("acw-watch-%s.log", stamp), watchUse, plan)
+func launchBackgroundWatch(plan watchPlan) error {
+	return launchDetached(fmt.Sprintf("acw-watch-%s.log", plan.Stamp), watchUse, plan)
 }
 
 // launchDetached starts this same binary as `<use> <plan as JSON>` in its

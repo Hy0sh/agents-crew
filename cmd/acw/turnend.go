@@ -51,14 +51,7 @@ func normalizeStatus(path string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	// Written aside and renamed over: acw's watcher reads status files
-	// every few seconds, and a truncate-then-write would show it an empty
-	// one.
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, append(out, '\n'), info.Mode().Perm()); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := writeAtomic(path, append(out, '\n'), info.Mode().Perm()); err != nil {
 		return err
 	}
 	// Given back, so the next turn's updated_at is still the worker's own

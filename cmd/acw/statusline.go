@@ -56,19 +56,15 @@ func readUsage(path string) (usage, error) {
 	return parseUsage(content)
 }
 
-// recordUsage keeps the JSON as received, written aside and renamed so a
-// reader never sees half of it, then prints the pane's status line. A
+// recordUsage keeps the JSON as received (see writeAtomic), then prints
+// the pane's status line. A
 // JSON it cannot read is still kept: the file is Claude Code's, not ours.
 func recordUsage(path string, in io.Reader, out io.Writer) error {
 	content, err := io.ReadAll(in)
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, content, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := writeAtomic(path, content, 0o644); err != nil {
 		return err
 	}
 	u, _ := parseUsage(content)

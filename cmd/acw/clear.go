@@ -32,12 +32,8 @@ func cleared(before string, u usage) bool {
 // name workerN-<slug> (the one the brief lists), into workerN and N.
 // Anything else is refused: the label becomes a file name.
 func clearLabel(arg, slug string) (string, int, error) {
-	var index int
-	if _, err := fmt.Sscanf(arg, "worker%d", &index); err == nil && index >= 1 {
-		label := fmt.Sprintf("worker%d", index)
-		if arg == label || arg == names.Worker(slug, index) {
-			return label, index, nil
-		}
+	if index, ok := names.WorkerIndex(arg, slug); ok {
+		return fmt.Sprintf("worker%d", index), index, nil
 	}
 	return "", 0, fmt.Errorf("%q n'est pas un worker de ce swarm (worker1, ou son nom herdr worker1-%s)", arg, slug)
 }

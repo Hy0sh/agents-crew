@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -107,23 +106,13 @@ func scanWorkers(statusDir string, agents []herdr.Agent, slug string) []statusRo
 		if !running && statErr != nil {
 			continue
 		}
-		row := statusRow{Label: label, Agent: agent.Status, Activity: activity(statusPath, agent.Cwd)}
-		if content, err := os.ReadFile(statusPath); err == nil {
-			var s struct {
-				Tache       string `json:"tache"`
-				State       string `json:"state"`
-				Branch      string `json:"branch"`
-				BaseBranch  string `json:"base_branch"`
-				PRURL       string `json:"pr_url"`
-				UpdatedAt   string `json:"updated_at"`
-				LastTurnEnd string `json:"last_turn_end"`
-			}
-			if json.Unmarshal(content, &s) == nil {
-				row.Task, row.State, row.Branch, row.BaseBranch, row.PR = s.Tache, s.State, s.Branch, s.BaseBranch, s.PRURL
-				row.Updated, _ = time.Parse(time.RFC3339, s.UpdatedAt)
-				row.TurnEnd, _ = time.Parse(time.RFC3339, s.LastTurnEnd)
-			}
+		s, mtime := readWorkerStatus(statusPath)
+		row := statusRow{
+			Label: label, Agent: agent.Status, Activity: activity(s, mtime, worktreeActivity(agent.Cwd)),
+			Task: s.Tache, State: s.State, Branch: s.Branch, BaseBranch: s.BaseBranch, PR: s.PRURL,
 		}
+		row.Updated, _ = time.Parse(time.RFC3339, s.UpdatedAt)
+		row.TurnEnd, _ = time.Parse(time.RFC3339, s.LastTurnEnd)
 		if u, err := readUsage(filepath.Join(statusDir, label+".usage.json")); err == nil {
 			row.Context, row.FiveHour = u.Context, u.FiveHour
 		}

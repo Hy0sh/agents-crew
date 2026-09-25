@@ -163,6 +163,23 @@ func repoOrCwd(repo string) (string, error) {
 	return os.Getwd()
 }
 
+// repoFlag adds --repo to cmd and returns what resolves it (see
+// repoOrCwd).
+func repoFlag(cmd *cobra.Command) func() (string, error) {
+	var repo string
+	cmd.Flags().StringVar(&repo, "repo", "", "the swarm's repo (default: the current directory); the master runs from elsewhere with master-dir")
+	return func() (string, error) { return repoOrCwd(repo) }
+}
+
+// decodePlan reads the JSON plan a detached acw is started with.
+func decodePlan[T any](arg, what string) (T, error) {
+	var plan T
+	if err := json.Unmarshal([]byte(arg), &plan); err != nil {
+		return plan, fmt.Errorf("plan %s illisible: %w", what, err)
+	}
+	return plan, nil
+}
+
 // withWtm runs a stack command on the swarm of the current directory,
 // which needs wtm: without it no worker ever had a stack to stop.
 func withWtm(run func(repo string) error) error {
@@ -249,13 +266,13 @@ func main() {
 		},
 	}
 
-	var statusRepo string
+	var statusRepo func() (string, error)
 	status := &cobra.Command{
 		Use:   "status",
 		Short: "Show every worker at a glance: state, status age, activity, context, quota, inbox",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			repo, err := repoOrCwd(statusRepo)
+			repo, err := statusRepo()
 			if err != nil {
 				return err
 			}
@@ -267,15 +284,15 @@ func main() {
 			return nil
 		},
 	}
-	status.Flags().StringVar(&statusRepo, "repo", "", "the swarm's repo (default: the current directory); the master runs from elsewhere with master-dir")
+	statusRepo = repoFlag(status)
 
-	var clearRepo string
+	var clearRepo func() (string, error)
 	clearCmd := &cobra.Command{
 		Use:   "clear workerN...",
 		Short: "Reset workers' context before a new task, and confirm it took",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			repo, err := repoOrCwd(clearRepo)
+			repo, err := clearRepo()
 			if err != nil {
 				return err
 			}
@@ -287,7 +304,7 @@ func main() {
 			return nil
 		},
 	}
-	clearCmd.Flags().StringVar(&clearRepo, "repo", "", "the swarm's repo (default: the current directory)")
+	clearRepo = repoFlag(clearCmd)
 
 	pause := &cobra.Command{
 		Use:   "pause",
@@ -314,9 +331,9 @@ func main() {
 		Hidden: true,
 		Args:   cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var plan provisionPlan
-			if err := json.Unmarshal([]byte(args[0]), &plan); err != nil {
-				return fmt.Errorf("plan de provisioning illisible: %w", err)
+			plan, err := decodePlan[provisionPlan](args[0], "de provisioning")
+			if err != nil {
+				return err
 			}
 			provisionWorkers(plan)
 			return nil
@@ -339,9 +356,9 @@ func main() {
 		Hidden: true,
 		Args:   cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var plan watchPlan
-			if err := json.Unmarshal([]byte(args[0]), &plan); err != nil {
-				return fmt.Errorf("plan du veilleur illisible: %w", err)
+			plan, err := decodePlan[watchPlan](args[0], "du veilleur")
+			if err != nil {
+				return err
 			}
 			runWatch(plan, 5*time.Second)
 			return nil

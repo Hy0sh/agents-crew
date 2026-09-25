@@ -29,7 +29,7 @@ func fakeSwarm(t *testing.T, profile string) (repo, calls string) {
 	if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeRunInfo(repo, runInfo{Profile: profile}); err != nil {
+	if err := writeRunInfo(repo, runInfo{Profile: profile, MasterName: "master-test", Inbox: names.Inbox(repo)}); err != nil {
 		t.Fatal(err)
 	}
 
