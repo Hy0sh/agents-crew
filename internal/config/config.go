@@ -37,6 +37,9 @@ type Project struct {
 	// MasterDir is where the master starts instead of the repo, e.g. a
 	// folder whose .claude it needs. Checked by the caller.
 	MasterDir *string `json:"master-dir"`
+	// SilenceMinutes is how long a working worker may show no activity at
+	// all before acw's watcher tells the master.
+	SilenceMinutes *int `json:"silence-minutes"`
 	// WorkerOverrides is keyed by worker index, 1 to workers, as a
 	// string because JSON keys are. The range is checked by the caller,
 	// once the flags have had their say on the worker count.
@@ -172,6 +175,7 @@ func (p *Project) Summary() string {
 	addStr("profile", p.Profile)
 	addStr("notes", p.Notes)
 	addStr("master-dir", p.MasterDir)
+	addInt("silence-minutes", p.SilenceMinutes)
 	if len(p.WorkerOverrides) > 0 {
 		keys := slices.Sorted(maps.Keys(p.WorkerOverrides))
 		parts = append(parts, "worker-overrides="+strings.Join(keys, ","))

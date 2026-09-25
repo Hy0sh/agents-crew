@@ -1,6 +1,189 @@
 package main
 
-import "time"
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/Hy0sh/agents-crew/internal/gitutil"
+	"github.com/Hy0sh/agents-crew/internal/herdr"
+	"github.com/Hy0sh/agents-crew/internal/names"
+)
+
+const watchUse = "__watch"
+
+// watchPlan is what the detached watcher needs, passed as one JSON
+// argument like provisionPlan.
+type watchPlan struct {
+	Repo       string `json:"repo"`
+	MasterName string `json:"master_name"`
+	// Inbox is where messages go, "" when they are typed into the master.
+	Inbox string `json:"inbox,omitempty"`
+	// InboxNext is the command the master reruns to read its inbox, named
+	// in the reminder when it forgets to.
+	InboxNext      string          `json:"inbox_next,omitempty"`
+	SilenceMinutes int             `json:"silence_minutes"`
+	Workers        []watchedWorker `json:"workers"`
+}
+
+type watchedWorker struct {
+	Name   string `json:"name"`  // herdr agent name
+	Label  string `json:"label"` // worker1, as in its status file's name
+	Hooked bool   `json:"hooked"`
+}
+
+// runWatch polls the workers every interval until acw stop removes the
+// status directory, and sends the master what observe finds worth it.
+// Nothing here is fatal: a failed poll or delivery is logged, and the
+// next poll tries again.
+func runWatch(plan watchPlan, interval time.Duration) {
+	statusDir := names.StatusDir(plan.Repo)
+	w := newWatcher(time.Duration(plan.SilenceMinutes) * time.Minute)
+	for {
+		if _, err := os.Stat(statusDir); errors.Is(err, fs.ErrNotExist) {
+			return
+		}
+		agents, err := herdr.AgentList()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "herdr agent list:", err)
+			time.Sleep(interval)
+			continue
+		}
+		now := time.Now()
+		var views []workerView
+		agentNames := map[string]string{}
+		for _, ww := range plan.Workers {
+			a, ok := herdr.FindAgent(agents, ww.Name)
+			if !ok {
+				continue
+			}
+			agentNames[ww.Label] = ww.Name
+			views = append(views, workerView{
+				Label:    ww.Label,
+				Hooked:   ww.Hooked,
+				Status:   a.Status,
+				Activity: activity(filepath.Join(statusDir, ww.Label+".json"), a.Cwd),
+			})
+		}
+		for _, e := range w.observe(now, views) {
+			deliver(plan, eventMessage(statusDir, agentNames[e.Label], e))
+		}
+		if plan.Inbox != "" {
+			info, err := os.Stat(plan.Inbox)
+			if w.remindInbox(now, err == nil && info.Size() > 0) {
+				remind := "Des messages acw attendent dans ton inbox depuis plus de 5 min : relance `" + plan.InboxNext + "` en arrière-plan."
+				if err := herdr.AgentPrompt(plan.MasterName, remind); err != nil {
+					fmt.Fprintln(os.Stderr, "rappel d'inbox:", err)
+				}
+			}
+		}
+		time.Sleep(interval)
+	}
+}
+
+// activity is the latest of what acw can read about a worker without
+// trusting it: last_turn_end (stamped by acw), its status file's mtime,
+// and the latest change in its worktree.
+func activity(statusPath, worktree string) time.Time {
+	var latest time.Time
+	later := func(t time.Time) {
+		if t.After(latest) {
+			latest = t
+		}
+	}
+	if info, err := os.Stat(statusPath); err == nil {
+		later(info.ModTime())
+	}
+	if content, err := os.ReadFile(statusPath); err == nil {
+		var status struct {
+			LastTurnEnd string `json:"last_turn_end"`
+		}
+		if json.Unmarshal(content, &status) == nil {
+			if t, err := time.Parse(time.RFC3339, status.LastTurnEnd); err == nil {
+				later(t)
+			}
+		}
+	}
+	if worktree != "" {
+		later(gitutil.LastActivity(worktree))
+	}
+	return latest
+}
+
+// eventMessage builds the text for one event. A blocked worker's pane is
+// read now, while the prompt is still on it.
+func eventMessage(statusDir, agentName string, e watchEvent) string {
+	switch e.Kind {
+	case eventBlocked:
+		pane, err := herdr.AgentRead(agentName, 40)
+		if err != nil {
+			pane = "(pane illisible : " + err.Error() + ")"
+		}
+		return blockedMessage(e.Label, countBlock(filepath.Join(statusDir, e.Label+".blocks")), pane)
+	case eventSilent:
+		return silentMessage(e.Label, e.For)
+	default:
+		return pingMessage(e.Label)
+	}
+}
+
+// countBlock adds one to the worker's block count and returns it. Kept on
+// disk so that a context reset of the worker, from another process, can
+// start it over (a new task).
+func countBlock(path string) int {
+	content, _ := os.ReadFile(path)
+	n, _ := strconv.Atoi(strings.TrimSpace(string(content)))
+	n++
+	if err := os.WriteFile(path, []byte(strconv.Itoa(n)+"\n"), 0o644); err != nil {
+		fmt.Fprintln(os.Stderr, "compteur de blocages:", err)
+	}
+	return n
+}
+
+func deliver(plan watchPlan, msg string) {
+	var err error
+	if plan.Inbox != "" {
+		err = appendLine(plan.Inbox, msg)
+	} else {
+		err = herdr.AgentPrompt(plan.MasterName, msg)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "message au master:", err)
+	}
+}
+
+// paneTail is how many non-empty lines of a blocked worker's pane go into
+// the message: enough for the pending command and its question.
+const paneTail = 12
+
+func blockedMessage(label string, count int, pane string) string {
+	var lines []string
+	for _, l := range strings.Split(pane, "\n") {
+		if strings.TrimSpace(l) != "" {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) > paneTail {
+		lines = lines[len(lines)-paneTail:]
+	}
+	msg := fmt.Sprintf("%s est bloqué : attente probable d'une approbation d'outil ou d'une question. Dernières lignes de son pane :\n%s",
+		label, strings.Join(lines, "\n"))
+	if count >= 2 {
+		msg = fmt.Sprintf("%de blocage depuis sa dernière réinitialisation : il bute peut-être sur une interdiction. ", count) + msg
+	}
+	return msg
+}
+
+func silentMessage(label string, d time.Duration) string {
+	return fmt.Sprintf("%s travaille depuis %d min sans activité visible (ni fin de tour, ni statut, ni fichier modifié dans son worktree). "+
+		"Sonde son worktree ou son pane.", label, int(d.Minutes()))
+}
 
 // acw's watcher replaces the master's own polling: Herdr has no push
 // notification for agent state, and a master told to keep an `agent wait`

@@ -153,16 +153,20 @@ func workerArgs(w workerSpec, label, hook string) []string {
 // appended to the master's inbox, or, when there is none (see
 // inboxWatchCommand), the same text typed into the master's input.
 func pingCommand(inbox, masterName, label string) string {
-	// Deliberately says nothing about WHAT changed: the hook cannot know,
-	// and a ping that guesses would be worse than one that points at the
-	// status file the worker just updated.
-	msg := shellWord(fmt.Sprintf(
-		"%s a rendu la main. Lis son fichier de statut (champs state, decision, pr_url, proof_path) avant toute réaction. "+
-			"Si rien n'a changé depuis ton dernier point, ne fais rien et ne lui écris pas.", label))
+	msg := shellWord(pingMessage(label))
 	if inbox != "" {
 		return "printf '%s\\n' " + msg + " >> " + shellWord(inbox)
 	}
 	return "herdr agent prompt " + shellWord(masterName) + " " + msg
+}
+
+// pingMessage tells the master a worker handed control back, from its
+// Stop hook or, for a worker without one, from acw's watcher. Deliberately
+// says nothing about WHAT changed: neither can know, and a ping that
+// guesses would be worse than one that points at the status file.
+func pingMessage(label string) string {
+	return fmt.Sprintf("%s a rendu la main. Lis son fichier de statut (champs state, decision, pr_url, proof_path) avant toute réaction. "+
+		"Si rien n'a changé depuis ton dernier point, ne fais rien et ne lui écris pas.", label)
 }
 
 // stopCommand is the full command of a claude worker's Stop hook: the

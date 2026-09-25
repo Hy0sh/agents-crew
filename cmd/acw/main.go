@@ -40,6 +40,8 @@ type startOptions struct {
 	notesPath   string                           // same
 	masterDir   string                           // same
 	overrides   map[string]config.WorkerOverride // same
+	// silenceMinutes: same, see config.Project.SilenceMinutes.
+	silenceMinutes int
 }
 
 // applyConfig copies the project entry's values into opts, except for
@@ -68,6 +70,7 @@ func applyConfig(opts *startOptions, p *config.Project, changed func(string) boo
 	setStr("profile", &opts.profile, p.Profile)
 	setStr("notes", &opts.notesPath, p.Notes)
 	setStr("master-dir", &opts.masterDir, p.MasterDir)
+	setInt("silence-minutes", &opts.silenceMinutes, p.SilenceMinutes)
 	opts.overrides = p.WorkerOverrides
 }
 
@@ -107,7 +110,7 @@ agents, in the current directory.
 Per-project config (optional): ~/.config/acw/config.json, or
 $XDG_CONFIG_HOME/acw/config.json. It lives outside the repo, so it works
 where nothing may be committed. Entries are keyed by the directory acw is
-launched from, keys are the flag names, plus five with no flag:
+launched from, keys are the flag names, plus six with no flag:
 
   {
     "projects": {
@@ -135,6 +138,9 @@ launched from, keys are the flag names, plus five with no flag:
                     environment or branch
   master-dir        absolute folder outside the repo the master starts in
                     (default: the repo)
+  silence-minutes   how long a working worker may show no activity (no turn
+                    end, no status update, no file changed) before acw tells
+                    the master (default: 30)
   presets           named variants of the entry, picked with --preset: same
                     keys, each one set replacing the entry's whole value
                     (worker-overrides included)
@@ -148,7 +154,7 @@ entry: acw behaves as without config. An unknown key refuses to start, so
 a typo never goes unnoticed.`
 
 func main() {
-	opts := &startOptions{}
+	opts := &startOptions{silenceMinutes: 30}
 
 	root := &cobra.Command{
 		Use:     "acw",
@@ -247,6 +253,21 @@ func main() {
 		},
 	}
 
+	// Internal: acw's watcher, detached by runStart (see runWatch).
+	watch := &cobra.Command{
+		Use:    watchUse + " <plan-json>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var plan watchPlan
+			if err := json.Unmarshal([]byte(args[0]), &plan); err != nil {
+				return fmt.Errorf("plan du veilleur illisible: %w", err)
+			}
+			runWatch(plan, 5*time.Second)
+			return nil
+		},
+	}
+
 	// Internal: what the master runs in the background (see nextInbox).
 	inboxNext := &cobra.Command{
 		Use:    inboxNextUse + " <inbox>",
@@ -267,7 +288,7 @@ func main() {
 		},
 	}
 
-	root.AddCommand(stop, provision, inboxWatch, inboxNext, turnEnd)
+	root.AddCommand(stop, provision, watch, inboxWatch, inboxNext, turnEnd)
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -75,6 +76,32 @@ func TestWatcherReportsTurnEndOnlyForWorkersWithoutTheHook(t *testing.T) {
 	got := w.observe(t0.Add(5*time.Second), []workerView{hooked, bare})
 	if len(got) != 1 || got[0].Label != "worker2" || got[0].Kind != eventTurnEnd {
 		t.Errorf("turn ends = %+v, want one for worker2 only (worker1's Stop hook already pings)", got)
+	}
+}
+
+func TestPingMessageNamesTheWorker(t *testing.T) {
+	if got := pingMessage("worker2"); !strings.HasPrefix(got, "worker2 a rendu la main.") {
+		t.Errorf("pingMessage() = %q", got)
+	}
+}
+
+func TestBlockedMessage(t *testing.T) {
+	pane := strings.Repeat("old line\n", 30) + "\n\nBash command\n  rm -rf /tmp/x\nDo you want to proceed?\n"
+	got := blockedMessage("worker2", 1, pane)
+	if !strings.HasPrefix(got, "worker2 est bloqué") || !strings.Contains(got, "rm -rf /tmp/x") {
+		t.Errorf("blockedMessage() = %q, want the worker named and the pending command", got)
+	}
+	if n := strings.Count(got, "old line"); n > 12 {
+		t.Errorf("blockedMessage() kept %d old lines, want the pane cut to its last lines", n)
+	}
+	if got := blockedMessage("worker2", 2, pane); !strings.HasPrefix(got, "2e blocage") || !strings.Contains(got, "worker2 est bloqué") {
+		t.Errorf("blockedMessage(2nd) = %q, want the repeat called out first", got)
+	}
+}
+
+func TestSilentMessage(t *testing.T) {
+	if got := silentMessage("worker1", 31*time.Minute+20*time.Second); !strings.HasPrefix(got, "worker1 travaille depuis 31 min") {
+		t.Errorf("silentMessage() = %q", got)
 	}
 }
 

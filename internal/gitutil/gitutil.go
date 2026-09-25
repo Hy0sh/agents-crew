@@ -5,8 +5,11 @@ package gitutil
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"time"
 )
 
 func run(repo string, args ...string) (string, error) {
@@ -58,6 +61,38 @@ func CurrentBranch(dir string) (string, error) {
 func WorktreeRemove(repo, path string) error {
 	_, err := run(repo, "worktree", "remove", path, "--force")
 	return err
+}
+
+// LastActivity is the latest sign of work in the worktree at dir, read
+// from the disk rather than from what its agent says: the mtime of its
+// index (a stage, a commit, a checkout) and of every file git status
+// lists. Zero when dir is not a git worktree.
+func LastActivity(dir string) time.Time {
+	var latest time.Time
+	see := func(path string) {
+		if info, err := os.Stat(path); err == nil && info.ModTime().After(latest) {
+			latest = info.ModTime()
+		}
+	}
+	index, err := run(dir, "rev-parse", "--path-format=absolute", "--git-path", "index")
+	if err != nil {
+		return time.Time{}
+	}
+	see(index)
+	// Not through run: its TrimSpace would eat the leading space of the
+	// first " M path" entry.
+	out, err := exec.Command("git", "-C", dir, "status", "--porcelain", "-z", "--untracked-files=all").Output()
+	if err != nil {
+		return latest
+	}
+	for _, entry := range strings.Split(string(out), "\x00") {
+		// "XY path"; a rename's source comes as its own entry after it and
+		// is skipped by os.Stat failing on it.
+		if len(entry) > 3 {
+			see(filepath.Join(dir, entry[3:]))
+		}
+	}
+	return latest
 }
 
 // DeleteBranch force-deletes branch in repo.

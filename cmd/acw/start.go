@@ -66,6 +66,10 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if inboxWatch == "" {
 		inbox = ""
 	}
+	var inboxNext string
+	if inbox != "" {
+		inboxNext = inboxNextCommand(self, inbox)
+	}
 	masterBrief, err := buildBrief(customBrief, brief.Params{
 		RepoPath:   repo,
 		Slug:       slug,
@@ -117,6 +121,11 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	plan := provisionPlan{Repo: repo, MasterPane: masterPane, Stamp: stamp, MaxStacks: maxStacks, Profile: opts.profile, Workers: workers, Inbox: inbox}
 	if err := launchBackgroundProvisioning(plan); err != nil {
 		return fmt.Errorf("lancement du provisioning des workers: %w", err)
+	}
+	// Not fatal: without it the swarm still runs, the master just hears
+	// less. Said, so the user knows why.
+	if err := launchBackgroundWatch(watchPlanFor(repo, masterName, inbox, inboxNext, opts.silenceMinutes, workers), stamp); err != nil {
+		fmt.Fprintf(out, "⚠ veilleur acw non lancé, le master ne sera pas prévenu des blocages ni des silences : %v\n", err)
 	}
 
 	success = true
@@ -181,6 +190,18 @@ func modelArgs(model string) []string {
 // in provisioning mode, so worker setup (worktrees, environments, panes,
 // agents) continues after this process execs into the Herdr TUI.
 func launchBackgroundProvisioning(plan provisionPlan) error {
+	return launchDetached(fmt.Sprintf("acw-workers-%s.log", plan.Stamp), provisionUse, plan)
+}
+
+// launchBackgroundWatch starts acw's watcher (see runWatch) the same way.
+func launchBackgroundWatch(plan watchPlan, stamp string) error {
+	return launchDetached(fmt.Sprintf("acw-watch-%s.log", stamp), watchUse, plan)
+}
+
+// launchDetached starts this same binary as `<use> <plan as JSON>` in its
+// own session, logging to logName in the temp dir, and does not wait: it
+// must keep running after this process execs into herdr.
+func launchDetached(logName, use string, plan any) error {
 	self, err := os.Executable()
 	if err != nil {
 		return err
@@ -189,21 +210,31 @@ func launchBackgroundProvisioning(plan provisionPlan) error {
 	if err != nil {
 		return err
 	}
-	logPath := filepath.Join(os.TempDir(), fmt.Sprintf("acw-workers-%s.log", plan.Stamp))
-	logFile, err := os.Create(logPath)
+	logFile, err := os.Create(filepath.Join(os.TempDir(), logName))
 	if err != nil {
 		return err
 	}
 
-	cmd := exec.Command(self, provisionUse, string(planJSON))
+	cmd := exec.Command(self, use, string(planJSON))
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err := cmd.Start(); err != nil {
-		return err
+	return cmd.Start()
+}
+
+// watchPlanFor lists the workers the watcher follows, named as
+// provisioning starts them. Only claude workers have the Stop hook.
+func watchPlanFor(repo, masterName, inbox, inboxNext string, silenceMinutes int, workers []workerSpec) watchPlan {
+	plan := watchPlan{Repo: repo, MasterName: masterName, Inbox: inbox, InboxNext: inboxNext, SilenceMinutes: silenceMinutes}
+	slug := names.Slug(repo)
+	for i, w := range workers {
+		plan.Workers = append(plan.Workers, watchedWorker{
+			Name:   names.Worker(slug, i+1),
+			Label:  fmt.Sprintf("worker%d", i+1),
+			Hooked: w.Kind == "claude",
+		})
 	}
-	// Intentionally not waited on: it must keep running after this process execs into herdr.
-	return nil
+	return plan
 }
 
 func mustLookPath(bin string) string {
