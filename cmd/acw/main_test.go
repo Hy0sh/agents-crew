@@ -64,3 +64,19 @@ func TestApplyConfigFlagWinsOverConfig(t *testing.T) {
 		t.Errorf("workerKind = %q; a key absent from the config must leave the default alone", opts.workerKind)
 	}
 }
+
+// silence-minutes has no flag: the config sets it, the default stays
+// otherwise.
+func TestApplyConfigSilenceMinutes(t *testing.T) {
+	minutes := 45
+	opts := &startOptions{silenceMinutes: 30}
+	applyConfig(opts, &config.Project{SilenceMinutes: &minutes}, func(string) bool { return false })
+	if opts.silenceMinutes != 45 {
+		t.Errorf("silenceMinutes = %d, want the config's 45", opts.silenceMinutes)
+	}
+	opts = &startOptions{silenceMinutes: 30}
+	applyConfig(opts, &config.Project{}, func(string) bool { return false })
+	if opts.silenceMinutes != 30 {
+		t.Errorf("silenceMinutes = %d, want the default 30 with no key", opts.silenceMinutes)
+	}
+}

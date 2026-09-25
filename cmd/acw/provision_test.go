@@ -14,11 +14,12 @@ import (
 // is delivered as a JSON string on a command line — the one place a
 // quoting slip would silently produce a worker that starts fine and never
 // reports anything.
-func TestStopHookSettingsIsValidAndCarriesTheCommand(t *testing.T) {
+func TestWorkerSettingsIsValidAndCarriesTheCommands(t *testing.T) {
 	ping := pingCommand("", "master-3f9a1c", "worker2")
-	got, err := stopHookSettings(ping)
+	statusLine := statusLineCommand("/bin/acw", "/repo/.claude/worktrees/.acw-status", "worker2")
+	got, err := workerSettings(ping, statusLine)
 	if err != nil {
-		t.Fatalf("stopHookSettings() error = %v", err)
+		t.Fatalf("workerSettings() error = %v", err)
 	}
 
 	var parsed struct {
@@ -28,6 +29,10 @@ func TestStopHookSettingsIsValidAndCarriesTheCommand(t *testing.T) {
 				Command string `json:"command"`
 			} `json:"hooks"`
 		} `json:"hooks"`
+		StatusLine *struct {
+			Type    string `json:"type"`
+			Command string `json:"command"`
+		} `json:"statusLine"`
 	}
 	if err := json.Unmarshal([]byte(got), &parsed); err != nil {
 		t.Fatalf("settings are not valid JSON: %v\n%s", err, got)
@@ -43,6 +48,14 @@ func TestStopHookSettingsIsValidAndCarriesTheCommand(t *testing.T) {
 	}
 	if cmd.Command != ping {
 		t.Errorf("hook command = %q, want %q", cmd.Command, ping)
+	}
+	if parsed.StatusLine == nil || parsed.StatusLine.Type != "command" || parsed.StatusLine.Command != statusLine {
+		t.Errorf("statusLine = %+v, want a command status line running %q", parsed.StatusLine, statusLine)
+	}
+
+	// Without acw's own path there is no status line to point at.
+	if got, _ := workerSettings(ping, ""); strings.Contains(got, "statusLine") {
+		t.Errorf("workerSettings(no status line) = %s, must leave the user's own", got)
 	}
 }
 
@@ -101,7 +114,7 @@ func TestAppendLineAppends(t *testing.T) {
 }
 
 func TestWorkerArgsOnlyHooksClaudeWorkers(t *testing.T) {
-	claude := workerArgs(workerSpec{Kind: "claude", Model: "sonnet"}, "worker1", "true")
+	claude := workerArgs(workerSpec{Kind: "claude", Model: "sonnet"}, "worker1", "true", "")
 	if !slices.Contains(claude, "--settings") {
 		t.Errorf("workerArgs(claude) = %v, want a --settings carrying the Stop hook", claude)
 	}
@@ -109,14 +122,14 @@ func TestWorkerArgsOnlyHooksClaudeWorkers(t *testing.T) {
 		t.Errorf("workerArgs(claude) = %v, dropped the model", claude)
 	}
 
-	codex := workerArgs(workerSpec{Kind: "codex", Model: "gpt-5"}, "worker1", "true")
+	codex := workerArgs(workerSpec{Kind: "codex", Model: "gpt-5"}, "worker1", "true", "")
 	if slices.Contains(codex, "--settings") {
 		t.Errorf("workerArgs(codex) = %v, --settings is Claude Code's own flag and would break the CLI", codex)
 	}
 }
 
 func TestWorkerArgsPromptIsASystemPromptForClaudeOnly(t *testing.T) {
-	claude := workerArgs(workerSpec{Kind: "claude", PromptPath: "/cfg/verifier.md"}, "worker1", "true")
+	claude := workerArgs(workerSpec{Kind: "claude", PromptPath: "/cfg/verifier.md"}, "worker1", "true", "")
 	i := slices.Index(claude, "--append-system-prompt-file")
 	if i < 0 || i+1 >= len(claude) || claude[i+1] != "/cfg/verifier.md" {
 		t.Errorf("workerArgs(claude with prompt) = %v, want --append-system-prompt-file /cfg/verifier.md", claude)
@@ -125,7 +138,7 @@ func TestWorkerArgsPromptIsASystemPromptForClaudeOnly(t *testing.T) {
 		t.Errorf("workerArgs(claude with prompt) = %v, lost the Stop hook", claude)
 	}
 
-	codex := workerArgs(workerSpec{Kind: "codex", PromptPath: "/cfg/verifier.md"}, "worker1", "true")
+	codex := workerArgs(workerSpec{Kind: "codex", PromptPath: "/cfg/verifier.md"}, "worker1", "true", "")
 	if slices.Contains(codex, "--append-system-prompt-file") {
 		t.Errorf("workerArgs(codex with prompt) = %v, passed a Claude Code flag to another CLI", codex)
 	}

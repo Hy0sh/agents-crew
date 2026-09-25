@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -50,12 +51,23 @@ func normalizeStatus(path string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, append(out, '\n'), info.Mode().Perm()); err != nil {
+	if err := writeAtomic(path, append(out, '\n'), info.Mode().Perm()); err != nil {
 		return err
 	}
 	// Given back, so the next turn's updated_at is still the worker's own
 	// last write and not this rewrite.
 	return os.Chtimes(path, written, written)
+}
+
+// markTurnEnd stamps workerN.turn with the turn's end, whether or not the
+// worker wrote a status file yet: acw's watcher tells a finished turn
+// from a worker left idle on a prompt by it (see eventIdleNoTurnEnd).
+func markTurnEnd(statusDir, label string, at time.Time) error {
+	path := filepath.Join(statusDir, label+".turn")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		return err
+	}
+	return os.Chtimes(path, at, at)
 }
 
 // blockedState reports whether a worker's state says it is blocked, in

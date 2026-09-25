@@ -205,3 +205,18 @@ func TestSummaryListsOnlySetKeys(t *testing.T) {
 		t.Errorf("Summary() = %q", got)
 	}
 }
+
+func TestLoadSilenceMinutesAndItsPreset(t *testing.T) {
+	writeConfig(t, `{"projects": {"/repo": {"silence-minutes": 45, "presets": {"night": {"silence-minutes": 90}}}}}`)
+	p, err := Load("/repo")
+	if err != nil || p == nil || p.SilenceMinutes == nil || *p.SilenceMinutes != 45 {
+		t.Fatalf("Load() = %+v, %v; want silence-minutes 45", p, err)
+	}
+	if got := p.Summary(); !strings.Contains(got, "silence-minutes=45") {
+		t.Errorf("Summary() = %q, want silence-minutes=45", got)
+	}
+	night, err := p.WithPreset("night")
+	if err != nil || *night.SilenceMinutes != 90 {
+		t.Errorf("WithPreset(night) = %+v, %v; want silence-minutes 90", night, err)
+	}
+}

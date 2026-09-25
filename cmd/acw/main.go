@@ -23,6 +23,7 @@ import (
 	"github.com/Hy0sh/agents-crew/internal/preflight"
 	"github.com/Hy0sh/agents-crew/internal/teardown"
 	"github.com/Hy0sh/agents-crew/internal/version"
+	"github.com/Hy0sh/agents-crew/internal/wtm"
 )
 
 const provisionUse = "__provision-workers"
@@ -40,6 +41,8 @@ type startOptions struct {
 	notesPath   string                           // same
 	masterDir   string                           // same
 	overrides   map[string]config.WorkerOverride // same
+	// silenceMinutes: same, see config.Project.SilenceMinutes.
+	silenceMinutes int
 }
 
 // applyConfig copies the project entry's values into opts, except for
@@ -68,6 +71,7 @@ func applyConfig(opts *startOptions, p *config.Project, changed func(string) boo
 	setStr("profile", &opts.profile, p.Profile)
 	setStr("notes", &opts.notesPath, p.Notes)
 	setStr("master-dir", &opts.masterDir, p.MasterDir)
+	setInt("silence-minutes", &opts.silenceMinutes, p.SilenceMinutes)
 	opts.overrides = p.WorkerOverrides
 }
 
@@ -107,7 +111,7 @@ agents, in the current directory.
 Per-project config (optional): ~/.config/acw/config.json, or
 $XDG_CONFIG_HOME/acw/config.json. It lives outside the repo, so it works
 where nothing may be committed. Entries are keyed by the directory acw is
-launched from, keys are the flag names, plus five with no flag:
+launched from, keys are the flag names, plus six with no flag:
 
   {
     "projects": {
@@ -135,6 +139,9 @@ launched from, keys are the flag names, plus five with no flag:
                     environment or branch
   master-dir        absolute folder outside the repo the master starts in
                     (default: the repo)
+  silence-minutes   how long a working worker may show no activity (no turn
+                    end, no status update, no file changed) before acw tells
+                    the master (default: 30)
   presets           named variants of the entry, picked with --preset: same
                     keys, each one set replacing the entry's whole value
                     (worker-overrides included)
@@ -147,8 +154,47 @@ Precedence: a flag given on the command line > the preset given with
 entry: acw behaves as without config. An unknown key refuses to start, so
 a typo never goes unnoticed.`
 
+// repoOrCwd is the swarm's repo for a command the master may run from
+// elsewhere: the one given, else the current directory.
+func repoOrCwd(repo string) (string, error) {
+	if repo != "" {
+		return filepath.Abs(repo)
+	}
+	return os.Getwd()
+}
+
+// repoFlag adds --repo to cmd and returns what resolves it (see
+// repoOrCwd).
+func repoFlag(cmd *cobra.Command) func() (string, error) {
+	var repo string
+	cmd.Flags().StringVar(&repo, "repo", "", "the swarm's repo (default: the current directory); the master runs from elsewhere with master-dir")
+	return func() (string, error) { return repoOrCwd(repo) }
+}
+
+// decodePlan reads the JSON plan a detached acw is started with.
+func decodePlan[T any](arg, what string) (T, error) {
+	var plan T
+	if err := json.Unmarshal([]byte(arg), &plan); err != nil {
+		return plan, fmt.Errorf("plan %s illisible: %w", what, err)
+	}
+	return plan, nil
+}
+
+// withWtm runs a stack command on the swarm of the current directory,
+// which needs wtm: without it no worker ever had a stack to stop.
+func withWtm(run func(repo string) error) error {
+	if !wtm.Available() {
+		return fmt.Errorf("wtm introuvable dans le PATH : les workers n'ont pas de stack à arrêter ni à relancer")
+	}
+	repo, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	return run(repo)
+}
+
 func main() {
-	opts := &startOptions{}
+	opts := &startOptions{silenceMinutes: 30}
 
 	root := &cobra.Command{
 		Use:     "acw",
@@ -220,6 +266,63 @@ func main() {
 		},
 	}
 
+	var statusRepo func() (string, error)
+	status := &cobra.Command{
+		Use:   "status",
+		Short: "Show every worker at a glance: state, status age, activity, context, quota, inbox",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repo, err := statusRepo()
+			if err != nil {
+				return err
+			}
+			rows, unread, lastAt, err := collectStatus(repo)
+			if err != nil {
+				return err
+			}
+			fmt.Fprint(cmd.OutOrStdout(), renderStatus(time.Now(), rows, unread, lastAt))
+			return nil
+		},
+	}
+	statusRepo = repoFlag(status)
+
+	var clearRepo func() (string, error)
+	clearCmd := &cobra.Command{
+		Use:   "clear workerN...",
+		Short: "Reset workers' context before a new task, and confirm it took",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repo, err := clearRepo()
+			if err != nil {
+				return err
+			}
+			for _, label := range args {
+				if err := clearWorker(repo, label, cmd.OutOrStdout()); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+	clearRepo = repoFlag(clearCmd)
+
+	pause := &cobra.Command{
+		Use:   "pause",
+		Short: "Stop the workers' stacks for a break; worktrees, agents and workspace stay",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withWtm(func(repo string) error { return pauseStacks(repo, cmd.OutOrStdout()) })
+		},
+	}
+	resume := &cobra.Command{
+		Use:   "resume",
+		Short: "Start the workers' stacks again, on the profile the swarm was launched with",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withWtm(func(repo string) error { return resumeStacks(repo, cmd.OutOrStdout()) })
+		},
+	}
+
 	// Internal: re-exec'd as a detached background process by runStart to
 	// provision workers without delaying the Herdr TUI opening. Hidden from
 	// --help and completion; not a documented interface.
@@ -228,9 +331,9 @@ func main() {
 		Hidden: true,
 		Args:   cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var plan provisionPlan
-			if err := json.Unmarshal([]byte(args[0]), &plan); err != nil {
-				return fmt.Errorf("plan de provisioning illisible: %w", err)
+			plan, err := decodePlan[provisionPlan](args[0], "de provisioning")
+			if err != nil {
+				return err
 			}
 			provisionWorkers(plan)
 			return nil
@@ -247,17 +350,56 @@ func main() {
 		},
 	}
 
+	// Internal: acw's watcher, detached by runStart (see runWatch).
+	watch := &cobra.Command{
+		Use:    watchUse + " <plan-json>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plan, err := decodePlan[watchPlan](args[0], "du veilleur")
+			if err != nil {
+				return err
+			}
+			runWatch(plan, 5*time.Second)
+			return nil
+		},
+	}
+
+	// Internal: what the master runs in the background (see nextInbox).
+	inboxNext := &cobra.Command{
+		Use:    inboxNextUse + " <inbox>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return nextInbox(args[0], cmd.OutOrStdout(), 500*time.Millisecond)
+		},
+	}
+
+	// Internal: a claude worker's status line (see recordUsage).
+	statusLine := &cobra.Command{
+		Use:    statusLineUse + " <status-dir> <worker>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return recordUsage(filepath.Join(args[0], args[1]+".usage.json"), cmd.InOrStdin(), cmd.OutOrStdout())
+		},
+	}
+
 	// Internal: what a claude worker's Stop hook runs (see stopCommand).
 	turnEnd := &cobra.Command{
 		Use:    turnEndUse + " <status-dir> <worker>",
 		Hidden: true,
 		Args:   cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return normalizeStatus(filepath.Join(args[0], args[1]+".json"), time.Now())
+			now := time.Now()
+			if err := markTurnEnd(args[0], args[1], now); err != nil {
+				fmt.Fprintln(os.Stderr, "marque de fin de tour:", err)
+			}
+			return normalizeStatus(filepath.Join(args[0], args[1]+".json"), now)
 		},
 	}
 
-	root.AddCommand(stop, provision, inboxWatch, turnEnd)
+	root.AddCommand(stop, status, clearCmd, pause, resume, provision, watch, inboxWatch, inboxNext, turnEnd, statusLine)
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)

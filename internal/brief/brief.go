@@ -48,8 +48,20 @@ type MasterData struct {
 	// others (kind, model, standing instructions), empty when none is.
 	WorkerOverrides string
 	// InboxWatch is the command the master arms a Monitor on to receive
-	// pings, empty when they are typed into its input instead.
+	// pings, empty when they are typed into its input instead. Kept for
+	// custom briefs; the built-in one uses InboxNext.
 	InboxWatch string
+	// InboxNext is the command the master runs in the background to read
+	// its next messages, empty when they are typed into its input.
+	InboxNext string
+	// SilenceMinutes is how long a working worker may show no activity
+	// before acw's watcher tells the master.
+	SilenceMinutes int
+	// StatusCommand shows every worker at a glance (acw status).
+	StatusCommand string
+	// ClearCommand, followed by a worker's label, resets its context and
+	// confirms it took (acw clear).
+	ClearCommand string
 }
 
 // Params is what a brief is built from. N is len(Workers).
@@ -62,6 +74,11 @@ type Params struct {
 	Workers   []Worker
 	// InboxWatch is the master's inbox watch command, "" for none.
 	InboxWatch string
+	// InboxNext is its background read command, "" for none.
+	InboxNext      string
+	SilenceMinutes int
+	StatusCommand  string
+	ClearCommand   string
 }
 
 // Worker is one worker as it was actually started.
@@ -103,6 +120,10 @@ func newMasterData(p Params) MasterData {
 		PingingWorkers:   pingingWorkers(p.Slug, p.Workers),
 		WorkerOverrides:  workerOverrides(p.Slug, p.Workers),
 		InboxWatch:       p.InboxWatch,
+		InboxNext:        p.InboxNext,
+		SilenceMinutes:   p.SilenceMinutes,
+		StatusCommand:    p.StatusCommand,
+		ClearCommand:     p.ClearCommand,
 	}
 }
 

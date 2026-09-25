@@ -18,16 +18,62 @@ func params(kind string, n, maxStacks int) Params {
 	return Params{RepoPath: "/repo", Slug: testSlug, MaxStacks: maxStacks, Workers: workers}
 }
 
-func TestBuildTellsTheMasterToWatchTheInbox(t *testing.T) {
+// The built-in brief reads the inbox with a background command, which
+// never expires, instead of a Monitor re-armed every 30 minutes.
+func TestBuildTellsTheMasterToReadTheInboxInTheBackground(t *testing.T) {
 	p := params("claude", 2, 2)
 	p.InboxWatch = "'/bin/acw' __inbox-watch '/repo/inbox'"
+	p.InboxNext = "'/bin/acw' __inbox-next '/repo/inbox'"
 	got := Build(p)
-	if !strings.Contains(got, p.InboxWatch) || !strings.Contains(got, "Monitor") {
-		t.Errorf("brief with an inbox should tell the master to arm a Monitor on %q", p.InboxWatch)
+	if !strings.Contains(got, p.InboxNext) || !strings.Contains(got, "run_in_background") {
+		t.Errorf("brief with an inbox should tell the master to run %q in the background", p.InboxNext)
+	}
+	if strings.Contains(got, "Monitor") {
+		t.Error("the built-in brief must not arm a Monitor any more")
 	}
 
-	if got := Build(params("claude", 2, 2)); strings.Contains(got, "Monitor") {
-		t.Error("brief without an inbox (master that can't watch one) must not mention a Monitor")
+	if got := Build(params("claude", 2, 2)); strings.Contains(got, "run_in_background") {
+		t.Error("brief without an inbox (master that can't read one) must not mention it")
+	}
+}
+
+func TestBuildHandsTheMasterStatusAndClear(t *testing.T) {
+	p := params("claude", 2, 2)
+	p.StatusCommand = "/bin/acw status --repo /repo"
+	p.ClearCommand = "/bin/acw clear --repo /repo"
+	got := Build(p)
+	if !strings.Contains(got, p.StatusCommand) {
+		t.Errorf("brief should give the master %q", p.StatusCommand)
+	}
+	if !strings.Contains(got, p.ClearCommand+" workerN") {
+		t.Errorf("brief should give the master %q for its context resets", p.ClearCommand+" workerN")
+	}
+	// It waits up to 10 minutes: past the Bash tool's default 2.
+	if !strings.Contains(got, "600000") {
+		t.Error("brief should tell the master to give acw clear a 10-minute timeout")
+	}
+	for _, stray := range []string{"imprévisible. ;", "pour vérifier. ;", "ci-dessus. ;"} {
+		if strings.Contains(got, stray) {
+			t.Errorf("brief renders a stray %q in the reset rule", stray)
+		}
+	}
+	if strings.Contains(got, "Les autres workers se réinitialisent") {
+		t.Error("with only claude workers, the brief must not talk of other workers reset by hand")
+	}
+}
+
+// acw's watcher replaces the master's own polling of every worker.
+func TestBuildLeansOnTheWatcherInsteadOfWaits(t *testing.T) {
+	p := params("claude", 2, 2)
+	p.SilenceMinutes = 30
+	got := Build(p)
+	if strings.Contains(got, "--timeout 300000") {
+		t.Error("the brief still tells the master to keep an agent wait running on every worker")
+	}
+	for _, want := range []string{"30 min", "à la fin de ton tour"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("brief missing %q (silence threshold, or the delay a blocked message can take)", want)
+		}
 	}
 }
 
