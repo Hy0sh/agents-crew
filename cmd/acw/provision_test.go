@@ -130,3 +130,53 @@ func TestWorkerArgsPromptIsASystemPromptForClaudeOnly(t *testing.T) {
 		t.Errorf("workerArgs(codex with prompt) = %v, passed a Claude Code flag to another CLI", codex)
 	}
 }
+
+// fakeAcw is an executable that stands for acw in a hook command: it
+// records the arguments it got, one per line, in args next to itself.
+func fakeAcw(t *testing.T, dir string) string {
+	t.Helper()
+	exe := filepath.Join(dir, "acw")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$(dirname \"$0\")/args\"\n"
+	if err := os.WriteFile(exe, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return exe
+}
+
+// Run through a real shell from a path a quoting slip trips on: the hook
+// is a command line nothing else checks, and a wrong status dir would
+// normalize nothing without a word.
+func TestStopCommandNormalizesThenPings(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), `it's $HOME`)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	inbox := filepath.Join(dir, "inbox")
+	cmd := stopCommand(fakeAcw(t, dir), dir, "worker2", pingCommand(inbox, "master-3f9a1c", "worker2"))
+
+	if out, err := exec.Command("sh", "-c", cmd).CombinedOutput(); err != nil {
+		t.Fatalf("sh -c %q: %v\n%s", cmd, err, out)
+	}
+	args, err := os.ReadFile(filepath.Join(dir, "args"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := turnEndUse + "\n" + dir + "\nworker2\n"; string(args) != want {
+		t.Errorf("acw got args %q, want %q", args, want)
+	}
+	if content, _ := os.ReadFile(inbox); !strings.HasPrefix(string(content), "worker2 ") {
+		t.Errorf("inbox = %q, the ping must still go out", content)
+	}
+}
+
+// A normalization that fails must never cost the master its ping.
+func TestStopCommandPingsEvenWhenNormalizationFails(t *testing.T) {
+	dir := t.TempDir()
+	inbox := filepath.Join(dir, "inbox")
+	cmd := stopCommand(filepath.Join(dir, "missing-acw"), dir, "worker2", pingCommand(inbox, "master-3f9a1c", "worker2"))
+
+	_ = exec.Command("sh", "-c", cmd).Run()
+	if content, _ := os.ReadFile(inbox); !strings.HasPrefix(string(content), "worker2 ") {
+		t.Errorf("inbox = %q, the ping must go out after a failed normalization", content)
+	}
+}

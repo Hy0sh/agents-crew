@@ -40,6 +40,14 @@ func provisionWorkers(plan provisionPlan) {
 	var adopting sync.WaitGroup
 	stacked := stackedWorkers(plan.Workers, plan.MaxStacks)
 
+	// The hook calls this same binary back; without its path the workers
+	// still ping, they only lose the status normalization.
+	self, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "chemin d'acw introuvable, statuts non normalisés:", err)
+	}
+	statusDir := names.StatusDir(repo)
+
 	for i := 1; i <= n; i++ {
 		label := fmt.Sprintf("worker%d", i) // cosmetic pane label, kept short
 		name := names.Worker(slug, i)       // actual herdr agent name, unique per repo
@@ -66,7 +74,11 @@ func provisionWorkers(plan provisionPlan) {
 		if err := herdr.PaneRename(newPane, label); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: herdr pane rename: %v\n", name, err)
 		}
-		if err := herdr.AgentStart(name, w.Kind, newPane, workerArgs(w, label, pingCommand(plan.Inbox, masterName, label))...); err != nil {
+		hook := pingCommand(plan.Inbox, masterName, label)
+		if self != "" {
+			hook = stopCommand(self, statusDir, label, hook)
+		}
+		if err := herdr.AgentStart(name, w.Kind, newPane, workerArgs(w, label, hook)...); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: herdr agent start: %v\n", name, explainStart(err, wt))
 			continue
 		}
@@ -105,7 +117,8 @@ func provisionWorkers(plan provisionPlan) {
 // going to look. Every substitute tried in practice was a discipline the
 // master had to keep up (re-arming `agent wait` after each wake-up and
 // each dispatch, telling each worker to report in) and disciplines get
-// dropped — a finished PR went unnoticed for an afternoon that way. A
+// dropped — a finished PR went unnoticed for an afternoon that way. The
+// hook also normalizes the worker's status file first (see stopCommand). A
 // hook is not a discipline: it fires whatever the worker or the master
 // remembered to do, and survives the `/clear` between two tasks that
 // wipes everything the worker was told.
@@ -118,7 +131,7 @@ func provisionWorkers(plan provisionPlan) {
 // Its standing instructions, when it has some, go in as a system prompt
 // for the same reason: that also survives `/clear`. Claude only as well;
 // another kind gets them from the master, copied into each of its briefs.
-func workerArgs(w workerSpec, label, ping string) []string {
+func workerArgs(w workerSpec, label, hook string) []string {
 	args := modelArgs(w.Model)
 	if w.Kind != "claude" {
 		return args
@@ -126,7 +139,7 @@ func workerArgs(w workerSpec, label, ping string) []string {
 	if w.PromptPath != "" {
 		args = append(args, "--append-system-prompt-file", w.PromptPath)
 	}
-	hooks, err := stopHookSettings(ping)
+	hooks, err := stopHookSettings(hook)
 	if err != nil {
 		// Only json.Marshal of a literal struct can fail here, which it
 		// cannot; the worker still starts, just without its ping.
@@ -150,6 +163,14 @@ func pingCommand(inbox, masterName, label string) string {
 		return "printf '%s\\n' " + msg + " >> " + shellWord(inbox)
 	}
 	return "herdr agent prompt " + shellWord(masterName) + " " + msg
+}
+
+// stopCommand is the full command of a claude worker's Stop hook: the
+// status normalization first, so the master reads a fixed file when the
+// ping wakes it, then the ping. Joined with ; and not &&: a failed
+// normalization must not cost the ping.
+func stopCommand(exe, statusDir, label, ping string) string {
+	return shellWord(exe) + " " + turnEndUse + " " + shellWord(statusDir) + " " + shellWord(label) + "; " + ping
 }
 
 func stopHookSettings(ping string) (string, error) {
