@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -246,7 +247,17 @@ func main() {
 		},
 	}
 
-	root.AddCommand(stop, provision, inboxWatch)
+	// Internal: what a claude worker's Stop hook runs (see stopCommand).
+	turnEnd := &cobra.Command{
+		Use:    turnEndUse + " <status-dir> <worker>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return normalizeStatus(filepath.Join(args[0], args[1]+".json"), time.Now())
+		},
+	}
+
+	root.AddCommand(stop, provision, inboxWatch, turnEnd)
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
