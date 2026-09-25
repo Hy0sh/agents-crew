@@ -161,6 +161,36 @@ Herdr workspace. A swarm running for a different repo is left alone.
 outlives it, and so do any environments workers started. `acw stop` is the
 only way to actually stop it.
 
+```sh
+acw status [--repo <dir>]
+acw clear [--repo <dir>] worker1 [worker2...]
+acw pause
+acw resume
+```
+
+- `acw status` shows every worker at a glance, from what acw can read
+  without asking anyone: herdr's state, the status file's `state`, how old
+  its `updated_at`, `last_turn_end` and the worktree's last change are,
+  context and 5-hour quota, branch and base, PR, then the unread messages
+  of the master's inbox. A status 40 minutes old next to a worktree changed
+  2 minutes ago is a worker coding without updating its status.
+- `acw clear` resets a claude worker's context before a new task: it waits
+  for the worker to be idle, refuses one that is blocked (the reset would
+  queue behind the prompt), sends `/clear`, and returns once the worker's
+  status line reports a new session, or fails saying so after 60 s. It also
+  starts over the watcher's block count for that worker.
+- `acw pause` stops the workers' stacks (`wtm stop`) for a break, and `acw
+  resume` starts them again (`wtm start`) on the profile the swarm was
+  launched with. Worktrees, agents and the workspace stay as they are, and
+  the master hears of both in its inbox. Without a terminal wtm asks
+  nothing and starts even when memory is tight; its warning is shown as is.
+
+`status` and `clear` take `--repo` because the master may run elsewhere
+(`master-dir`): its brief hands it both commands fully written, and it is
+started allowed to run them. They read what acw keeps in the status
+directory, including the claude workers' status line, which acw sets to its
+own (`ctx 34% · 5h 78%`) in place of the user's, to record that usage.
+
 ## Custom brief template
 
 `--brief` (or the `brief` config key) replaces the master's built-in brief
@@ -183,6 +213,8 @@ and keep the variables you need:
 | `{{.InboxWatch}}` | the command the master must arm a Monitor on to receive pings and "workers ready", empty when the master is not `claude`. A custom brief that mentions neither it nor `{{.InboxNext}}` gets pings typed into the master's input, as before, with a warning at launch |
 | `{{.InboxNext}}` | the command the master runs in the background to read its next messages, and runs again after each batch; empty when the master is not `claude`. The built-in brief uses this one |
 | `{{.SilenceMinutes}}` | the `silence-minutes` value: how long a working worker may show no activity before acw's watcher tells the master |
+| `{{.StatusCommand}}` | `acw status --repo <repo>`, fully written: every worker at a glance |
+| `{{.ClearCommand}}` | `acw clear --repo <repo>`, fully written, to follow with a worker's label (`worker2`): resets its context and confirms it took |
 
 Before `worker-overrides`, a template could test `{{if eq .WorkerAgent
 "claude"}}` to know whether pings come in. That still works when all

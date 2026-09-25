@@ -37,6 +37,19 @@ func TestBuildTellsTheMasterToReadTheInboxInTheBackground(t *testing.T) {
 	}
 }
 
+func TestBuildHandsTheMasterStatusAndClear(t *testing.T) {
+	p := params("claude", 2, 2)
+	p.StatusCommand = "/bin/acw status --repo /repo"
+	p.ClearCommand = "/bin/acw clear --repo /repo"
+	got := Build(p)
+	if !strings.Contains(got, p.StatusCommand) {
+		t.Errorf("brief should give the master %q", p.StatusCommand)
+	}
+	if !strings.Contains(got, p.ClearCommand+" workerN") {
+		t.Errorf("brief should give the master %q for its context resets", p.ClearCommand+" workerN")
+	}
+}
+
 // acw's watcher replaces the master's own polling of every worker.
 func TestBuildLeansOnTheWatcherInsteadOfWaits(t *testing.T) {
 	p := params("claude", 2, 2)

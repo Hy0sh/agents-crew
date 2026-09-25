@@ -31,8 +31,24 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   itself after a few minutes), and to check that no proof file is staged
   before a push. Two status fields join the list: `base_branch`, to see
   stacked PRs at a glance, and `ports`.
+- `acw status`: every worker at a glance (herdr state, status age, last
+  turn end, worktree activity, context, 5-hour quota, branch and base, PR)
+  and the master's unread inbox.
+- `acw clear workerN`: waits for the worker to be idle, refuses a blocked
+  one, sends `/clear` and returns once a new session is reported, instead
+  of the master reading the pane (which once showed a render from before
+  the clear). It starts the watcher's block count over.
+- `acw pause` / `acw resume`: stop the workers' stacks for a break and start
+  them again on the launch profile, leaving worktrees and agents alone.
+- The master's brief hands it `acw status` and `acw clear` fully written
+  (`{{.StatusCommand}}`, `{{.ClearCommand}}`), and it is started allowed to
+  run them.
 
 ### Changed
+
+- A claude worker's status line is now acw's (`ctx 34% · 5h 78%`), in
+  place of the user's: it records the worker's context and quota for `acw
+  status` and `acw clear`.
 
 - The built-in brief no longer has the master keep an `agent wait` running
   on every worker, nor re-arm a Monitor every 30 minutes: the watcher and

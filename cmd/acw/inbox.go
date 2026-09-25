@@ -65,7 +65,11 @@ func masterArgs(model, exe, inboxWatch string) []string {
 	}
 	return append(args, "--allowedTools",
 		"Bash("+shellWord(exe)+" "+inboxWatchUse+":*)",
-		"Bash("+shellWord(exe)+" "+inboxNextUse+":*)")
+		"Bash("+shellWord(exe)+" "+inboxNextUse+":*)",
+		// The two commands the brief hands the master to run at every
+		// status point and before every task.
+		"Bash("+shellWord(exe)+" status:*)",
+		"Bash("+shellWord(exe)+" clear:*)")
 }
 
 // watchInbox prints every line appended to inbox, forever, until the

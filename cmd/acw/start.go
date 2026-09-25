@@ -80,6 +80,8 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		InboxWatch:     inboxWatch,
 		InboxNext:      inboxNext,
 		SilenceMinutes: opts.silenceMinutes,
+		StatusCommand:  shellWord(self) + " status --repo " + shellWord(repo),
+		ClearCommand:   shellWord(self) + " clear --repo " + shellWord(repo),
 	})
 	if err != nil {
 		return err
