@@ -129,7 +129,8 @@ state of each worker and writes to the master when:
 
 - a worker becomes `blocked` (a tool approval or a question): the message
   carries the last lines of its pane, and from that worker's second block
-  since the swarm started, a hint that it may be hitting a forbidden call.
+  since its last `acw clear` (so within one task), a hint that it may be
+  hitting a forbidden call.
   Some prompts show as `idle` rather than `blocked` in herdr, so a claude
   worker gone idle for 15 s without its Stop hook having run gets the same
   message;

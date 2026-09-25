@@ -198,7 +198,7 @@ func blockedMessage(label string, count int, pane string) string {
 	msg := fmt.Sprintf("%s est bloqué : attente probable d'une approbation d'outil ou d'une question. Dernières lignes de son pane :\n%s",
 		label, strings.Join(lines, "\n"))
 	if count >= 2 {
-		msg = fmt.Sprintf("%de blocage de ce worker depuis le démarrage du swarm : il bute peut-être sur une interdiction. ", count) + msg
+		msg = fmt.Sprintf("%de blocage de ce worker depuis son dernier acw clear : il bute peut-être sur une interdiction. ", count) + msg
 	}
 	return msg
 }

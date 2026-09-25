@@ -118,9 +118,9 @@ func TestBlockedMessage(t *testing.T) {
 	if got := blockedMessage("worker2", 2, pane); !strings.HasPrefix(got, "2e blocage") || !strings.Contains(got, "worker2 est bloqué") {
 		t.Errorf("blockedMessage(2nd) = %q, want the repeat called out first", got)
 	}
-	// Nothing resets the count yet: it must not claim to be per task.
-	if got := blockedMessage("worker2", 2, pane); !strings.Contains(got, "depuis le démarrage du swarm") {
-		t.Errorf("blockedMessage(2nd) = %q, want the count said to run since the swarm started", got)
+	// acw clear starts the count over, before each new task.
+	if got := blockedMessage("worker2", 2, pane); !strings.Contains(got, "depuis son dernier acw clear") {
+		t.Errorf("blockedMessage(2nd) = %q, want the count said to run since the last acw clear", got)
 	}
 }
 

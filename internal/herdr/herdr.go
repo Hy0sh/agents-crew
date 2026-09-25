@@ -178,6 +178,17 @@ func AgentPrompt(name, text string) error {
 	return err
 }
 
+// AgentWait blocks until the agent reaches one of the states in until, or
+// timeout passes (an error then).
+func AgentWait(name string, until []string, timeout time.Duration) error {
+	args := []string{"agent", "wait", name, "--timeout", fmt.Sprint(timeout.Milliseconds())}
+	for _, s := range until {
+		args = append(args, "--until", s)
+	}
+	_, err := run(args...)
+	return err
+}
+
 // AgentRead returns the last lines of an agent's terminal, unwrapped, as
 // herdr prints them: plain text, not JSON.
 func AgentRead(name string, lines int) (string, error) {

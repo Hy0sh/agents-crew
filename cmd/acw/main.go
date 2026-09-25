@@ -269,6 +269,26 @@ func main() {
 	}
 	status.Flags().StringVar(&statusRepo, "repo", "", "the swarm's repo (default: the current directory); the master runs from elsewhere with master-dir")
 
+	var clearRepo string
+	clearCmd := &cobra.Command{
+		Use:   "clear workerN...",
+		Short: "Reset workers' context before a new task, and confirm it took",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repo, err := repoOrCwd(clearRepo)
+			if err != nil {
+				return err
+			}
+			for _, label := range args {
+				if err := clearWorker(repo, label, cmd.OutOrStdout()); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+	clearCmd.Flags().StringVar(&clearRepo, "repo", "", "the swarm's repo (default: the current directory)")
+
 	pause := &cobra.Command{
 		Use:   "pause",
 		Short: "Stop the workers' stacks for a break; worktrees, agents and workspace stay",
@@ -362,7 +382,7 @@ func main() {
 		},
 	}
 
-	root.AddCommand(stop, status, pause, resume, provision, watch, inboxWatch, inboxNext, turnEnd, statusLine)
+	root.AddCommand(stop, status, clearCmd, pause, resume, provision, watch, inboxWatch, inboxNext, turnEnd, statusLine)
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
