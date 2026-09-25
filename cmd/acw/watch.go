@@ -150,8 +150,7 @@ func eventMessage(statusDir, agentName string, e watchEvent) string {
 }
 
 // countBlock adds one to the worker's block count and returns it. Kept on
-// disk so that a context reset of the worker, from another process, can
-// start it over (a new task).
+// disk, in the status dir, so another process can start it over.
 func countBlock(path string) int {
 	content, _ := os.ReadFile(path)
 	n, _ := strconv.Atoi(strings.TrimSpace(string(content)))
@@ -191,7 +190,7 @@ func blockedMessage(label string, count int, pane string) string {
 	msg := fmt.Sprintf("%s est bloqué : attente probable d'une approbation d'outil ou d'une question. Dernières lignes de son pane :\n%s",
 		label, strings.Join(lines, "\n"))
 	if count >= 2 {
-		msg = fmt.Sprintf("%de blocage depuis sa dernière réinitialisation : il bute peut-être sur une interdiction. ", count) + msg
+		msg = fmt.Sprintf("%de blocage de ce worker depuis le démarrage du swarm : il bute peut-être sur une interdiction. ", count) + msg
 	}
 	return msg
 }

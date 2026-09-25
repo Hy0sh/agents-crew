@@ -128,8 +128,8 @@ acw also starts a watcher next to the swarm, `acw __watch` (log in
 state of each worker and writes to the master when:
 
 - a worker becomes `blocked` (a tool approval or a question): the message
-  carries the last lines of its pane, and from the second block since its
-  last context reset, a hint that it may be hitting a forbidden call;
+  carries the last lines of its pane, and from that worker's second block
+  since the swarm started, a hint that it may be hitting a forbidden call;
 - a worker has been `working` for more than `silence-minutes` (default 30)
   with no activity acw can read: no turn end, no status update, no file
   changed in its worktree;
@@ -137,7 +137,9 @@ state of each worker and writes to the master when:
 
 A message is read at the end of the master's current turn, so a tool
 approval that denies itself after a few minutes can still expire during a
-long turn of the master's. The watcher stops with `acw stop`.
+long turn of the master's. The watcher stops with its swarm: when `acw
+stop` removes the status directory, when a new run stamps that directory
+as its own, or when its master is gone from herdr.
 
 Runs are scoped to the current directory, not global: agent names carry a
 hash of the full repo path (see `internal/names`), so several swarms — one
