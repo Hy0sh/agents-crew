@@ -22,9 +22,24 @@ const (
 	clearTimeout     = 60 * time.Second
 )
 
-// cleared reports whether u comes from the session a /clear started.
+// cleared reports whether u comes from the session a /clear started. With
+// no session read before, nothing tells an old render from a new one.
 func cleared(before string, u usage) bool {
-	return u.SessionID != "" && u.SessionID != before
+	return before != "" && u.SessionID != "" && u.SessionID != before
+}
+
+// clearLabel turns what the master names a worker by, workerN or its herdr
+// name workerN-<slug> (the one the brief lists), into workerN and N.
+// Anything else is refused: the label becomes a file name.
+func clearLabel(arg, slug string) (string, int, error) {
+	var index int
+	if _, err := fmt.Sscanf(arg, "worker%d", &index); err == nil && index >= 1 {
+		label := fmt.Sprintf("worker%d", index)
+		if arg == label || arg == names.Worker(slug, index) {
+			return label, index, nil
+		}
+	}
+	return "", 0, fmt.Errorf("%q n'est pas un worker de ce swarm (worker1, ou son nom herdr worker1-%s)", arg, slug)
 }
 
 // clearRefusal is why a worker must not be sent /clear, "" when it can.
@@ -40,14 +55,15 @@ func clearRefusal(label, status string, hasUsage bool) string {
 	return ""
 }
 
-func clearWorker(repo, label string, out io.Writer) error {
+func clearWorker(repo, arg string, out io.Writer) error {
+	slug := names.Slug(repo)
+	label, index, err := clearLabel(arg, slug)
+	if err != nil {
+		return err
+	}
 	statusDir := names.StatusDir(repo)
 	usagePath := filepath.Join(statusDir, label+".usage.json")
-	var index int
-	if _, err := fmt.Sscanf(label, "worker%d", &index); err != nil || index < 1 {
-		return fmt.Errorf("%q n'est pas un worker (worker1, worker2…)", label)
-	}
-	name := names.Worker(names.Slug(repo), index)
+	name := names.Worker(slug, index)
 
 	status, err := agentStatus(name)
 	if err != nil {
@@ -70,7 +86,10 @@ func clearWorker(repo, label string, out io.Writer) error {
 		}
 	}
 
-	before, _ := readUsage(usagePath)
+	before, err := readUsage(usagePath)
+	if err != nil || before.SessionID == "" {
+		return fmt.Errorf("%s : session actuelle illisible dans %s, rien n'aurait pu confirmer la réinitialisation", label, usagePath)
+	}
 	if err := herdr.AgentPrompt(name, "/clear"); err != nil {
 		return err
 	}

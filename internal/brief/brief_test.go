@@ -48,6 +48,18 @@ func TestBuildHandsTheMasterStatusAndClear(t *testing.T) {
 	if !strings.Contains(got, p.ClearCommand+" workerN") {
 		t.Errorf("brief should give the master %q for its context resets", p.ClearCommand+" workerN")
 	}
+	// It waits up to 10 minutes: past the Bash tool's default 2.
+	if !strings.Contains(got, "600000") {
+		t.Error("brief should tell the master to give acw clear a 10-minute timeout")
+	}
+	for _, stray := range []string{"imprévisible. ;", "pour vérifier. ;", "ci-dessus. ;"} {
+		if strings.Contains(got, stray) {
+			t.Errorf("brief renders a stray %q in the reset rule", stray)
+		}
+	}
+	if strings.Contains(got, "Les autres workers se réinitialisent") {
+		t.Error("with only claude workers, the brief must not talk of other workers reset by hand")
+	}
 }
 
 // acw's watcher replaces the master's own polling of every worker.

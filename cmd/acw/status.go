@@ -73,9 +73,8 @@ func orDash(s string) string {
 	return s
 }
 
-// collectStatus reads every worker of the swarm in repo. Workers are the
-// herdr agents named after it, plus any worker that left a status file
-// behind; the scan stops at the first index with neither.
+// collectStatus reads every worker of the swarm in repo (see scanWorkers)
+// and its master's inbox.
 func collectStatus(repo string) (rows []statusRow, unread int, lastAt time.Time, err error) {
 	statusDir := names.StatusDir(repo)
 	if _, err := os.Stat(statusDir); err != nil {
@@ -85,14 +84,28 @@ func collectStatus(repo string) (rows []statusRow, unread int, lastAt time.Time,
 	if err != nil {
 		return nil, 0, time.Time{}, fmt.Errorf("herdr agent list: %w", err)
 	}
-	slug := names.Slug(repo)
+	rows = scanWorkers(statusDir, agents, names.Slug(repo))
+	if content, err := os.ReadFile(names.Inbox(repo)); err == nil && len(content) > 0 {
+		unread = bytes.Count(content, []byte("\n"))
+		if info, err := os.Stat(names.Inbox(repo)); err == nil {
+			lastAt = info.ModTime()
+		}
+	}
+	return rows, unread, lastAt, nil
+}
+
+// scanWorkers reads every worker index that has an agent or a status
+// file. It does not stop at a gap: a worker that failed to start leaves
+// one, and those after it are still running.
+func scanWorkers(statusDir string, agents []herdr.Agent, slug string) []statusRow {
+	var rows []statusRow
 	for i := 1; i <= maxWorkers; i++ {
 		label := fmt.Sprintf("worker%d", i)
 		statusPath := filepath.Join(statusDir, label+".json")
 		agent, running := herdr.FindAgent(agents, names.Worker(slug, i))
 		_, statErr := os.Stat(statusPath)
 		if !running && statErr != nil {
-			break
+			continue
 		}
 		row := statusRow{Label: label, Agent: agent.Status, Activity: activity(statusPath, agent.Cwd)}
 		if content, err := os.ReadFile(statusPath); err == nil {
@@ -116,11 +129,5 @@ func collectStatus(repo string) (rows []statusRow, unread int, lastAt time.Time,
 		}
 		rows = append(rows, row)
 	}
-	if content, err := os.ReadFile(names.Inbox(repo)); err == nil && len(content) > 0 {
-		unread = bytes.Count(content, []byte("\n"))
-		if info, err := os.Stat(names.Inbox(repo)); err == nil {
-			lastAt = info.ModTime()
-		}
-	}
-	return rows, unread, lastAt, nil
+	return rows
 }

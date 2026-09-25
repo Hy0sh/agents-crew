@@ -70,6 +70,23 @@ func TestResumeStartsEachWorkerStackOnTheRunProfile(t *testing.T) {
 	}
 }
 
+// A worker beyond max-stacks, or whose adopt failed, has a worktree but no
+// stack: wtm says so, and that is not a failure of pause.
+func TestPauseSkipsAWorktreeWithoutAStack(t *testing.T) {
+	repo, calls := fakeSwarm(t, "")
+	script := "#!/bin/sh\necho \"$@\" >> " + shellWord(calls) + "\necho 'Error: no worktree for branch \"'$2'\" (no linked worktree)' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(filepath.Dir(calls), "wtm"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := pauseStacks(repo, &out); err != nil {
+		t.Errorf("pauseStacks() = %v, a worktree with no stack is skipped, not failed", err)
+	}
+	if !strings.Contains(out.String(), "pas de stack") {
+		t.Errorf("output = %q, want the skip said", out.String())
+	}
+}
+
 func TestPauseWithoutASwarmRefuses(t *testing.T) {
 	err := pauseStacks(t.TempDir(), &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "aucun swarm acw") {

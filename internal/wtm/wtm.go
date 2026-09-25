@@ -52,9 +52,10 @@ func adoptArgs(profile string) []string {
 func Start(dir, branch, profile string, out io.Writer) error {
 	cmd := exec.Command("wtm", startArgs(branch, profile)...)
 	cmd.Dir = dir
-	cmd.Stdout, cmd.Stderr = out, out
+	var stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = out, io.MultiWriter(out, &stderr)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("wtm %v (in %s): %w", startArgs(branch, profile), dir, err)
+		return fmt.Errorf("wtm %v (in %s): %w: %s", startArgs(branch, profile), dir, err, stderr.String())
 	}
 	return nil
 }

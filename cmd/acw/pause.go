@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/names"
@@ -48,6 +49,12 @@ func eachStack(repo string, out io.Writer, done string, step func(dir, branch st
 		branch, err := gitutil.CurrentBranch(dir)
 		if err == nil {
 			err = step(dir, branch, run)
+		}
+		// A worker beyond max-stacks, or whose adopt failed, has a worktree
+		// wtm never gave a stack to: nothing to stop or start there.
+		if err != nil && (strings.Contains(err.Error(), "no worktree for branch") || strings.Contains(err.Error(), "is not registered")) {
+			fmt.Fprintf(out, "%s : pas de stack, ignoré.\n", name)
+			continue
 		}
 		if err != nil {
 			failed++

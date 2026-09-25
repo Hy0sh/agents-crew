@@ -17,6 +17,24 @@ func TestClearedWaitsForANewSession(t *testing.T) {
 	if cleared("b9d48445", usage{}) {
 		t.Error("no session_id read proves nothing")
 	}
+	if cleared("", usage{SessionID: "b9d48445"}) {
+		t.Error("with no session read before the clear, any render (an old one too) would pass")
+	}
+}
+
+// The master knows workers by their herdr names, which the brief lists:
+// both forms name the same worker, anything else is refused.
+func TestClearLabel(t *testing.T) {
+	for in, want := range map[string]string{"worker2": "worker2", "worker2-3f9a1c": "worker2"} {
+		if got, i, err := clearLabel(in, "3f9a1c"); err != nil || got != want || i != 2 {
+			t.Errorf("clearLabel(%q) = %q, %d, %v; want %q, 2", in, got, i, err, want)
+		}
+	}
+	for _, in := range []string{"worker02", "worker2abc", "worker2-other1", "worker0", "master-3f9a1c", "worker1/../x"} {
+		if _, _, err := clearLabel(in, "3f9a1c"); err == nil {
+			t.Errorf("clearLabel(%q) accepted it", in)
+		}
+	}
 }
 
 func TestClearRefusesBeforeSendingAnything(t *testing.T) {
