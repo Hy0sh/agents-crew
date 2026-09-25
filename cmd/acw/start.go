@@ -126,7 +126,13 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	}
 	// Not fatal: without it the swarm still runs, the master just hears
 	// less. Said, so the user knows why.
-	if err := launchBackgroundWatch(watchPlanFor(repo, masterName, inbox, inboxNext, opts.silenceMinutes, workers), stamp); err != nil {
+	watch := watchPlanFor(repo, masterName, inbox, inboxNext, opts.silenceMinutes, workers)
+	watch.Stamp = stamp
+	err = os.WriteFile(filepath.Join(names.StatusDir(repo), "stamp"), []byte(stamp+"\n"), 0o644)
+	if err == nil {
+		err = launchBackgroundWatch(watch, stamp)
+	}
+	if err != nil {
 		fmt.Fprintf(out, "⚠ veilleur acw non lancé, le master ne sera pas prévenu des blocages ni des silences : %v\n", err)
 	}
 

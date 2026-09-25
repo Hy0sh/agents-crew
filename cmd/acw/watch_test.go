@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -76,6 +78,25 @@ func TestWatcherReportsTurnEndOnlyForWorkersWithoutTheHook(t *testing.T) {
 	got := w.observe(t0.Add(5*time.Second), []workerView{hooked, bare})
 	if len(got) != 1 || got[0].Label != "worker2" || got[0].Kind != eventTurnEnd {
 		t.Errorf("turn ends = %+v, want one for worker2 only (worker1's Stop hook already pings)", got)
+	}
+}
+
+// A watcher left behind by an acw stop that found no master, or by a
+// stop and start within one poll, must see the status dir is no longer
+// its own, instead of messaging the next swarm twice.
+func TestOwnsStatusDir(t *testing.T) {
+	dir := t.TempDir()
+	if ownsStatusDir(dir, "20260925140000") {
+		t.Error("owns a status dir with no stamp in it")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "stamp"), []byte("20260925140000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !ownsStatusDir(dir, "20260925140000") {
+		t.Error("does not own the status dir its own run stamped")
+	}
+	if ownsStatusDir(dir, "20260925090000") {
+		t.Error("owns a status dir stamped by a later run")
 	}
 }
 

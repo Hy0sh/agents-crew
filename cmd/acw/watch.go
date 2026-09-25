@@ -2,9 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -30,6 +28,18 @@ type watchPlan struct {
 	InboxNext      string          `json:"inbox_next,omitempty"`
 	SilenceMinutes int             `json:"silence_minutes"`
 	Workers        []watchedWorker `json:"workers"`
+	// Stamp is the run's, also written in the status dir: a watcher whose
+	// stamp is no longer there belongs to a swarm that is gone.
+	Stamp string `json:"stamp"`
+}
+
+// ownsStatusDir reports whether the status dir still belongs to the run
+// stamped stamp. A watcher can outlive its swarm: acw stop only removes
+// the dir once it found the master, and a stop then a start within one
+// poll recreates it at once, for a new swarm with the same worker names.
+func ownsStatusDir(statusDir, stamp string) bool {
+	content, err := os.ReadFile(filepath.Join(statusDir, "stamp"))
+	return err == nil && strings.TrimSpace(string(content)) == stamp
 }
 
 type watchedWorker struct {
@@ -46,7 +56,7 @@ func runWatch(plan watchPlan, interval time.Duration) {
 	statusDir := names.StatusDir(plan.Repo)
 	w := newWatcher(time.Duration(plan.SilenceMinutes) * time.Minute)
 	for {
-		if _, err := os.Stat(statusDir); errors.Is(err, fs.ErrNotExist) {
+		if !ownsStatusDir(statusDir, plan.Stamp) {
 			return
 		}
 		agents, err := herdr.AgentList()
@@ -54,6 +64,12 @@ func runWatch(plan watchPlan, interval time.Duration) {
 			fmt.Fprintln(os.Stderr, "herdr agent list:", err)
 			time.Sleep(interval)
 			continue
+		}
+		// The master is started before the watcher: gone from a list that
+		// did answer, the swarm was closed without acw stop.
+		if _, ok := herdr.FindAgent(agents, plan.MasterName); !ok {
+			fmt.Fprintln(os.Stderr, "master introuvable, le veilleur s'arrête")
+			return
 		}
 		now := time.Now()
 		var views []workerView
