@@ -23,6 +23,7 @@ import (
 	"github.com/Hy0sh/agents-crew/internal/preflight"
 	"github.com/Hy0sh/agents-crew/internal/teardown"
 	"github.com/Hy0sh/agents-crew/internal/version"
+	"github.com/Hy0sh/agents-crew/internal/wtm"
 )
 
 const provisionUse = "__provision-workers"
@@ -153,6 +154,19 @@ Precedence: a flag given on the command line > the preset given with
 entry: acw behaves as without config. An unknown key refuses to start, so
 a typo never goes unnoticed.`
 
+// withWtm runs a stack command on the swarm of the current directory,
+// which needs wtm: without it no worker ever had a stack to stop.
+func withWtm(run func(repo string) error) error {
+	if !wtm.Available() {
+		return fmt.Errorf("wtm introuvable dans le PATH : les workers n'ont pas de stack à arrêter ni à relancer")
+	}
+	repo, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	return run(repo)
+}
+
 func main() {
 	opts := &startOptions{silenceMinutes: 30}
 
@@ -223,6 +237,23 @@ func main() {
 				return err
 			}
 			return teardown.Run()
+		},
+	}
+
+	pause := &cobra.Command{
+		Use:   "pause",
+		Short: "Stop the workers' stacks for a break; worktrees, agents and workspace stay",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withWtm(func(repo string) error { return pauseStacks(repo, cmd.OutOrStdout()) })
+		},
+	}
+	resume := &cobra.Command{
+		Use:   "resume",
+		Short: "Start the workers' stacks again, on the profile the swarm was launched with",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withWtm(func(repo string) error { return resumeStacks(repo, cmd.OutOrStdout()) })
 		},
 	}
 
@@ -302,7 +333,7 @@ func main() {
 		},
 	}
 
-	root.AddCommand(stop, provision, watch, inboxWatch, inboxNext, turnEnd, statusLine)
+	root.AddCommand(stop, pause, resume, provision, watch, inboxWatch, inboxNext, turnEnd, statusLine)
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)

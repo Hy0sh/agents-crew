@@ -71,23 +71,30 @@ func Run() error {
 // time. It narrates every step for that reason — a silent minute reads as
 // a hang, and the step that is running is the one worth naming when it
 // does hang for real.
-func cleanupWorkerWorktrees(repo string) {
+// WorkerWorktrees lists the worker worktrees of any run in repo, found on
+// disk by their naming convention (see cleanupWorkerWorktrees for why not
+// through Herdr). A worker outside the code has none, and is not listed.
+func WorkerWorktrees(repo string) []string {
 	matches, err := filepath.Glob(filepath.Join(names.WorktreesDir(repo), "worker*"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "recherche des worktrees workers: %v\n", err)
-		return
+		return nil
 	}
-
+	var dirs []string
 	for _, dir := range matches {
-		name := filepath.Base(dir)
-		if !names.IsWorkerWorktree(name) {
+		if !names.IsWorkerWorktree(filepath.Base(dir)) {
 			continue
 		}
-		info, err := os.Stat(dir)
-		if err != nil || !info.IsDir() {
-			continue
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			dirs = append(dirs, dir)
 		}
+	}
+	return dirs
+}
 
+func cleanupWorkerWorktrees(repo string) {
+	for _, dir := range WorkerWorktrees(repo) {
+		name := filepath.Base(dir)
 		branch, err := gitutil.CurrentBranch(dir)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s: résolution de la branche: %v\n", name, err)
