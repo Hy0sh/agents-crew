@@ -6,15 +6,26 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-25
+
+acw now tells the master what it used to go and look for: a watcher reports
+blocked, stuck and silent workers, the master reads its messages with a
+background command that never expires, worker status files carry
+timestamps acw sets itself, and four new commands (`status`, `clear`,
+`pause`, `resume`) replace what the master and the user did by hand. No
+breaking change: a custom brief that arms a Monitor on `{{.InboxWatch}}`
+keeps working.
+
 ### Added
 
 - A watcher, started with the swarm, that tells the master when a worker
   becomes blocked (with the last lines of its pane, and a hint from that
-  worker's second block since the swarm started), when a working worker
-  shows no activity for `silence-minutes` (new config key, default 30: no
-  turn end, status update or file change in its worktree), and when a
-  worker without the Stop hook hands control back. It stops with its
-  swarm.
+  worker's second block since its last `acw clear`), when a claude worker
+  goes idle without its Stop hook having run (prompts herdr shows as idle),
+  when a working worker shows no activity for `silence-minutes` (new config
+  key, default 30: no turn end, status update or file change in its
+  worktree), and when a worker without the Stop hook hands control back. It
+  stops with its swarm.
 - `acw __inbox-next`, which the master runs in the background to read its
   messages: it waits for the next ones, prints them and exits. acw types a
   reminder into the master's input when messages wait unread for 5
@@ -22,8 +33,8 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 - A claude worker's `Stop` hook now normalizes its status file before
   pinging the master: `updated_at` from the file's real modification time
   in UTC, a new `last_turn_end`, and `blocked_on` cleared once `state` no
-  longer says blocked, in whatever words. A master can now tell a worker that works without
-  updating its status from one that stopped.
+  longer says blocked, in whatever words. A master can now tell a worker
+  that works without updating its status from one that stopped.
 - The master's brief tells workers to get their ports from the project's
   environment tooling instead of asking the underlying container tool
   (which froze workers on a permission prompt), to keep temporary files in
@@ -49,7 +60,6 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 - A claude worker's status line is now acw's (`ctx 34% · 5h 78%`), in
   place of the user's: it records the worker's context and quota for `acw
   status` and `acw clear`.
-
 - The built-in brief no longer has the master keep an `agent wait` running
   on every worker, nor re-arm a Monitor every 30 minutes: the watcher and
   `__inbox-next` replace both. `{{.InboxWatch}}` still works for a custom
@@ -338,7 +348,8 @@ project: 7 PRs, 3 merged. Each entry names what actually went wrong.
   anything, with a clear message and install instructions if not; `wtm` is
   checked too but stays optional.
 
-[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Hy0sh/agents-crew/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Hy0sh/agents-crew/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Hy0sh/agents-crew/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Hy0sh/agents-crew/compare/v0.2.0...v0.3.0
