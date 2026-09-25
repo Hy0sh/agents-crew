@@ -132,6 +132,20 @@ func TestNormalizeStatusLeavesAnythingButAnObjectAlone(t *testing.T) {
 	}
 }
 
+// The turn end is marked even before the worker ever wrote a status
+// file: the watcher reads it to tell a finished turn from a stuck one.
+func TestMarkTurnEnd(t *testing.T) {
+	dir := t.TempDir()
+	at := time.Date(2026, 9, 25, 14, 5, 0, 0, time.UTC)
+	if err := markTurnEnd(dir, "worker1", at); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(dir, "worker1.turn"))
+	if err != nil || !info.ModTime().Equal(at) {
+		t.Errorf("worker1.turn = %v, %v; want it stamped at %v", info, err, at)
+	}
+}
+
 func TestNormalizeStatusWithoutAFileDoesNothing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "worker1.json")
 	if err := normalizeStatus(path, time.Now()); err != nil {

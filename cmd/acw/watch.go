@@ -80,12 +80,16 @@ func runWatch(plan watchPlan, interval time.Duration) {
 				continue
 			}
 			agentNames[ww.Label] = ww.Name
-			views = append(views, workerView{
-				Label:    ww.Label,
-				Hooked:   ww.Hooked,
-				Status:   a.Status,
-				Activity: activity(filepath.Join(statusDir, ww.Label+".json"), a.Cwd),
-			})
+			v := workerView{Label: ww.Label, Hooked: ww.Hooked, Status: a.Status}
+			// Only a working worker's activity counts (see observe), and
+			// reading it costs a git status: skipped for the others.
+			if a.Status == "working" {
+				v.Activity = activity(filepath.Join(statusDir, ww.Label+".json"), a.Cwd)
+			}
+			if info, err := os.Stat(filepath.Join(statusDir, ww.Label+".turn")); err == nil {
+				v.TurnEnd = info.ModTime()
+			}
+			views = append(views, v)
 		}
 		for _, e := range w.observe(now, views) {
 			deliver(plan, eventMessage(statusDir, agentNames[e.Label], e))
@@ -136,12 +140,16 @@ func activity(statusPath, worktree string) time.Time {
 // read now, while the prompt is still on it.
 func eventMessage(statusDir, agentName string, e watchEvent) string {
 	switch e.Kind {
-	case eventBlocked:
+	case eventBlocked, eventIdleNoTurnEnd:
 		pane, err := herdr.AgentRead(agentName, 40)
 		if err != nil {
 			pane = "(pane illisible : " + err.Error() + ")"
 		}
-		return blockedMessage(e.Label, countBlock(filepath.Join(statusDir, e.Label+".blocks")), pane)
+		msg := blockedMessage(e.Label, countBlock(filepath.Join(statusDir, e.Label+".blocks")), pane)
+		if e.Kind == eventIdleNoTurnEnd {
+			msg = e.Label + " est passé au repos sans finir son tour : il attend peut-être une approbation ou une réponse que herdr ne voit pas comme un blocage. " + msg
+		}
+		return msg
 	case eventSilent:
 		return silentMessage(e.Label, e.For)
 	default:
@@ -222,6 +230,9 @@ type workerView struct {
 	// the worker: its last turn end, its status file's mtime, and the
 	// latest change in its worktree.
 	Activity time.Time
+	// TurnEnd is when its Stop hook last ran (workerN.turn), zero for a
+	// worker without the hook.
+	TurnEnd time.Time
 }
 
 type eventKind int
@@ -230,7 +241,16 @@ const (
 	eventBlocked eventKind = iota
 	eventSilent
 	eventTurnEnd
+	// eventIdleNoTurnEnd is a hooked worker gone idle without its Stop
+	// hook running: some prompts (a question, some approvals) show as
+	// idle rather than blocked in herdr, and would go unreported.
+	eventIdleNoTurnEnd
 )
+
+// idleGrace is how long a hooked worker may sit idle before its Stop hook
+// is taken as not coming: the hook runs as the turn ends, a few seconds
+// around herdr seeing idle.
+const idleGrace = 15 * time.Second
 
 type watchEvent struct {
 	Label string
@@ -243,6 +263,8 @@ type workerMemory struct {
 	activity      time.Time // latest activity seen
 	silentSince   time.Time // start of the current quiet stretch
 	reportedQuiet bool
+	turnEnd       time.Time // last turn end seen while working
+	idleSince     time.Time // a hooked worker went idle, its turn end not seen yet
 }
 
 type watcher struct {
@@ -264,8 +286,22 @@ func (w *watcher) observe(now time.Time, views []workerView) []watchEvent {
 	for _, v := range views {
 		m, seen := w.workers[v.Label]
 		if !seen {
-			m = &workerMemory{activity: v.Activity, silentSince: now}
+			m = &workerMemory{activity: v.Activity, silentSince: now, turnEnd: v.TurnEnd}
 			w.workers[v.Label] = m
+		}
+		idle := v.Status == "idle" || v.Status == "done"
+		if v.Hooked {
+			switch {
+			case v.Status == "working":
+				m.turnEnd, m.idleSince = v.TurnEnd, time.Time{}
+			case !idle || v.TurnEnd.After(m.turnEnd):
+				m.idleSince = time.Time{}
+			case seen && m.status == "working":
+				m.idleSince = now
+			case !m.idleSince.IsZero() && now.Sub(m.idleSince) > idleGrace:
+				events = append(events, watchEvent{Label: v.Label, Kind: eventIdleNoTurnEnd})
+				m.idleSince = time.Time{}
+			}
 		}
 		if v.Status == "blocked" && (!seen || m.status != "blocked") {
 			events = append(events, watchEvent{Label: v.Label, Kind: eventBlocked})

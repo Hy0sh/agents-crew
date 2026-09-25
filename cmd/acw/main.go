@@ -284,7 +284,11 @@ func main() {
 		Hidden: true,
 		Args:   cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return normalizeStatus(filepath.Join(args[0], args[1]+".json"), time.Now())
+			now := time.Now()
+			if err := markTurnEnd(args[0], args[1], now); err != nil {
+				fmt.Fprintln(os.Stderr, "marque de fin de tour:", err)
+			}
+			return normalizeStatus(filepath.Join(args[0], args[1]+".json"), now)
 		},
 	}
 

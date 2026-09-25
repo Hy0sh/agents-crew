@@ -130,6 +130,40 @@ func TestSilentMessage(t *testing.T) {
 	}
 }
 
+// Some prompts leave a worker idle rather than blocked in herdr's eyes:
+// idle with no turn end behind it is the tell.
+func TestWatcherSuspectsAHookedWorkerIdleWithoutATurnEnd(t *testing.T) {
+	w := newWatcher(30 * time.Minute)
+	v := workerView{Label: "worker1", Hooked: true, Status: "working", Activity: t0, TurnEnd: t0}
+	w.observe(t0, []workerView{v})
+	v.Status = "idle"
+	if got := w.observe(t0.Add(5*time.Second), []workerView{v}); len(got) != 0 {
+		t.Errorf("idle for 0s = %v, want to give the Stop hook its time", got)
+	}
+	if got := w.observe(t0.Add(10*time.Second), []workerView{v}); len(got) != 0 {
+		t.Errorf("idle for 5s = %v, still within the grace", got)
+	}
+	got := kinds(w.observe(t0.Add(25*time.Second), []workerView{v}))
+	if !slices.Equal(got, []eventKind{eventIdleNoTurnEnd}) {
+		t.Errorf("idle for 20s with no turn end = %v, want one suspected wait", got)
+	}
+	if got := w.observe(t0.Add(40*time.Second), []workerView{v}); len(got) != 0 {
+		t.Errorf("still idle = %v, want no repeat", got)
+	}
+}
+
+func TestWatcherTrustsAnIdleThatEndedATurn(t *testing.T) {
+	w := newWatcher(30 * time.Minute)
+	v := workerView{Label: "worker1", Hooked: true, Status: "working", Activity: t0, TurnEnd: t0}
+	w.observe(t0, []workerView{v})
+	v.Status = "idle"
+	w.observe(t0.Add(5*time.Second), []workerView{v})
+	v.TurnEnd = t0.Add(6 * time.Second) // the Stop hook ran just after herdr saw idle
+	if got := w.observe(t0.Add(30*time.Second), []workerView{v}); len(got) != 0 {
+		t.Errorf("idle after a real turn end = %v, want nothing", got)
+	}
+}
+
 func TestWatcherRemindsAnUnreadInboxOnce(t *testing.T) {
 	w := newWatcher(30 * time.Minute)
 	if w.remindInbox(t0, true) || w.remindInbox(t0.Add(4*time.Minute), true) {
