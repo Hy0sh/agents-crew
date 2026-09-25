@@ -7,8 +7,11 @@ package wtm
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os/exec"
+	"strings"
 )
 
 // Available reports whether the wtm binary is on PATH.
@@ -17,13 +20,28 @@ func Available() bool {
 	return err == nil
 }
 
+// ErrNoStack is a worktree wtm never gave a stack to (a worker beyond
+// max-stacks, a failed adopt, an unregistered project): nothing to stop
+// or start there, which callers treat as a skip, not a failure.
+var ErrNoStack = errors.New("pas de stack wtm pour ce worktree")
+
 func run(dir string, args ...string) error {
+	return runTo(dir, io.Discard, args...)
+}
+
+// runTo runs wtm with its stdout and stderr copied to out, and recognizes
+// ErrNoStack in what wtm says, so no caller has to read its wording.
+func runTo(dir string, out io.Writer, args ...string) error {
 	cmd := exec.Command("wtm", args...)
 	cmd.Dir = dir
 	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	cmd.Stdout, cmd.Stderr = out, io.MultiWriter(out, &stderr)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("wtm %v (in %s): %w: %s", args, dir, err, stderr.String())
+		msg := stderr.String()
+		if strings.Contains(msg, "no worktree for branch") || strings.Contains(msg, "is not registered") {
+			err = fmt.Errorf("%w: %w", ErrNoStack, err)
+		}
+		return fmt.Errorf("wtm %v (in %s): %w: %s", args, dir, err, msg)
 	}
 	return nil
 }
@@ -38,6 +56,22 @@ func Adopt(dir, profile string) error {
 
 func adoptArgs(profile string) []string {
 	args := []string{"adopt", "-y"}
+	if profile != "" {
+		args = append(args, "--profile", profile)
+	}
+	return args
+}
+
+// Start starts the stack of a worktree whose stack was stopped, on
+// profile ("" for the whole stack). wtm's own output goes to out as it
+// comes: without a terminal wtm asks nothing and starts even when memory
+// is tight, so its warning is the only thing telling the user so.
+func Start(dir, branch, profile string, out io.Writer) error {
+	return runTo(dir, out, startArgs(branch, profile)...)
+}
+
+func startArgs(branch, profile string) []string {
+	args := []string{"start", branch}
 	if profile != "" {
 		args = append(args, "--profile", profile)
 	}

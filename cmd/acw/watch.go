@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
 )
@@ -33,13 +31,14 @@ type watchPlan struct {
 	Stamp string `json:"stamp"`
 }
 
-// ownsStatusDir reports whether the status dir still belongs to the run
-// stamped stamp. A watcher can outlive its swarm: acw stop only removes
-// the dir once it found the master, and a stop then a start within one
-// poll recreates it at once, for a new swarm with the same worker names.
-func ownsStatusDir(statusDir, stamp string) bool {
-	content, err := os.ReadFile(filepath.Join(statusDir, "stamp"))
-	return err == nil && strings.TrimSpace(string(content)) == stamp
+// ownsRun reports whether repo's status dir still belongs to the run
+// stamped stamp (see runInfo). A watcher can outlive its swarm: acw stop
+// only removes the dir once it found the master, and a stop then a start
+// within one poll recreates it at once, for a new swarm with the same
+// worker names.
+func ownsRun(repo, stamp string) bool {
+	run, err := readRunInfo(repo)
+	return err == nil && run.Stamp == stamp
 }
 
 type watchedWorker struct {
@@ -55,8 +54,9 @@ type watchedWorker struct {
 func runWatch(plan watchPlan, interval time.Duration) {
 	statusDir := names.StatusDir(plan.Repo)
 	w := newWatcher(time.Duration(plan.SilenceMinutes) * time.Minute)
+	worktrees := worktreeCache{}
 	for {
-		if !ownsStatusDir(statusDir, plan.Stamp) {
+		if !ownsRun(plan.Repo, plan.Stamp) {
 			return
 		}
 		agents, err := herdr.AgentList()
@@ -84,7 +84,8 @@ func runWatch(plan watchPlan, interval time.Duration) {
 			// Only a working worker's activity counts (see observe), and
 			// reading it costs a git status: skipped for the others.
 			if a.Status == "working" {
-				v.Activity = activity(filepath.Join(statusDir, ww.Label+".json"), a.Cwd)
+				s, mtime := readWorkerStatus(filepath.Join(statusDir, ww.Label+".json"))
+				v.Activity = activity(s, mtime, worktrees.get(now, ww.Label, a.Cwd))
 			}
 			if info, err := os.Stat(filepath.Join(statusDir, ww.Label+".turn")); err == nil {
 				v.TurnEnd = info.ModTime()
@@ -92,7 +93,9 @@ func runWatch(plan watchPlan, interval time.Duration) {
 			views = append(views, v)
 		}
 		for _, e := range w.observe(now, views) {
-			deliver(plan, eventMessage(statusDir, agentNames[e.Label], e))
+			if err := deliver(plan.Inbox, plan.MasterName, eventMessage(statusDir, agentNames[e.Label], e)); err != nil {
+				fmt.Fprintln(os.Stderr, "message au master:", err)
+			}
 		}
 		if plan.Inbox != "" {
 			info, err := os.Stat(plan.Inbox)
@@ -107,33 +110,24 @@ func runWatch(plan watchPlan, interval time.Duration) {
 	}
 }
 
-// activity is the latest of what acw can read about a worker without
-// trusting it: last_turn_end (stamped by acw), its status file's mtime,
-// and the latest change in its worktree.
-func activity(statusPath, worktree string) time.Time {
-	var latest time.Time
-	later := func(t time.Time) {
-		if t.After(latest) {
-			latest = t
-		}
+// worktreeEvery is how often the watcher reruns git status on a working
+// worker's worktree: silence is counted in minutes, and a status per
+// worker every poll is a steady cost on a large repo.
+const worktreeEvery = 30 * time.Second
+
+// worktreeCache keeps each worker's last worktree activity between git
+// status runs.
+type worktreeCache map[string]struct {
+	at, activity time.Time
+}
+
+func (c worktreeCache) get(now time.Time, label, worktree string) time.Time {
+	if e, ok := c[label]; ok && now.Sub(e.at) < worktreeEvery {
+		return e.activity
 	}
-	if info, err := os.Stat(statusPath); err == nil {
-		later(info.ModTime())
-	}
-	if content, err := os.ReadFile(statusPath); err == nil {
-		var status struct {
-			LastTurnEnd string `json:"last_turn_end"`
-		}
-		if json.Unmarshal(content, &status) == nil {
-			if t, err := time.Parse(time.RFC3339, status.LastTurnEnd); err == nil {
-				later(t)
-			}
-		}
-	}
-	if worktree != "" {
-		later(gitutil.LastActivity(worktree))
-	}
-	return latest
+	a := worktreeActivity(worktree)
+	c[label] = struct{ at, activity time.Time }{now, a}
+	return a
 }
 
 // eventMessage builds the text for one event. A blocked worker's pane is
@@ -169,16 +163,13 @@ func countBlock(path string) int {
 	return n
 }
 
-func deliver(plan watchPlan, msg string) {
-	var err error
-	if plan.Inbox != "" {
-		err = appendLine(plan.Inbox, msg)
-	} else {
-		err = herdr.AgentPrompt(plan.MasterName, msg)
+// deliver sends msg to the master the way it reads acw's messages: its
+// inbox, or its input when it has none.
+func deliver(inbox, masterName, msg string) error {
+	if inbox != "" {
+		return appendLine(inbox, msg)
 	}
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "message au master:", err)
-	}
+	return herdr.AgentPrompt(masterName, msg)
 }
 
 // paneTail is how many non-empty lines of a blocked worker's pane go into
@@ -198,7 +189,7 @@ func blockedMessage(label string, count int, pane string) string {
 	msg := fmt.Sprintf("%s est bloqué : attente probable d'une approbation d'outil ou d'une question. Dernières lignes de son pane :\n%s",
 		label, strings.Join(lines, "\n"))
 	if count >= 2 {
-		msg = fmt.Sprintf("%de blocage de ce worker depuis le démarrage du swarm : il bute peut-être sur une interdiction. ", count) + msg
+		msg = fmt.Sprintf("%de blocage de ce worker depuis son dernier acw clear : il bute peut-être sur une interdiction. ", count) + msg
 	}
 	return msg
 }

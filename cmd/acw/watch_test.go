@@ -2,11 +2,12 @@ package main
 
 import (
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Hy0sh/agents-crew/internal/names"
 )
 
 var t0 = time.Date(2026, 9, 25, 14, 0, 0, 0, time.UTC)
@@ -84,18 +85,21 @@ func TestWatcherReportsTurnEndOnlyForWorkersWithoutTheHook(t *testing.T) {
 // A watcher left behind by an acw stop that found no master, or by a
 // stop and start within one poll, must see the status dir is no longer
 // its own, instead of messaging the next swarm twice.
-func TestOwnsStatusDir(t *testing.T) {
-	dir := t.TempDir()
-	if ownsStatusDir(dir, "20260925140000") {
-		t.Error("owns a status dir with no stamp in it")
+func TestOwnsRun(t *testing.T) {
+	repo := t.TempDir()
+	if ownsRun(repo, "20260925140000") {
+		t.Error("owns a repo with no run in it")
 	}
-	if err := os.WriteFile(filepath.Join(dir, "stamp"), []byte("20260925140000\n"), 0o644); err != nil {
+	if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if !ownsStatusDir(dir, "20260925140000") {
-		t.Error("does not own the status dir its own run stamped")
+	if err := writeRunInfo(repo, runInfo{Stamp: "20260925140000"}); err != nil {
+		t.Fatal(err)
 	}
-	if ownsStatusDir(dir, "20260925090000") {
+	if !ownsRun(repo, "20260925140000") {
+		t.Error("does not own the run it stamped")
+	}
+	if ownsRun(repo, "20260925090000") {
 		t.Error("owns a status dir stamped by a later run")
 	}
 }
@@ -118,9 +122,9 @@ func TestBlockedMessage(t *testing.T) {
 	if got := blockedMessage("worker2", 2, pane); !strings.HasPrefix(got, "2e blocage") || !strings.Contains(got, "worker2 est bloqué") {
 		t.Errorf("blockedMessage(2nd) = %q, want the repeat called out first", got)
 	}
-	// Nothing resets the count yet: it must not claim to be per task.
-	if got := blockedMessage("worker2", 2, pane); !strings.Contains(got, "depuis le démarrage du swarm") {
-		t.Errorf("blockedMessage(2nd) = %q, want the count said to run since the swarm started", got)
+	// acw clear starts the count over, before each new task.
+	if got := blockedMessage("worker2", 2, pane); !strings.Contains(got, "depuis son dernier acw clear") {
+		t.Errorf("blockedMessage(2nd) = %q, want the count said to run since the last acw clear", got)
 	}
 }
 

@@ -70,6 +70,12 @@ func Inbox(repo string) string {
 	return filepath.Join(StatusDir(repo), "inbox")
 }
 
+// RunFile holds what a running swarm was started with and later commands
+// need again: its stamp, its master, its stack profile.
+func RunFile(repo string) string {
+	return filepath.Join(StatusDir(repo), "run.json")
+}
+
 // WorkerWorktree is worker i's worktree for the run started at stamp.
 func WorkerWorktree(repo string, i int, stamp string) string {
 	return filepath.Join(WorktreesDir(repo), fmt.Sprintf("worker%d-%s", i, stamp))
@@ -86,6 +92,16 @@ var workerWorktreeName = regexp.MustCompile(`^worker\d+-.+$`)
 // one WorkerWorktree made, of any run.
 func IsWorkerWorktree(dirName string) bool {
 	return workerWorktreeName.MatchString(dirName)
+}
+
+// WorkerIndex reads a worker's index from how it is named: its label
+// (worker2) or its agent name for slug (Worker(slug, 2)). ok is false for
+// anything else, a zero-padded or suffixed index included.
+func WorkerIndex(name, slug string) (i int, ok bool) {
+	if _, err := fmt.Sscanf(name, "worker%d", &i); err != nil || i < 1 {
+		return 0, false
+	}
+	return i, name == fmt.Sprintf("worker%d", i) || name == Worker(slug, i)
 }
 
 // Worker is worker i's agent name for a run identified by slug.

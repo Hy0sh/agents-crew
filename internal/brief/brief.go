@@ -57,6 +57,11 @@ type MasterData struct {
 	// SilenceMinutes is how long a working worker may show no activity
 	// before acw's watcher tells the master.
 	SilenceMinutes int
+	// StatusCommand shows every worker at a glance (acw status).
+	StatusCommand string
+	// ClearCommand, followed by a worker's label, resets its context and
+	// confirms it took (acw clear).
+	ClearCommand string
 }
 
 // Params is what a brief is built from. N is len(Workers).
@@ -72,6 +77,8 @@ type Params struct {
 	// InboxNext is its background read command, "" for none.
 	InboxNext      string
 	SilenceMinutes int
+	StatusCommand  string
+	ClearCommand   string
 }
 
 // Worker is one worker as it was actually started.
@@ -115,6 +122,8 @@ func newMasterData(p Params) MasterData {
 		InboxWatch:       p.InboxWatch,
 		InboxNext:        p.InboxNext,
 		SilenceMinutes:   p.SilenceMinutes,
+		StatusCommand:    p.StatusCommand,
+		ClearCommand:     p.ClearCommand,
 	}
 }
 

@@ -74,11 +74,12 @@ func provisionWorkers(plan provisionPlan) {
 		if err := herdr.PaneRename(newPane, label); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: herdr pane rename: %v\n", name, err)
 		}
-		hook := pingCommand(plan.Inbox, masterName, label)
+		hook, statusLine := pingCommand(plan.Inbox, masterName, label), ""
 		if self != "" {
 			hook = stopCommand(self, statusDir, label, hook)
+			statusLine = statusLineCommand(self, statusDir, label)
 		}
-		if err := herdr.AgentStart(name, w.Kind, newPane, workerArgs(w, label, hook)...); err != nil {
+		if err := herdr.AgentStart(name, w.Kind, newPane, workerArgs(w, label, hook, statusLine)...); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: herdr agent start: %v\n", name, explainStart(err, wt))
 			continue
 		}
@@ -131,7 +132,10 @@ func provisionWorkers(plan provisionPlan) {
 // Its standing instructions, when it has some, go in as a system prompt
 // for the same reason: that also survives `/clear`. Claude only as well;
 // another kind gets them from the master, copied into each of its briefs.
-func workerArgs(w workerSpec, label, hook string) []string {
+//
+// statusLine, when not empty, is acw's status line for it (see
+// recordUsage), in the same --settings.
+func workerArgs(w workerSpec, label, hook, statusLine string) []string {
 	args := modelArgs(w.Model)
 	if w.Kind != "claude" {
 		return args
@@ -139,7 +143,7 @@ func workerArgs(w workerSpec, label, hook string) []string {
 	if w.PromptPath != "" {
 		args = append(args, "--append-system-prompt-file", w.PromptPath)
 	}
-	hooks, err := stopHookSettings(hook)
+	hooks, err := workerSettings(hook, statusLine)
 	if err != nil {
 		// Only json.Marshal of a literal struct can fail here, which it
 		// cannot; the worker still starts, just without its ping.
@@ -177,7 +181,10 @@ func stopCommand(exe, statusDir, label, ping string) string {
 	return shellWord(exe) + " " + turnEndUse + " " + shellWord(statusDir) + " " + shellWord(label) + "; " + ping
 }
 
-func stopHookSettings(ping string) (string, error) {
+// workerSettings is the --settings JSON of a claude worker: its Stop hook
+// and, when statusLine is not empty, acw's status line (see
+// recordUsage).
+func workerSettings(stop, statusLine string) (string, error) {
 	type command struct {
 		Type    string `json:"type"`
 		Command string `json:"command"`
@@ -186,12 +193,16 @@ func stopHookSettings(ping string) (string, error) {
 		Hooks map[string][]struct {
 			Hooks []command `json:"hooks"`
 		} `json:"hooks"`
+		StatusLine *command `json:"statusLine,omitempty"`
 	}{
 		Hooks: map[string][]struct {
 			Hooks []command `json:"hooks"`
 		}{
-			"Stop": {{Hooks: []command{{Type: "command", Command: ping}}}},
+			"Stop": {{Hooks: []command{{Type: "command", Command: stop}}}},
 		},
+	}
+	if statusLine != "" {
+		settings.StatusLine = &command{Type: "command", Command: statusLine}
 	}
 	out, err := json.Marshal(settings)
 	return string(out), err
