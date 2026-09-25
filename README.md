@@ -109,14 +109,35 @@ is missing or not a JSON object is left alone.
 With a `claude` master, the ping is not typed into the master's input:
 typed text merged with whatever you were writing to the master at that
 moment. The hook appends a line to an inbox in the status directory, and
-the master's first action is to arm a Claude Code Monitor on it, whose
-events start a turn without touching your draft. "Workers ready" goes the
-same way. A Monitor expires after 30 minutes and the master re-arms it;
-lines written in between wait in the inbox instead of being lost. Claude
-Code asks approval for each Monitor, with no "don't ask again", so acw
-starts the master allowed to run that one watch command
-(`--allowedTools "Bash(<acw> __inbox-watch:*)"`), and nothing broader. A
-master of another kind has no Monitor and still gets pings typed in.
+the master's first action is to run `acw __inbox-next` on it as a
+background command: it waits for the next lines, prints them and exits,
+and its end starts a turn without touching your draft. The master runs it
+again after each batch. Unlike a Monitor, which expires after 30 minutes
+and had to be re-armed all day long, a background command never expires,
+so a quiet swarm costs the master nothing. Lines written while the master
+works wait in the inbox. If the master forgets to run it again, acw types
+a reminder into its input after 5 minutes of unread messages. acw starts
+the master allowed to run its two inbox commands
+(`--allowedTools "Bash(<acw> __inbox-watch:*)" "Bash(<acw> __inbox-next:*)"`),
+and nothing broader. A master of another kind has no background commands
+and still gets messages typed in.
+
+acw also starts a watcher next to the swarm, `acw __watch` (log in
+`$TMPDIR/acw-watch-<timestamp>.log`), so the master no longer keeps an
+`agent wait` running on every worker. Every 5 seconds it reads herdr's
+state of each worker and writes to the master when:
+
+- a worker becomes `blocked` (a tool approval or a question): the message
+  carries the last lines of its pane, and from the second block since its
+  last context reset, a hint that it may be hitting a forbidden call;
+- a worker has been `working` for more than `silence-minutes` (default 30)
+  with no activity acw can read: no turn end, no status update, no file
+  changed in its worktree;
+- a worker without the Stop hook (not `claude`) hands control back.
+
+A message is read at the end of the master's current turn, so a tool
+approval that denies itself after a few minutes can still expire during a
+long turn of the master's. The watcher stops with `acw stop`.
 
 Runs are scoped to the current directory, not global: agent names carry a
 hash of the full repo path (see `internal/names`), so several swarms — one
@@ -153,7 +174,9 @@ and keep the variables you need:
 | `{{.RepoRules}}` | the `notes` file's content, empty when none is configured |
 | `{{.PingingWorkers}}` | the names of the workers that ping the master on each turn (the `claude` ones, which have the Stop hook), empty when none does |
 | `{{.WorkerOverrides}}` | each worker configured apart in `worker-overrides`: its kind, model and standing instructions in full, and whether the master must copy them into its briefs; empty when none is |
-| `{{.InboxWatch}}` | the command the master must arm a Monitor on to receive pings and "workers ready", empty when the master is not `claude`. A custom brief that doesn't mention it gets pings typed into the master's input, as before, with a warning at launch |
+| `{{.InboxWatch}}` | the command the master must arm a Monitor on to receive pings and "workers ready", empty when the master is not `claude`. A custom brief that mentions neither it nor `{{.InboxNext}}` gets pings typed into the master's input, as before, with a warning at launch |
+| `{{.InboxNext}}` | the command the master runs in the background to read its next messages, and runs again after each batch; empty when the master is not `claude`. The built-in brief uses this one |
+| `{{.SilenceMinutes}}` | the `silence-minutes` value: how long a working worker may show no activity before acw's watcher tells the master |
 
 Before `worker-overrides`, a template could test `{{if eq .WorkerAgent
 "claude"}}` to know whether pings come in. That still works when all
@@ -217,6 +240,7 @@ needs no answers to work, so the file only changes the defaults.
 | `notes` | *(no flag)* | none |
 | `worker-overrides` | *(no flag)* | none: every worker as above |
 | `master-dir` | *(no flag)* | none: the master starts in the repo |
+| `silence-minutes` | *(no flag)* | `30`: minutes a working worker may show no activity before acw's watcher tells the master |
 | `presets` | *(picked with `--preset`)* | none |
 
 **`profile`** is one of the project's wtm profiles (`wtm project edit

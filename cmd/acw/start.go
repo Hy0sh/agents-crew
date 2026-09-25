@@ -71,13 +71,15 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		inboxNext = inboxNextCommand(self, inbox)
 	}
 	masterBrief, err := buildBrief(customBrief, brief.Params{
-		RepoPath:   repo,
-		Slug:       slug,
-		MaxStacks:  maxStacks,
-		Profile:    opts.profile,
-		Notes:      readNotes(out, repo, opts.notesPath),
-		Workers:    briefWorkers(workers),
-		InboxWatch: inboxWatch,
+		RepoPath:       repo,
+		Slug:           slug,
+		MaxStacks:      maxStacks,
+		Profile:        opts.profile,
+		Notes:          readNotes(out, repo, opts.notesPath),
+		Workers:        briefWorkers(workers),
+		InboxWatch:     inboxWatch,
+		InboxNext:      inboxNext,
+		SilenceMinutes: opts.silenceMinutes,
 	})
 	if err != nil {
 		return err
