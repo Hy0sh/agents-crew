@@ -241,3 +241,28 @@ func TestWorkersReadyMessageListsAllNames(t *testing.T) {
 		t.Errorf("WorkersReadyMessage(testSlug, 2) = %q, missing a worker name", got)
 	}
 }
+
+// Each of these cost a frozen or misled worker in real use.
+func TestBuildCarriesTheWorkerHygieneRules(t *testing.T) {
+	got := Build(params("claude", 2, 2))
+	for _, want := range []string{"outil de conteneurs ou de services sous-jacent", "rm -rf", "/tmp", "git diff --cached --name-only", "base_branch", "ports"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("brief missing %q", want)
+		}
+	}
+}
+
+// Only workers with the Stop hook get their stamps from acw; the others
+// must still be asked for a real UTC time.
+func TestBuildSaysWhoStampsTheStatus(t *testing.T) {
+	if got := Build(params("claude", 2, 2)); !strings.Contains(got, "last_turn_end") {
+		t.Error("with claude workers, the brief should say acw stamps updated_at and last_turn_end")
+	}
+	got := Build(params("codex", 2, 2))
+	if strings.Contains(got, "last_turn_end") {
+		t.Error("with no hooked worker, the brief must not promise stamps acw won't write")
+	}
+	if !strings.Contains(got, "date -u") {
+		t.Error("with no hooked worker, the brief should ask for updated_at in UTC")
+	}
+}
