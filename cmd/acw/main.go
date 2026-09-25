@@ -278,6 +278,16 @@ func main() {
 		},
 	}
 
+	// Internal: a claude worker's status line (see recordUsage).
+	statusLine := &cobra.Command{
+		Use:    statusLineUse + " <status-dir> <worker>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return recordUsage(filepath.Join(args[0], args[1]+".usage.json"), cmd.InOrStdin(), cmd.OutOrStdout())
+		},
+	}
+
 	// Internal: what a claude worker's Stop hook runs (see stopCommand).
 	turnEnd := &cobra.Command{
 		Use:    turnEndUse + " <status-dir> <worker>",
@@ -292,7 +302,7 @@ func main() {
 		},
 	}
 
-	root.AddCommand(stop, provision, watch, inboxWatch, inboxNext, turnEnd)
+	root.AddCommand(stop, provision, watch, inboxWatch, inboxNext, turnEnd, statusLine)
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
