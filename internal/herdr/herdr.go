@@ -50,6 +50,10 @@ func runResult(v any, args ...string) error {
 type Agent struct {
 	Name        string `json:"name"`
 	WorkspaceID string `json:"workspace_id"`
+	// Status is herdr's own reading of the agent: idle, working, blocked,
+	// done or unknown.
+	Status string `json:"agent_status"`
+	Cwd    string `json:"cwd"`
 }
 
 // AgentList returns every live agent across all workspaces.
@@ -172,4 +176,11 @@ func FindAgent(agents []Agent, name string) (Agent, bool) {
 func AgentPrompt(name, text string) error {
 	_, err := run("agent", "prompt", name, text)
 	return err
+}
+
+// AgentRead returns the last lines of an agent's terminal, unwrapped, as
+// herdr prints them: plain text, not JSON.
+func AgentRead(name string, lines int) (string, error) {
+	out, err := run("agent", "read", name, "--source", "recent-unwrapped", "--lines", fmt.Sprint(lines))
+	return string(out), err
 }
