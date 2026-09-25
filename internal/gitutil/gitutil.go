@@ -80,8 +80,10 @@ func LastActivity(dir string) time.Time {
 	}
 	see(index)
 	// Not through run: its TrimSpace would eat the leading space of the
-	// first " M path" entry.
-	out, err := exec.Command("git", "-C", dir, "status", "--porcelain", "-z", "--untracked-files=all").Output()
+	// first " M path" entry. --no-optional-locks: a plain status refreshes
+	// the index under index.lock, and this runs every few seconds next to
+	// a worker's own git add.
+	out, err := exec.Command("git", "--no-optional-locks", "-C", dir, "status", "--porcelain", "-z", "--untracked-files=all").Output()
 	if err != nil {
 		return latest
 	}

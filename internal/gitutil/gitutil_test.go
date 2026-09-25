@@ -76,3 +76,34 @@ func TestLastActivityOutsideGitIsZero(t *testing.T) {
 		t.Errorf("LastActivity(not a repo) = %v, want zero", got)
 	}
 }
+
+// Polled every few seconds next to a worker that commits: it must never
+// take the index lock, which a plain git status does to refresh the index
+// after a touched file (and the worker's own git add then fails on
+// index.lock).
+func TestLastActivityLeavesTheIndexAlone(t *testing.T) {
+	dir := gitInit(t)
+	file := filepath.Join(dir, "a.go")
+	if err := os.WriteFile(file, []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", "a.go"}, {"-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "a"}} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	index := filepath.Join(dir, ".git", "index")
+	old := time.Now().Add(-time.Hour).Truncate(time.Second)
+	if err := os.Chtimes(index, old, old); err != nil {
+		t.Fatal(err)
+	}
+	// Same content, new mtime: git status would refresh the index for it.
+	later := time.Now().Truncate(time.Second)
+	if err := os.Chtimes(file, later, later); err != nil {
+		t.Fatal(err)
+	}
+	LastActivity(dir)
+	if info, err := os.Stat(index); err != nil || !info.ModTime().Equal(old) {
+		t.Errorf("index mtime = %v, want it untouched at %v", info.ModTime(), old)
+	}
+}
