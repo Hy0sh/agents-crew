@@ -154,6 +154,15 @@ Precedence: a flag given on the command line > the preset given with
 entry: acw behaves as without config. An unknown key refuses to start, so
 a typo never goes unnoticed.`
 
+// repoOrCwd is the swarm's repo for a command the master may run from
+// elsewhere: the one given, else the current directory.
+func repoOrCwd(repo string) (string, error) {
+	if repo != "" {
+		return filepath.Abs(repo)
+	}
+	return os.Getwd()
+}
+
 // withWtm runs a stack command on the swarm of the current directory,
 // which needs wtm: without it no worker ever had a stack to stop.
 func withWtm(run func(repo string) error) error {
@@ -239,6 +248,26 @@ func main() {
 			return teardown.Run()
 		},
 	}
+
+	var statusRepo string
+	status := &cobra.Command{
+		Use:   "status",
+		Short: "Show every worker at a glance: state, status age, activity, context, quota, inbox",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repo, err := repoOrCwd(statusRepo)
+			if err != nil {
+				return err
+			}
+			rows, unread, lastAt, err := collectStatus(repo)
+			if err != nil {
+				return err
+			}
+			fmt.Fprint(cmd.OutOrStdout(), renderStatus(time.Now(), rows, unread, lastAt))
+			return nil
+		},
+	}
+	status.Flags().StringVar(&statusRepo, "repo", "", "the swarm's repo (default: the current directory); the master runs from elsewhere with master-dir")
 
 	pause := &cobra.Command{
 		Use:   "pause",
@@ -333,7 +362,7 @@ func main() {
 		},
 	}
 
-	root.AddCommand(stop, pause, resume, provision, watch, inboxWatch, inboxNext, turnEnd, statusLine)
+	root.AddCommand(stop, status, pause, resume, provision, watch, inboxWatch, inboxNext, turnEnd, statusLine)
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
