@@ -70,6 +70,12 @@ func Inbox(repo string) string {
 	return filepath.Join(StatusDir(repo), "inbox")
 }
 
+// RunFile holds what a running swarm was started with and later commands
+// need again (the stack profile, for acw resume).
+func RunFile(repo string) string {
+	return filepath.Join(StatusDir(repo), "run.json")
+}
+
 // WorkerWorktree is worker i's worktree for the run started at stamp.
 func WorkerWorktree(repo string, i int, stamp string) string {
 	return filepath.Join(WorktreesDir(repo), fmt.Sprintf("worker%d-%s", i, stamp))

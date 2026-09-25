@@ -88,6 +88,9 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
 		return err
 	}
+	if err := writeRunInfo(repo, runInfo{Profile: opts.profile}); err != nil {
+		return err
+	}
 
 	masterDir := repo
 	if opts.masterDir != "" {
@@ -142,6 +145,30 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 
 	// Replace this process with the Herdr TUI, attaching to the workspace just built.
 	return syscall.Exec(mustLookPath("herdr"), []string{"herdr"}, os.Environ())
+}
+
+// runInfo is what a swarm was started with that acw resume needs again:
+// the profile the config gave at launch, which a later config change or
+// another --preset must not silently replace.
+type runInfo struct {
+	Profile string `json:"profile"`
+}
+
+func writeRunInfo(repo string, info runInfo) error {
+	content, err := json.Marshal(info)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(names.RunFile(repo), content, 0o644)
+}
+
+func readRunInfo(repo string) (runInfo, error) {
+	var info runInfo
+	content, err := os.ReadFile(names.RunFile(repo))
+	if err != nil {
+		return info, err
+	}
+	return info, json.Unmarshal(content, &info)
 }
 
 // readCustomBrief returns the custom template's source, "" when path is.

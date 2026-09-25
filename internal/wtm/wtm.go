@@ -8,6 +8,7 @@ package wtm
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os/exec"
 )
 
@@ -38,6 +39,28 @@ func Adopt(dir, profile string) error {
 
 func adoptArgs(profile string) []string {
 	args := []string{"adopt", "-y"}
+	if profile != "" {
+		args = append(args, "--profile", profile)
+	}
+	return args
+}
+
+// Start starts the stack of a worktree whose stack was stopped, on
+// profile ("" for the whole stack). wtm's own output goes to out as it
+// comes: without a terminal wtm asks nothing and starts even when memory
+// is tight, so its warning is the only thing telling the user so.
+func Start(dir, branch, profile string, out io.Writer) error {
+	cmd := exec.Command("wtm", startArgs(branch, profile)...)
+	cmd.Dir = dir
+	cmd.Stdout, cmd.Stderr = out, out
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("wtm %v (in %s): %w", startArgs(branch, profile), dir, err)
+	}
+	return nil
+}
+
+func startArgs(branch, profile string) []string {
+	args := []string{"start", branch}
 	if profile != "" {
 		args = append(args, "--profile", profile)
 	}
