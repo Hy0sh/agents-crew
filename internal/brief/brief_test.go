@@ -140,6 +140,16 @@ func TestBuildNamesTheWorkerAgentAndStaysNeutral(t *testing.T) {
 	}
 }
 
+// A decision posed as prose was answered as prose, or not at all: the master
+// has to reach for its agent's choice tool, named generically so the brief
+// stays neutral for any herdr kind.
+func TestBuildPosesDecisionsThroughTheChoiceTool(t *testing.T) {
+	got := Build(params("claude", 3, 3))
+	if strings.Count(got, "outil de question à choix") < 2 {
+		t.Errorf("brief should send both scope decisions and relayed worker questions through the agent's choice tool")
+	}
+}
+
 // The README's variable table is the only place a custom-brief author
 // learns what exists: a field added to MasterData without a row there
 // fails here rather than going undocumented.
