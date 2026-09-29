@@ -6,6 +6,15 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Changed
+
+- The master's brief has it pose every decision it hands the user, its own
+  and those a worker raises, through its agent's choice tool when it has one:
+  one question per decision, its recommendation first, options numbered when
+  the agent has no such tool. Asked in prose, a decision buried in a status
+  point went unanswered, and whether the master reached for the tool depended
+  on the project it ran in.
+
 ## [0.6.0] - 2026-09-25
 
 acw now tells the master what it used to go and look for: a watcher reports

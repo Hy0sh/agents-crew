@@ -73,6 +73,11 @@ func TestNextInboxReturnsEveryWaitingLineAtOnce(t *testing.T) {
 // It waits for the next message instead of returning empty-handed:
 // returning at once would wake the master for nothing, in a loop.
 func TestNextInboxWaitsForALine(t *testing.T) {
+	// The append below races the rename, which is what drainSettle covers:
+	// with no settle, a line written into the taken file was deleted unread
+	// and the wait never ended.
+	drainSettle = 100 * time.Millisecond
+	t.Cleanup(func() { drainSettle = 0 })
 	inbox := filepath.Join(t.TempDir(), "inbox")
 	go func() {
 		time.Sleep(50 * time.Millisecond)
@@ -168,7 +173,8 @@ func TestShellWordQuotesOnlyWhenNeeded(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	// drainOnce waits for an in-flight append before reading; no need to
-	// in tests, where every append has returned.
+	// in tests whose appends have all returned. The one that appends
+	// concurrently sets it back itself.
 	drainSettle = 0
 	os.Exit(m.Run())
 }
