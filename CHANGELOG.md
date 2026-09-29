@@ -6,6 +6,12 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-30
+
+The master now asks its questions through its agent's choice tool, where it
+used to write them out in prose on some projects. No breaking change: a
+custom brief is left as it is.
+
 ### Changed
 
 - The master's brief has it pose every decision it hands the user, its own
@@ -357,7 +363,8 @@ project: 7 PRs, 3 merged. Each entry names what actually went wrong.
   anything, with a clear message and install instructions if not; `wtm` is
   checked too but stays optional.
 
-[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/Hy0sh/agents-crew/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Hy0sh/agents-crew/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Hy0sh/agents-crew/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Hy0sh/agents-crew/compare/v0.3.0...v0.4.0
