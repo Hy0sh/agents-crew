@@ -36,11 +36,11 @@ func Run() error {
 	repo := cwd
 	master, ok := herdr.FindAgent(agents, names.Master(names.Slug(repo)))
 	if !ok {
-		fmt.Println("Aucun master acw en cours pour ce répertoire.")
+		fmt.Println("No acw master running for this directory.")
 		return nil
 	}
 	workspaceID := master.WorkspaceID
-	fmt.Printf("Arrêt du swarm de %s (workspace %s).\n", repo, workspaceID)
+	fmt.Printf("Stopping the swarm of %s (workspace %s).\n", repo, workspaceID)
 
 	// Discovered by scanning .claude/worktrees/ for the workerN-* naming
 	// convention, not by asking Herdr which agents are named "workerN":
@@ -50,19 +50,19 @@ func Run() error {
 	// real Docker stacks orphaned despite reporting success.
 	cleanupWorkerWorktrees(repo)
 
-	fmt.Print("Fermeture du workspace Herdr et de ses agents... ")
+	fmt.Print("Closing the Herdr workspace and its agents... ")
 	if err := herdr.WorkspaceClose(workspaceID, true); err != nil {
-		fmt.Println("échec.")
+		fmt.Println("failed.")
 		return fmt.Errorf("herdr workspace close: %w", err)
 	}
-	fmt.Println("fait.")
+	fmt.Println("done.")
 
 	statusDir := names.StatusDir(repo)
 	if err := os.RemoveAll(statusDir); err != nil {
-		fmt.Fprintf(os.Stderr, "suppression de %s: %v\n", statusDir, err)
+		fmt.Fprintf(os.Stderr, "removing %s: %v\n", statusDir, err)
 	}
 
-	fmt.Println("Swarm arrêté.")
+	fmt.Println("Swarm stopped.")
 	return nil
 }
 
@@ -77,7 +77,7 @@ func Run() error {
 func WorkerWorktrees(repo string) []string {
 	matches, err := filepath.Glob(filepath.Join(names.WorktreesDir(repo), "worker*"))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "recherche des worktrees workers: %v\n", err)
+		fmt.Fprintf(os.Stderr, "looking for worker worktrees: %v\n", err)
 		return nil
 	}
 	var dirs []string
@@ -97,19 +97,19 @@ func cleanupWorkerWorktrees(repo string) {
 		name := filepath.Base(dir)
 		branch, err := gitutil.CurrentBranch(dir)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s: résolution de la branche: %v\n", name, err)
+			fmt.Fprintf(os.Stderr, "%s: resolving the branch: %v\n", name, err)
 			continue
 		}
-		fmt.Printf("%s (%s) :\n", name, branch)
+		fmt.Printf("%s (%s):\n", name, branch)
 
 		if wtm.Available() {
 			// Best-effort: a worktree whose environment was never adopted
 			// (provisioning failed, or MAX_STACKS left it without one)
 			// makes these fail harmlessly, which is fine — the worktree
 			// removal below still runs.
-			fmt.Print("  arrêt de l'environnement... ")
+			fmt.Print("  stopping the environment... ")
 			if err := wtm.Stop(dir, branch); err != nil {
-				fmt.Println("rien à arrêter.")
+				fmt.Println("nothing to stop.")
 				// A repo wtm doesn't know, or a worktree never adopted, is
 				// the ordinary case (no environment was ever given out) —
 				// printing wtm's own "not registered" error under a line
@@ -119,12 +119,12 @@ func cleanupWorkerWorktrees(repo string) {
 					fmt.Fprintf(os.Stderr, "%s: wtm stop: %v\n", name, err)
 				}
 			} else {
-				fmt.Print("fait. Suppression (conteneurs, volumes, images)... ")
+				fmt.Print("done. Removing (containers, volumes, images)... ")
 				if err := wtm.Remove(dir, branch); err != nil {
-					fmt.Println("échec, voir ci-dessous.")
+					fmt.Println("failed, see below.")
 					fmt.Fprintf(os.Stderr, "%s: wtm remove: %v\n", name, err)
 				} else {
-					fmt.Println("fait.")
+					fmt.Println("done.")
 				}
 			}
 		}
@@ -134,10 +134,10 @@ func cleanupWorkerWorktrees(repo string) {
 			continue
 		}
 		if err := gitutil.DeleteBranch(repo, branch); err != nil {
-			fmt.Printf("  worktree supprimé, branche %s conservée (voir ci-dessous).\n", branch)
+			fmt.Printf("  worktree removed, branch %s kept (see below).\n", branch)
 			fmt.Fprintf(os.Stderr, "%s: git branch -D %s: %v\n", name, branch, err)
 			continue
 		}
-		fmt.Printf("  worktree et branche %s supprimés.\n", branch)
+		fmt.Printf("  worktree and branch %s removed.\n", branch)
 	}
 }

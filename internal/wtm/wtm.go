@@ -23,7 +23,7 @@ func Available() bool {
 // ErrNoStack is a worktree wtm never gave a stack to (a worker beyond
 // max-stacks, a failed adopt, an unregistered project): nothing to stop
 // or start there, which callers treat as a skip, not a failure.
-var ErrNoStack = errors.New("pas de stack wtm pour ce worktree")
+var ErrNoStack = errors.New("no wtm stack for this worktree")
 
 func run(dir string, args ...string) error {
 	return runTo(dir, io.Discard, args...)
@@ -76,6 +76,13 @@ func startArgs(branch, profile string) []string {
 		args = append(args, "--profile", profile)
 	}
 	return args
+}
+
+// Doctor returns what `wtm doctor` reports, run from dir.
+func Doctor(dir string) (string, error) {
+	var out bytes.Buffer
+	err := runTo(dir, &out, "doctor")
+	return out.String(), err
 }
 
 // Stop stops the worktree's stack without removing it. Unlike Adopt, wtm

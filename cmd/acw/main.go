@@ -100,7 +100,7 @@ func loadProject(repo, preset string) (*config.Project, error) {
 		return project, err
 	}
 	if project == nil {
-		return nil, fmt.Errorf("--preset %s: aucune entrée pour %s dans %s", preset, repo, config.Path())
+		return nil, fmt.Errorf("--preset %s: no entry for %s in %s", preset, repo, config.Path())
 	}
 	return project.WithPreset(preset)
 }
@@ -175,7 +175,7 @@ func repoFlag(cmd *cobra.Command) func() (string, error) {
 func decodePlan[T any](arg, what string) (T, error) {
 	var plan T
 	if err := json.Unmarshal([]byte(arg), &plan); err != nil {
-		return plan, fmt.Errorf("plan %s illisible: %w", what, err)
+		return plan, fmt.Errorf("unreadable %s plan: %w", what, err)
 	}
 	return plan, nil
 }
@@ -184,7 +184,7 @@ func decodePlan[T any](arg, what string) (T, error) {
 // which needs wtm: without it no worker ever had a stack to stop.
 func withWtm(run func(repo string) error) error {
 	if !wtm.Available() {
-		return fmt.Errorf("wtm introuvable dans le PATH : les workers n'ont pas de stack à arrêter ni à relancer")
+		return fmt.Errorf("wtm not found in PATH: the workers have no stack to stop or start")
 	}
 	repo, err := os.Getwd()
 	if err != nil {
@@ -331,7 +331,7 @@ func main() {
 		Hidden: true,
 		Args:   cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := decodePlan[provisionPlan](args[0], "de provisioning")
+			plan, err := decodePlan[provisionPlan](args[0], "provisioning")
 			if err != nil {
 				return err
 			}
@@ -356,7 +356,7 @@ func main() {
 		Hidden: true,
 		Args:   cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := decodePlan[watchPlan](args[0], "du veilleur")
+			plan, err := decodePlan[watchPlan](args[0], "watcher")
 			if err != nil {
 				return err
 			}
@@ -371,7 +371,7 @@ func main() {
 		Hidden: true,
 		Args:   cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return nextInbox(args[0], cmd.OutOrStdout(), 500*time.Millisecond)
+			return nextInbox(args[0], cmd.OutOrStdout(), 500*time.Millisecond, inboxQuiet)
 		},
 	}
 
@@ -385,7 +385,7 @@ func main() {
 		},
 	}
 
-	// Internal: what a claude worker's Stop hook runs (see stopCommand).
+	// Internal: what a claude worker's Stop hook runs (see turnEndCommand).
 	turnEnd := &cobra.Command{
 		Use:    turnEndUse + " <status-dir> <worker>",
 		Hidden: true,
@@ -393,9 +393,12 @@ func main() {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			now := time.Now()
 			if err := markTurnEnd(args[0], args[1], now); err != nil {
-				fmt.Fprintln(os.Stderr, "marque de fin de tour:", err)
+				fmt.Fprintln(os.Stderr, "turn end mark:", err)
 			}
-			return normalizeStatus(filepath.Join(args[0], args[1]+".json"), now)
+			err := normalizeStatus(filepath.Join(args[0], args[1]+".json"), now)
+			// Printed for the hook to put into the ping (see turnEndCommand).
+			fmt.Fprint(cmd.OutOrStdout(), statusDelta(args[0], args[1]))
+			return err
 		},
 	}
 

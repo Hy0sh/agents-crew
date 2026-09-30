@@ -43,8 +43,8 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		return fmt.Errorf("herdr agent list: %w", err)
 	}
 	if a, ok := herdr.FindAgent(agents, masterName); ok {
-		return fmt.Errorf("un master tourne déjà dans le workspace %s pour ce répertoire. Attache-toi-y (herdr workspace focus %s) "+
-			"au lieu d'en relancer un — ou ferme-le d'abord (acw stop)", a.WorkspaceID, a.WorkspaceID)
+		return fmt.Errorf("a master is already running in workspace %s for this directory. Attach to it (herdr workspace focus %s) "+
+			"instead of starting another one, or close it first (acw stop)", a.WorkspaceID, a.WorkspaceID)
 	}
 
 	// Before anything is created: a custom brief with a typo'd variable
@@ -61,7 +61,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	inbox := names.Inbox(repo)
 	inboxWatch, warn := inboxWatchCommand(opts.masterKind, customBrief, self, inbox)
 	if warn {
-		fmt.Fprintln(out, "⚠ le brief personnalisé ne contient pas {{.InboxWatch}} : les pings des workers seront tapés dans la saisie du master, comme avant")
+		fmt.Fprintln(out, "⚠ the custom brief doesn't contain {{.InboxWatch}}: workers' pings will be typed into the master's input, as before")
 	}
 	if inboxWatch == "" {
 		inbox = ""
@@ -127,18 +127,18 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 
 	plan := provisionPlan{Repo: repo, MasterPane: masterPane, Stamp: stamp, MaxStacks: maxStacks, Profile: opts.profile, Workers: workers, Inbox: inbox}
 	if err := launchBackgroundProvisioning(plan); err != nil {
-		return fmt.Errorf("lancement du provisioning des workers: %w", err)
+		return fmt.Errorf("starting worker provisioning: %w", err)
 	}
 	// Not fatal: without it the swarm still runs, the master just hears
 	// less. Said, so the user knows why.
 	watch := watchPlanFor(repo, masterName, inbox, inboxNext, opts.silenceMinutes, workers)
 	watch.Stamp = stamp
 	if err := launchBackgroundWatch(watch); err != nil {
-		fmt.Fprintf(out, "⚠ veilleur acw non lancé, le master ne sera pas prévenu des blocages ni des silences : %v\n", err)
+		fmt.Fprintf(out, "⚠ acw watcher not started, the master won't hear about blocks or silences: %v\n", err)
 	}
 
 	success = true
-	fmt.Fprintf(out, "→ master (%s) prêt, tu peux déjà lui parler. %d worker(s) (%s) en provisionnement en tâche de fond.\n",
+	fmt.Fprintf(out, "→ master (%s) ready, you can talk to it now. %d worker(s) (%s) provisioning in the background.\n",
 		brief.DescribeAgent(opts.masterKind, opts.masterModel), len(workers), describeWorkers(workers))
 
 	// Replace this process with the Herdr TUI, attaching to the workspace just built.
@@ -181,7 +181,7 @@ func readCustomBrief(path string) (string, error) {
 	}
 	source, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("lecture du brief personnalisé %s: %w", path, err)
+		return "", fmt.Errorf("reading custom brief %s: %w", path, err)
 	}
 	return string(source), nil
 }
@@ -209,7 +209,7 @@ func readNotes(out io.Writer, repo, path string) string {
 	}
 	content, err := os.ReadFile(path)
 	if err != nil {
-		fmt.Fprintf(out, "⚠ notes du projet illisibles, lancement sans elles: %v\n", err)
+		fmt.Fprintf(out, "⚠ project notes unreadable, starting without them: %v\n", err)
 		return ""
 	}
 	return string(content)
@@ -278,7 +278,7 @@ func watchPlanFor(repo, masterName, inbox, inboxNext string, silenceMinutes int,
 func mustLookPath(bin string) string {
 	p, err := exec.LookPath(bin)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s introuvable dans le PATH: %v\n", bin, err)
+		fmt.Fprintf(os.Stderr, "%s not found in PATH: %v\n", bin, err)
 		os.Exit(1)
 	}
 	return p

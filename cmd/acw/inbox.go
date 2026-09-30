@@ -89,14 +89,23 @@ func watchInbox(inbox string, w io.Writer, interval time.Duration) error {
 	}
 }
 
+// inboxQuiet is how long nextInbox waits before giving up: Claude Code
+// kills a background command at its timeout, 30 minutes by default, and a
+// master whose command was killed had to notice and re-run it by hand.
+const inboxQuiet = 25 * time.Minute
+
 // nextInbox waits until at least one line is in the inbox, writes out
 // every line waiting there, and returns. The master runs it as a
-// background command and runs it again after each return: unlike a
-// Monitor, a background command has no 30-minute expiry, so a quiet
-// swarm costs the master nothing, and the end of the command is what
-// wakes it. A removed status dir (acw stop) ends it with nothing written.
-func nextInbox(inbox string, w io.Writer, interval time.Duration) error {
-	for {
+// background command and runs it again after each return: the end of the
+// command is what wakes it. After quiet with no line it returns anyway,
+// saying so, before the background timeout kills it. A removed status dir
+// (acw stop) ends it with nothing written.
+func nextInbox(inbox string, w io.Writer, interval, quiet time.Duration) error {
+	for deadline := time.Now().Add(quiet); ; {
+		if time.Now().After(deadline) {
+			_, err := fmt.Fprintf(w, "nothing new for %d min: run the command again.\n", int(quiet.Minutes()))
+			return err
+		}
 		if _, err := os.Stat(filepath.Dir(inbox)); errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}

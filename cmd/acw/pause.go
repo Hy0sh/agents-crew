@@ -21,12 +21,12 @@ import (
 // a worker's failing test right after resume is not taken for a bug.
 
 func pauseStacks(repo string, out io.Writer) error {
-	return eachStack(repo, out, "acw pause : stacks des workers arrêtées. Worktrees et agents intacts, rien à dispatcher qui ait besoin d'un environnement avant acw resume.",
+	return eachStack(repo, out, "acw pause: workers' stacks stopped. Worktrees and agents are intact; dispatch nothing that needs an environment before acw resume.",
 		func(dir, branch string, _ runInfo) error { return wtm.Stop(dir, branch) })
 }
 
 func resumeStacks(repo string, out io.Writer) error {
-	return eachStack(repo, out, "acw resume : stacks des workers relancées. Le premier appel à un service peut échouer le temps qu'il démarre.",
+	return eachStack(repo, out, "acw resume: workers' stacks started again. The first call to a service may fail while it starts up.",
 		func(dir, branch string, run runInfo) error { return wtm.Start(dir, branch, run.Profile, out) })
 }
 
@@ -36,7 +36,7 @@ func resumeStacks(repo string, out io.Writer) error {
 // once every worktree was tried.
 func eachStack(repo string, out io.Writer, done string, step func(dir, branch string, run runInfo) error) error {
 	if _, err := os.Stat(names.StatusDir(repo)); errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("aucun swarm acw dans %s", repo)
+		return fmt.Errorf("no acw swarm in %s", repo)
 	}
 	run, err := readRunInfo(repo)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -52,15 +52,15 @@ func eachStack(repo string, out io.Writer, done string, step func(dir, branch st
 		// A worker beyond max-stacks, or whose adopt failed, has a worktree
 		// wtm never gave a stack to: nothing to stop or start there.
 		if errors.Is(err, wtm.ErrNoStack) {
-			fmt.Fprintf(out, "%s : pas de stack, ignoré.\n", name)
+			fmt.Fprintf(out, "%s: no stack, skipped.\n", name)
 			continue
 		}
 		if err != nil {
 			failed++
-			fmt.Fprintf(out, "%s : échec : %v\n", name, err)
+			fmt.Fprintf(out, "%s: failed: %v\n", name, err)
 			continue
 		}
-		fmt.Fprintf(out, "%s : fait.\n", name)
+		fmt.Fprintf(out, "%s: done.\n", name)
 	}
 	inbox := run.Inbox
 	if run.MasterName == "" {
@@ -69,10 +69,10 @@ func eachStack(repo string, out io.Writer, done string, step func(dir, branch st
 		inbox = names.Inbox(repo)
 	}
 	if err := deliver(inbox, run.MasterName, done); err != nil {
-		fmt.Fprintln(out, "message au master:", err)
+		fmt.Fprintln(out, "message to the master:", err)
 	}
 	if failed > 0 {
-		return fmt.Errorf("%d stack(s) en échec, voir ci-dessus", failed)
+		return fmt.Errorf("%d stack(s) failed, see above", failed)
 	}
 	return nil
 }

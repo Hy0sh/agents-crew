@@ -82,14 +82,14 @@ func TestPauseSkipsAWorktreeWithoutAStack(t *testing.T) {
 	if err := pauseStacks(repo, &out); err != nil {
 		t.Errorf("pauseStacks() = %v, a worktree with no stack is skipped, not failed", err)
 	}
-	if !strings.Contains(out.String(), "pas de stack") {
+	if !strings.Contains(out.String(), "no stack") {
 		t.Errorf("output = %q, want the skip said", out.String())
 	}
 }
 
 func TestPauseWithoutASwarmRefuses(t *testing.T) {
 	err := pauseStacks(t.TempDir(), &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "aucun swarm acw") {
+	if err == nil || !strings.Contains(err.Error(), "no acw swarm") {
 		t.Errorf("pauseStacks(no swarm) = %v, want a refusal naming it", err)
 	}
 }

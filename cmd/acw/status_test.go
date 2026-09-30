@@ -27,9 +27,9 @@ func TestRenderStatusShowsAgesUsageAndTheInbox(t *testing.T) {
 	got := renderStatus(now, rows, 2, now.Add(-7*time.Minute))
 	for _, want := range []string{
 		"worker1", "working", "in_progress", "some task",
-		"statut il y a 40 min", "tour il y a 3 min", "activité il y a 2 min",
+		"status 40 min ago", "turn 3 min ago", "activity 2 min ago",
 		"ctx 23%", "5h 78%", "feat/x ← feat/w", "https://example.test/pr/1",
-		"inbox : 2 messages non lus, le dernier arrivé à 14:03",
+		"inbox: 2 unread messages, the last one arrived at 14:03",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("renderStatus() missing %q in:\n%s", want, got)
@@ -42,7 +42,7 @@ func TestRenderStatusShowsAgesUsageAndTheInbox(t *testing.T) {
 			worker2 = line
 		}
 	}
-	if !strings.Contains(worker2, "statut -") || !strings.Contains(worker2, "ctx ?%") {
+	if !strings.Contains(worker2, "status -") || !strings.Contains(worker2, "ctx ?%") {
 		t.Errorf("worker2 line = %q, want - and ? for what is unknown", worker2)
 	}
 }
@@ -64,7 +64,7 @@ func TestScanWorkersSkipsGaps(t *testing.T) {
 }
 
 func TestRenderStatusEmptyInbox(t *testing.T) {
-	if got := renderStatus(time.Now(), nil, 0, time.Time{}); !strings.Contains(got, "inbox : vide") {
+	if got := renderStatus(time.Now(), nil, 0, time.Time{}); !strings.Contains(got, "inbox: empty") {
 		t.Errorf("renderStatus() = %q", got)
 	}
 }

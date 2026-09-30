@@ -12,7 +12,7 @@ import (
 
 func TestDrainOnceEmitsPendingLinesOnce(t *testing.T) {
 	inbox := filepath.Join(t.TempDir(), "inbox")
-	for _, line := range []string{"worker1 a rendu la main", "worker2 a rendu la main"} {
+	for _, line := range []string{"worker1 handed control back", "worker2 handed control back"} {
 		if err := appendLine(inbox, line); err != nil {
 			t.Fatal(err)
 		}
@@ -22,7 +22,7 @@ func TestDrainOnceEmitsPendingLinesOnce(t *testing.T) {
 	if err := drainOnce(inbox, &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.String() != "worker1 a rendu la main\nworker2 a rendu la main\n" {
+	if out.String() != "worker1 handed control back\nworker2 handed control back\n" {
 		t.Errorf("first drain = %q, want both lines in order", out.String())
 	}
 
@@ -36,13 +36,13 @@ func TestDrainOnceEmitsPendingLinesOnce(t *testing.T) {
 
 	// A ping written while nothing watches (between a Monitor's expiry
 	// and its re-arm) waits for the next drain instead of being lost.
-	if err := appendLine(inbox, "worker3 a rendu la main"); err != nil {
+	if err := appendLine(inbox, "worker3 handed control back"); err != nil {
 		t.Fatal(err)
 	}
 	if err := drainOnce(inbox, &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.String() != "worker3 a rendu la main\n" {
+	if out.String() != "worker3 handed control back\n" {
 		t.Errorf("third drain = %q", out.String())
 	}
 }
@@ -56,16 +56,16 @@ func TestWatchInboxStopsWhenTheStatusDirIsGone(t *testing.T) {
 
 func TestNextInboxReturnsEveryWaitingLineAtOnce(t *testing.T) {
 	inbox := filepath.Join(t.TempDir(), "inbox")
-	for _, line := range []string{"worker1 a rendu la main", "worker2 est bloqué"} {
+	for _, line := range []string{"worker1 handed control back", "worker2 is blocked"} {
 		if err := appendLine(inbox, line); err != nil {
 			t.Fatal(err)
 		}
 	}
 	var out bytes.Buffer
-	if err := nextInbox(inbox, &out, 0); err != nil {
+	if err := nextInbox(inbox, &out, 0, time.Hour); err != nil {
 		t.Fatal(err)
 	}
-	if out.String() != "worker1 a rendu la main\nworker2 est bloqué\n" {
+	if out.String() != "worker1 handed control back\nworker2 is blocked\n" {
 		t.Errorf("nextInbox() = %q, want both lines in order, then return", out.String())
 	}
 }
@@ -81,21 +81,34 @@ func TestNextInboxWaitsForALine(t *testing.T) {
 	inbox := filepath.Join(t.TempDir(), "inbox")
 	go func() {
 		time.Sleep(50 * time.Millisecond)
-		_ = appendLine(inbox, "worker3 a rendu la main")
+		_ = appendLine(inbox, "worker3 handed control back")
 	}()
 	var out bytes.Buffer
-	if err := nextInbox(inbox, &out, 10*time.Millisecond); err != nil {
+	if err := nextInbox(inbox, &out, 10*time.Millisecond, time.Hour); err != nil {
 		t.Fatal(err)
 	}
-	if out.String() != "worker3 a rendu la main\n" {
+	if out.String() != "worker3 handed control back\n" {
 		t.Errorf("nextInbox() = %q", out.String())
+	}
+}
+
+// A quiet swarm ends the wait before Claude Code's background timeout
+// kills the command, and says so for the master to re-run it.
+func TestNextInboxGivesUpWhenQuiet(t *testing.T) {
+	inbox := filepath.Join(t.TempDir(), "inbox")
+	var out bytes.Buffer
+	if err := nextInbox(inbox, &out, time.Millisecond, 20*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "run the command again") {
+		t.Errorf("nextInbox() = %q, want a note telling the master to re-run it", out.String())
 	}
 }
 
 func TestNextInboxStopsWhenTheStatusDirIsGone(t *testing.T) {
 	inbox := filepath.Join(t.TempDir(), "gone", "inbox")
 	var out bytes.Buffer
-	if err := nextInbox(inbox, &out, 0); err != nil || out.Len() != 0 {
+	if err := nextInbox(inbox, &out, 0, time.Hour); err != nil || out.Len() != 0 {
 		t.Errorf("nextInbox() = %q, %v; a removed status dir (acw stop) ends it silently", out.String(), err)
 	}
 }

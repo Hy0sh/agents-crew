@@ -88,13 +88,19 @@ add`, and `wtm adopt` (the slow part, real services starting) runs per
 worker in its own goroutine — so setup never delays opening the terminal,
 and you don't stare at a workspace with only the master pane in it while N
 environments provision one after another. Its log lands in
-`$TMPDIR/acw-workers-<timestamp>.log`.
+`$TMPDIR/acw-workers-<timestamp>.log`. Once every stack is up, acw runs
+`wtm doctor` and adds its port clash sections, if any, to the "workers
+ready" message: wtm skips clashing ports when it allocates them, but not
+against worktrees recorded before it learnt to, nor against other
+projects, and a worker's stack then fails to start.
 
 Each Claude Code worker starts with a `Stop` hook that pings the master every
 time it hands control back — the push notification Herdr doesn't have, so a
 finished PR can't sit unnoticed until someone thinks to look. The ping says
-which worker moved and nothing more (a hook can't know what changed); it
-points the master at that worker's status file. Workers of any other kind
+which worker moved and what moved in its status file since its previous
+ping: `state` before and after, or "status unchanged". Most pings in real
+use ended turns the master had triggered itself, and each cost it a read of
+the file to find nothing new. Workers of any other kind
 have no hooks and keep the previous behaviour, where the master polls.
 
 Before pinging, the same hook runs `acw __turn-end` on that status file:
@@ -104,7 +110,9 @@ Before pinging, the same hook runs `acw __turn-end` on that status file:
 since workers write it freely). These were the fields workers got wrong in
 practice (a local time written with a `Z`, a block left set long after the
 answer). Everything else in the file stays the worker's own; a file that
-is missing or not a JSON object is left alone.
+is missing or not a JSON object is left alone. It then prints the delta
+the ping carries, and keeps what it saw in `workerN.ping` for the next
+turn.
 
 With a `claude` master, the ping is not typed into the master's input:
 typed text merged with whatever you were writing to the master at that
@@ -112,9 +120,10 @@ moment. The hook appends a line to an inbox in the status directory, and
 the master's first action is to run `acw __inbox-next` on it as a
 background command: it waits for the next lines, prints them and exits,
 and its end starts a turn without touching your draft. The master runs it
-again after each batch. Unlike a Monitor, which expires after 30 minutes
-and had to be re-armed all day long, a background command never expires,
-so a quiet swarm costs the master nothing. Lines written while the master
+again after each batch. Claude Code kills a background command at its
+timeout (30 minutes by default), so after 25 minutes with no message it
+exits on its own, printing "nothing new", and the master runs it again
+like after any batch. Lines written while the master
 works wait in the inbox. If the master forgets to run it again, acw types
 a reminder into its input after 5 minutes of unread messages. acw starts
 the master allowed to run its two inbox commands
@@ -178,7 +187,10 @@ acw resume
   for the worker to be idle, refuses one that is blocked (the reset would
   queue behind the prompt), sends `/clear`, and returns once the worker's
   status line reports a new session, or fails saying so after 60 s. It also
-  starts over the watcher's block count for that worker.
+  starts over the watcher's block count for that worker. A worker that has
+  not finished a turn yet has nothing to reset: `acw clear` says so and
+  returns without sending anything, since a `/clear` there keeps the same
+  session and could never be confirmed.
 - `acw pause` stops the workers' stacks (`wtm stop`) for a break, and `acw
   resume` starts them again (`wtm start`) on the profile the swarm was
   launched with. Worktrees, agents and the workspace stay as they are, and
@@ -203,7 +215,7 @@ and keep the variables you need:
 |---|---|
 | `{{.RepoPath}}` | absolute path of the repo acw runs in |
 | `{{.N}}` | number of workers |
-| `{{.WorkerAgent}}` | the workers' Herdr kind (`claude`, `codex`...) when they all share one; otherwise `mixte : ` followed by each worker's kind |
+| `{{.WorkerAgent}}` | the workers' Herdr kind (`claude`, `codex`...) when they all share one; otherwise `mixed: ` followed by each worker's kind |
 | `{{.WorkerNames}}` | the workers' Herdr names, comma-separated (`worker1-<slug>, worker2-<slug>`) |
 | `{{.EnvCapRule}}` | the stack capacity rule: how many environments exist, and the arbitration to do when `max-stacks` is below the worker count |
 | `{{.StackProfileRule}}` | the wtm profile rule, empty when no `profile` is configured |
@@ -300,6 +312,15 @@ message shape, where screenshots belong, the directory where a test must
 never be committed — not for the project's whole documentation, which the
 agents already read. Verbatim matters: a master reciting them from memory is
 exactly how one gets dropped, and that happened for real.
+
+Repo conventions are not the only rules that belong there. Name the
+project's sources of truth too, and when each one must be read: the
+decision log before any business arbitration, the design files before any
+screen. The master is told these rules bind it as well, before it asks you
+anything or dispatches a task. Left out, the reading happens late or not at
+all: in real use a master put an option to the user that contradicted a
+decision already locked, because nothing in its notes said to read the log
+first.
 
 Where the file lives is up to you. Keep it next to the config
 (`~/.config/acw/some-repo.md`) for a client's repo where nothing may be

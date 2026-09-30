@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/Hy0sh/agents-crew/internal/brief"
@@ -44,7 +46,7 @@ func provisionWorkers(plan provisionPlan) {
 	// still ping, they only lose the status normalization.
 	self, err := os.Executable()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "chemin d'acw introuvable, statuts non normalisés:", err)
+		fmt.Fprintln(os.Stderr, "acw's path not found, statuses won't be normalized:", err)
 	}
 	statusDir := names.StatusDir(repo)
 
@@ -74,11 +76,12 @@ func provisionWorkers(plan provisionPlan) {
 		if err := herdr.PaneRename(newPane, label); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: herdr pane rename: %v\n", name, err)
 		}
-		hook, statusLine := pingCommand(plan.Inbox, masterName, label), ""
+		delta, statusLine := "", ""
 		if self != "" {
-			hook = stopCommand(self, statusDir, label, hook)
+			delta = turnEndCommand(self, statusDir, label)
 			statusLine = statusLineCommand(self, statusDir, label)
 		}
+		hook := pingCommand(plan.Inbox, masterName, label, delta)
 		if err := herdr.AgentStart(name, w.Kind, newPane, workerArgs(w, label, hook, statusLine)...); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: herdr agent start: %v\n", name, explainStart(err, wt))
 			continue
@@ -89,7 +92,7 @@ func provisionWorkers(plan provisionPlan) {
 			go func(name, wt string) {
 				defer adopting.Done()
 				if err := wtm.Adopt(wt, plan.Profile); err != nil {
-					fmt.Fprintf(os.Stderr, "%s: wtm adopt a échoué — il continue sans environnement dédié: %v\n", name, err)
+					fmt.Fprintf(os.Stderr, "%s: wtm adopt failed, it goes on without a dedicated environment: %v\n", name, err)
 				}
 			}(name, wt)
 		}
@@ -98,15 +101,47 @@ func provisionWorkers(plan provisionPlan) {
 	adopting.Wait()
 
 	ready := brief.WorkersReadyMessage(slug, n)
+	// wtm skips clashing ports when it allocates, but not against
+	// worktrees recorded before it learnt to, nor other projects: a
+	// worker's stack then failed to start and doctor only told afterwards.
+	if slices.Contains(stacked, true) && wtm.Available() {
+		report, err := wtm.Doctor(repo)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "wtm doctor:", err)
+		}
+		if clashes := portClashes(report); clashes != "" {
+			ready += "\n\nwtm doctor reports port clashes: an affected worker may have no stack. Tell me before dispatching it a task that needs one.\n" + clashes
+		}
+	}
 	if plan.Inbox != "" {
 		if err := appendLine(plan.Inbox, ready); err != nil {
-			fmt.Fprintln(os.Stderr, "inbox du master (workers ready):", err)
+			fmt.Fprintln(os.Stderr, "master's inbox (workers ready):", err)
 		}
 		return
 	}
 	if err := herdr.AgentPrompt(masterName, ready); err != nil {
 		fmt.Fprintln(os.Stderr, "herdr agent prompt master (workers ready):", err)
 	}
+}
+
+// portClashes keeps the port clash sections of a `wtm doctor` report, ""
+// when it has none. A section is its heading line and what follows it up
+// to a blank line.
+func portClashes(report string) string {
+	var kept []string
+	in := false
+	for _, line := range strings.Split(report, "\n") {
+		switch {
+		case strings.HasPrefix(line, "port clashes"):
+			in = true
+		case strings.TrimSpace(line) == "":
+			in = false
+		}
+		if in {
+			kept = append(kept, line)
+		}
+	}
+	return strings.Join(kept, "\n")
 }
 
 // workerArgs is what gets forwarded to a worker's own CLI: its model,
@@ -119,7 +154,7 @@ func provisionWorkers(plan provisionPlan) {
 // master had to keep up (re-arming `agent wait` after each wake-up and
 // each dispatch, telling each worker to report in) and disciplines get
 // dropped — a finished PR went unnoticed for an afternoon that way. The
-// hook also normalizes the worker's status file first (see stopCommand). A
+// hook also normalizes the worker's status file first (see turnEndCommand). A
 // hook is not a discipline: it fires whatever the worker or the master
 // remembered to do, and survives the `/clear` between two tasks that
 // wipes everything the worker was told.
@@ -147,7 +182,7 @@ func workerArgs(w workerSpec, label, hook, statusLine string) []string {
 	if err != nil {
 		// Only json.Marshal of a literal struct can fail here, which it
 		// cannot; the worker still starts, just without its ping.
-		fmt.Fprintf(os.Stderr, "%s: hook Stop non installé: %v\n", label, err)
+		fmt.Fprintf(os.Stderr, "%s: Stop hook not installed: %v\n", label, err)
 		return args
 	}
 	return append(args, "--settings", hooks)
@@ -155,30 +190,40 @@ func workerArgs(w workerSpec, label, hook, statusLine string) []string {
 
 // pingCommand is the shell command a worker's Stop hook runs: one line
 // appended to the master's inbox, or, when there is none (see
-// inboxWatchCommand), the same text typed into the master's input.
-func pingCommand(inbox, masterName, label string) string {
-	msg := shellWord(pingMessage(label))
-	if inbox != "" {
-		return "printf '%s\\n' " + msg + " >> " + shellWord(inbox)
+// inboxWatchCommand), the same text typed into the master's input. delta
+// is a shell word whose value goes after "handed control back" (see
+// turnEndCommand), "" for none.
+func pingCommand(inbox, masterName, label, delta string) string {
+	if delta == "" {
+		delta = "''"
 	}
-	return "herdr agent prompt " + shellWord(masterName) + " " + msg
+	parts := shellWord(label+pingHead) + " " + delta + " " + shellWord(pingTail)
+	if inbox != "" {
+		return "printf '%s%s%s\\n' " + parts + " >> " + shellWord(inbox)
+	}
+	return "herdr agent prompt " + shellWord(masterName) + ` "$(printf '%s%s%s' ` + parts + `)"`
 }
 
-// pingMessage tells the master a worker handed control back, from its
-// Stop hook or, for a worker without one, from acw's watcher. Deliberately
-// says nothing about WHAT changed: neither can know, and a ping that
-// guesses would be worse than one that points at the status file.
+const (
+	pingHead = " handed control back"
+	pingTail = ". Read its status file (fields state, decision, pr_url, proof_path) before reacting, unless this message says it is unchanged. " +
+		"If nothing changed since your last status point, do nothing and don't write to it."
+)
+
+// pingMessage tells the master a worker handed control back, from acw's
+// watcher for a worker without a Stop hook: it says nothing about what
+// changed, which only the hook's turn end can tell (see statusDelta).
 func pingMessage(label string) string {
-	return fmt.Sprintf("%s a rendu la main. Lis son fichier de statut (champs state, decision, pr_url, proof_path) avant toute réaction. "+
-		"Si rien n'a changé depuis ton dernier point, ne fais rien et ne lui écris pas.", label)
+	return label + pingHead + pingTail
 }
 
-// stopCommand is the full command of a claude worker's Stop hook: the
-// status normalization first, so the master reads a fixed file when the
-// ping wakes it, then the ping. Joined with ; and not &&: a failed
-// normalization must not cost the ping.
-func stopCommand(exe, statusDir, label, ping string) string {
-	return shellWord(exe) + " " + turnEndUse + " " + shellWord(statusDir) + " " + shellWord(label) + "; " + ping
+// turnEndCommand is the delta word of a claude worker's Stop hook: it
+// normalizes the status file first, so the master reads a fixed file when
+// the ping wakes it, and prints what moved in it. A substitution and not
+// a command before the ping: a failed normalization prints nothing, and
+// the ping still goes out.
+func turnEndCommand(exe, statusDir, label string) string {
+	return `"$(` + shellWord(exe) + " " + turnEndUse + " " + shellWord(statusDir) + " " + shellWord(label) + `)"`
 }
 
 // workerSettings is the --settings JSON of a claude worker: its Stop hook

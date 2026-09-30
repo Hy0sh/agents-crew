@@ -13,7 +13,7 @@ import (
 const turnEndUse = "__turn-end"
 
 // normalizeStatus is what a worker's Stop hook runs before pinging the
-// master (see stopCommand): it puts in the status file what the worker
+// master (see turnEndCommand): it puts in the status file what the worker
 // was trusted with and got wrong in practice. updated_at comes from the
 // file's own mtime (a worker wrote its local time with a Z), last_turn_end
 // from the clock, and blocked_on is cleared once state is no longer
@@ -68,6 +68,54 @@ func markTurnEnd(statusDir, label string, at time.Time) error {
 		return err
 	}
 	return os.Chtimes(path, at, at)
+}
+
+// statusDelta says what moved in a worker's status file since its last
+// ping, for the ping to carry: most pings were for turns the master had
+// itself triggered, and each cost it a read of the file to find nothing
+// new. It keeps what it saw in workerN.ping for the next turn. "" when
+// there is no status to read, the ping then says nothing about it.
+func statusDelta(statusDir, label string) string {
+	content, err := os.ReadFile(filepath.Join(statusDir, label+".json"))
+	var status map[string]any
+	if err != nil || json.Unmarshal(content, &status) != nil || status == nil {
+		return ""
+	}
+	type seen struct{ State, UpdatedAt string }
+	now := seen{State: oneLine(status["state"]), UpdatedAt: oneLine(status["updated_at"])}
+
+	seenPath := filepath.Join(statusDir, label+".ping")
+	var before *seen
+	if content, err := os.ReadFile(seenPath); err == nil {
+		var s seen
+		if json.Unmarshal(content, &s) == nil {
+			before = &s
+		}
+	}
+	if out, err := json.Marshal(now); err == nil {
+		_ = writeAtomic(seenPath, out, 0o644)
+	}
+
+	switch {
+	case before == nil:
+		return " (state: “" + now.State + "”)"
+	case before.State != now.State:
+		return " (state: “" + before.State + "” → “" + now.State + "”)"
+	case before.UpdatedAt != now.UpdatedAt:
+		return " (state unchanged, status rewritten: “" + now.State + "”)"
+	}
+	return " (status unchanged since its previous ping)"
+}
+
+// oneLine is a status field as the ping can carry it: the inbox is read
+// line by line, and state is free text of any length.
+func oneLine(v any) string {
+	s, _ := v.(string)
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > 80 {
+		s = string(r[:80]) + "…"
+	}
+	return s
 }
 
 // blockedState reports whether a worker's state says it is blocked, in

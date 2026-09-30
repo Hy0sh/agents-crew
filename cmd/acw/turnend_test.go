@@ -8,6 +8,32 @@ import (
 	"time"
 )
 
+// The ping says what moved since the previous one, so a turn the master
+// triggered itself costs it no read of the status file.
+func TestStatusDeltaTellsWhatMovedSinceThePreviousPing(t *testing.T) {
+	dir := t.TempDir()
+	write := func(content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, "worker1.json"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := statusDelta(dir, "worker1"); got != "" {
+		t.Errorf("statusDelta(no status) = %q, want nothing", got)
+	}
+	for _, step := range []struct{ status, want string }{
+		{`{"state": "in progress", "updated_at": "1"}`, " (state: “in progress”)"},
+		{`{"state": "in progress", "updated_at": "1"}`, " (status unchanged since its previous ping)"},
+		{`{"state": "in progress", "updated_at": "2"}`, " (state unchanged, status rewritten: “in progress”)"},
+		{`{"state": "PR\nopen", "updated_at": "3"}`, " (state: “in progress” → “PR open”)"},
+	} {
+		write(step.status)
+		if got := statusDelta(dir, "worker1"); got != step.want {
+			t.Errorf("statusDelta(%s) = %q, want %q", step.status, got, step.want)
+		}
+	}
+}
+
 // writeStatus writes content as a worker would, with a known mtime.
 func writeStatus(t *testing.T, content string, mtime time.Time) string {
 	t.Helper()
@@ -97,11 +123,11 @@ func TestNormalizeStatusKeepsBlockedOnWhileBlocked(t *testing.T) {
 // a question must survive whatever word it used for being blocked.
 func TestNormalizeStatusKeepsBlockedOnForAnyBlockedWording(t *testing.T) {
 	for _, state := range []string{"bloqué", "BLOCKED", "blocked_on_decision", "Bloque"} {
-		path := writeStatus(t, `{"state":"`+state+`","blocked_on":"option A ou B ?"}`, time.Now())
+		path := writeStatus(t, `{"state":"`+state+`","blocked_on":"option A or B?"}`, time.Now())
 		if err := normalizeStatus(path, time.Now()); err != nil {
 			t.Fatal(err)
 		}
-		if got := readStatus(t, path)["blocked_on"]; got != "option A ou B ?" {
+		if got := readStatus(t, path)["blocked_on"]; got != "option A or B?" {
 			t.Errorf("state %q: blocked_on = %v, the question must survive", state, got)
 		}
 	}

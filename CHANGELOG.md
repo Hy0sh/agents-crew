@@ -6,6 +6,50 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+acw now speaks English: its output, its errors, the messages it sends the
+master and the built-in brief. The master still talks to you in your own
+language, the one you write to it in. A custom brief is left as it is, but
+one that quotes acw's messages (the ping, the idle inbox note) must follow
+their new wording.
+
+### Added
+
+- A claude worker's turn-end ping says what moved in its status file since
+  its previous ping: `state` before and after, or "status unchanged". Most
+  pings ended turns the master had triggered itself, and each cost it a
+  read of the file to find nothing new.
+- Once the stacks are up, acw runs `wtm doctor` and adds its port clash
+  sections to the "workers ready" message. A worker's stack failed to
+  start on a clash doctor only reported afterwards.
+
+### Fixed
+
+- `acw clear` on a worker that has not finished a turn yet returns at once,
+  saying its context is already empty. It used to send `/clear`, which keeps
+  the session_id of a session never used, and fail after 60 s every first
+  dispatch.
+- `acw __inbox-next` exits after 25 minutes without a message, printing
+  "nothing new". Claude Code kills a background command at its timeout (30
+  minutes by default), which the brief said never happened, and the master
+  had to notice and run it again by hand.
+
+### Changed
+
+- Everything acw prints or sends is in English, the built-in brief
+  included, which also tells the master to write to the user in the user's
+  language. The code and its comments were English already.
+- The master's brief now asks it to: pose every question through its
+  agent's choice tool, never at the end of a status point in prose; read
+  the project's business and design sources itself before asking or
+  dispatching; have each worker list the files it will touch before coding,
+  to catch two tasks building the same module; check a PR body for leftover
+  `<!--` and local paths before announcing it; carry a stacked PR over a
+  rewritten base with `git rebase --onto`; and send worker prompts through a
+  quoted heredoc, since double quotes let the shell run backticks out of
+  them. The notes of the acw config are said to bind the master too.
+- The README says the `notes` file should also name the project's sources
+  of truth and when to read them.
+
 ## [0.7.0] - 2026-09-30
 
 The master now asks its questions through its agent's choice tool, where it

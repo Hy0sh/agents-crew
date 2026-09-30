@@ -52,12 +52,12 @@ func TestBuildHandsTheMasterStatusAndClear(t *testing.T) {
 	if !strings.Contains(got, "600000") {
 		t.Error("brief should tell the master to give acw clear a 10-minute timeout")
 	}
-	for _, stray := range []string{"imprévisible. ;", "pour vérifier. ;", "ci-dessus. ;"} {
+	for _, stray := range []string{"unpredictable.;", "to check.;", "above.;"} {
 		if strings.Contains(got, stray) {
 			t.Errorf("brief renders a stray %q in the reset rule", stray)
 		}
 	}
-	if strings.Contains(got, "Les autres workers se réinitialisent") {
+	if strings.Contains(got, "The other workers are reset") {
 		t.Error("with only claude workers, the brief must not talk of other workers reset by hand")
 	}
 }
@@ -70,7 +70,7 @@ func TestBuildLeansOnTheWatcherInsteadOfWaits(t *testing.T) {
 	if strings.Contains(got, "--timeout 300000") {
 		t.Error("the brief still tells the master to keep an agent wait running on every worker")
 	}
-	for _, want := range []string{"30 min", "à la fin de ton tour"} {
+	for _, want := range []string{"30 min", "at the end of your current turn"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("brief missing %q (silence threshold, or the delay a blocked message can take)", want)
 		}
@@ -81,11 +81,11 @@ func TestBuildListsOutsideWorkersAndCountsOnlyCodersForStacks(t *testing.T) {
 	p := params("claude", 3, 2)
 	p.Workers[0] = Worker{Kind: "claude", Dir: "/Users/me/studio", Overridden: true}
 	got := Build(p)
-	if !strings.Contains(got, "/Users/me/studio") || !strings.Contains(got, "hors code") {
+	if !strings.Contains(got, "/Users/me/studio") || !strings.Contains(got, "outside the code") {
 		t.Error("brief should list worker1 as outside the code, with its folder")
 	}
 	// 2 coders, 2 environments: no arbitration, even with 3 workers.
-	if strings.Contains(got, "C'est TOI qui arbitres") {
+	if strings.Contains(got, "YOU arbitrate") {
 		t.Error("the stack rule must count coders only; worker1 needs no environment")
 	}
 }
@@ -104,17 +104,17 @@ func TestBuildNamesAllWorkers(t *testing.T) {
 
 func TestBuildArbitrationWhenCapped(t *testing.T) {
 	got := Build(params("claude", 5, 3))
-	if !strings.Contains(got, "C'est TOI qui arbitres") {
+	if !strings.Contains(got, "YOU arbitrate") {
 		t.Errorf("brief should instruct master to arbitrate when maxStacks < n")
 	}
 }
 
 func TestBuildNoArbitrationWhenUncapped(t *testing.T) {
 	got := Build(params("claude", 3, 3))
-	if strings.Contains(got, "C'est TOI qui arbitres") {
+	if strings.Contains(got, "YOU arbitrate") {
 		t.Errorf("brief should not mention arbitration when maxStacks == n")
 	}
-	if !strings.Contains(got, "pas d'arbitrage nécessaire") {
+	if !strings.Contains(got, "no arbitration needed") {
 		t.Errorf("brief should state no arbitration needed when maxStacks == n")
 	}
 }
@@ -145,7 +145,7 @@ func TestBuildNamesTheWorkerAgentAndStaysNeutral(t *testing.T) {
 // stays neutral for any herdr kind.
 func TestBuildPosesDecisionsThroughTheChoiceTool(t *testing.T) {
 	got := Build(params("claude", 3, 3))
-	if strings.Count(got, "outil de question à choix") < 2 {
+	if strings.Count(got, "choice question tool") < 2 {
 		t.Errorf("brief should send both scope decisions and relayed worker questions through the agent's choice tool")
 	}
 }
@@ -166,23 +166,23 @@ func TestReadmeDocumentsEveryTemplateVariable(t *testing.T) {
 }
 
 func TestBuildInjectsNotesVerbatim(t *testing.T) {
-	notes := "- clé du ticket en suffixe du titre de PR\n- aucun test committé sous apps/import_historical"
+	notes := "- ticket key as a suffix of the PR title\n- no test committed under apps/import_historical"
 	p := params("claude", 3, 3)
 	p.Notes = notes + "\n"
 	got := Build(p)
-	if !strings.Contains(got, "RÈGLES DU DÉPÔT\n"+notes+"\nFIN") {
+	if !strings.Contains(got, "REPO RULES\n"+notes+"\nEND") {
 		t.Errorf("brief should carry the notes verbatim, got:\n%s", got)
 	}
 }
 
 func TestBuildStackProfileRule(t *testing.T) {
-	if strings.Contains(Build(params("claude", 3, 3)), "profile de stack") {
+	if strings.Contains(Build(params("claude", 3, 3)), "stack profile") {
 		t.Errorf("brief mentions a stack profile when none is configured")
 	}
 	p := params("claude", 3, 3)
 	p.Profile = "light"
 	got := Build(p)
-	if !strings.Contains(got, "profile de stack « light »") {
+	if !strings.Contains(got, `stack profile "light"`) {
 		t.Errorf("brief should name the configured stack profile, got:\n%s", got)
 	}
 	if strings.Contains(got, "wtm ") {
@@ -192,16 +192,16 @@ func TestBuildStackProfileRule(t *testing.T) {
 
 func TestBuildWithoutNotesOmitsTheSection(t *testing.T) {
 	got := Build(params("claude", 3, 3))
-	if strings.Contains(got, "RÈGLES DU DÉPÔT") {
+	if strings.Contains(got, "REPO RULES") {
 		t.Errorf("brief should not open a repo-rules section when no notes are configured")
 	}
 }
 
 func TestBuildMentionsTheStopHookOnlyForClaudeWorkers(t *testing.T) {
-	if !strings.Contains(Build(params("claude", 3, 3)), "a rendu la main") {
+	if !strings.Contains(Build(params("claude", 3, 3)), "handed control back") {
 		t.Errorf("brief should tell a master with claude workers that it gets automatic pings")
 	}
-	if strings.Contains(Build(params("codex", 3, 3)), "a rendu la main") {
+	if strings.Contains(Build(params("codex", 3, 3)), "handed control back") {
 		t.Errorf("brief promises pings to a master whose workers cannot send them (no hooks outside claude)")
 	}
 }
@@ -210,50 +210,50 @@ func TestBuildMixedKinds(t *testing.T) {
 	p := params("claude", 3, 3)
 	p.Workers[2] = Worker{Kind: "codex", Overridden: true}
 	got := Build(p)
-	if !strings.Contains(got, "mixte : worker1-testslug claude, worker2-testslug claude, worker3-testslug codex") {
+	if !strings.Contains(got, "mixed: worker1-testslug claude, worker2-testslug claude, worker3-testslug codex") {
 		t.Errorf("brief should describe the mix of kinds, got:\n%s", got)
 	}
-	if !strings.Contains(got, "Seuls worker1-testslug, worker2-testslug ont ce hook") {
+	if !strings.Contains(got, "Only worker1-testslug, worker2-testslug have this hook") {
 		t.Errorf("brief should say only the claude workers ping, got:\n%s", got)
 	}
 }
 
 func TestBuildWithoutOverridesHasNoOverrideSection(t *testing.T) {
-	if strings.Contains(Build(params("claude", 3, 3)), "configurés à part") {
+	if strings.Contains(Build(params("claude", 3, 3)), "configured apart") {
 		t.Errorf("brief opens a worker-overrides section when none is configured")
 	}
 }
 
 func TestBuildWorkerOverrides(t *testing.T) {
 	p := params("claude", 3, 3)
-	p.Workers[0] = Worker{Kind: "claude", Model: "opus", Prompt: "Tu planifies, tu ne codes pas.\n", Overridden: true}
-	p.Workers[2] = Worker{Kind: "codex", Model: "gpt-5-codex", Prompt: "Tu vérifies.", Overridden: true}
+	p.Workers[0] = Worker{Kind: "claude", Model: "opus", Prompt: "You plan, you do not code.\n", Overridden: true}
+	p.Workers[2] = Worker{Kind: "codex", Model: "gpt-5-codex", Prompt: "You verify.", Overridden: true}
 	got := Build(p)
 
 	for _, want := range []string{
-		"worker1-testslug tourne sur claude opus",
-		"<<<CONSIGNES DE worker1-testslug\nTu planifies, tu ne codes pas.\nFIN DES CONSIGNES DE worker1-testslug>>>",
-		"worker3-testslug tourne sur codex gpt-5-codex",
-		"<<<CONSIGNES DE worker3-testslug\nTu vérifies.\nFIN DES CONSIGNES DE worker3-testslug>>>",
+		"worker1-testslug runs on claude opus",
+		"<<<INSTRUCTIONS FOR worker1-testslug\nYou plan, you do not code.\nEND OF INSTRUCTIONS FOR worker1-testslug>>>",
+		"worker3-testslug runs on codex gpt-5-codex",
+		"<<<INSTRUCTIONS FOR worker3-testslug\nYou verify.\nEND OF INSTRUCTIONS FOR worker3-testslug>>>",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("brief missing %q, got:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "worker2-testslug tourne sur") {
+	if strings.Contains(got, "worker2-testslug runs on") {
 		t.Errorf("brief lists worker2, which has no override")
 	}
-	if !strings.Contains(got, "- worker2-testslug : aucune consigne propre, polyvalent") {
+	if !strings.Contains(got, "- worker2-testslug: no instructions of their own, general-purpose") {
 		t.Errorf("brief should say the worker without override takes the rest, got:\n%s", got)
 	}
 
 	// The claude worker has its instructions as a system prompt; only the
 	// codex one needs them copied into each brief.
-	claudeLine, codexLine := lineWith(got, "worker1-testslug tourne sur"), lineWith(got, "worker3-testslug tourne sur")
-	if !strings.Contains(claudeLine, "ne les recopie PAS") || strings.Contains(claudeLine, "recopie VERBATIM") {
+	claudeLine, codexLine := lineWith(got, "worker1-testslug runs on"), lineWith(got, "worker3-testslug runs on")
+	if !strings.Contains(claudeLine, "do NOT copy them") || strings.Contains(claudeLine, "instructions VERBATIM") {
 		t.Errorf("claude worker line = %q; must say not to copy its instructions", claudeLine)
 	}
-	if !strings.Contains(codexLine, "recopie VERBATIM") {
+	if !strings.Contains(codexLine, "instructions VERBATIM") {
 		t.Errorf("codex worker line = %q; must say to copy its instructions into every brief", codexLine)
 	}
 }
@@ -272,7 +272,7 @@ func TestBuildFromSourceRendersCustomTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildFromSource() error = %v", err)
 	}
-	for _, want := range []string{"/repo", "2 workers", "worker1-testslug, worker2-testslug", "pas d'arbitrage nécessaire"} {
+	for _, want := range []string{"/repo", "2 workers", "worker1-testslug, worker2-testslug", "no arbitration needed"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("BuildFromSource() = %q, missing %q", got, want)
 		}
@@ -301,7 +301,7 @@ func TestWorkersReadyMessageListsAllNames(t *testing.T) {
 // Each of these cost a frozen or misled worker in real use.
 func TestBuildCarriesTheWorkerHygieneRules(t *testing.T) {
 	got := Build(params("claude", 2, 2))
-	for _, want := range []string{"outil de conteneurs ou de services sous-jacent", "rm -rf", "/tmp", "git diff --cached --name-only", "base_branch", "ports"} {
+	for _, want := range []string{"underlying container or services tool", "rm -rf", "/tmp", "git diff --cached --name-only", "base_branch", "ports"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("brief missing %q", want)
 		}
@@ -317,8 +317,8 @@ func TestBuildSaysWhoStampsTheStatus(t *testing.T) {
 	}
 	// blocked_on is only cleared by acw, never filled: the master must keep
 	// asking for it, so the brief names exactly which fields it can drop.
-	if !strings.Contains(hooked, "Ne leur demande pas de tenir `updated_at` ni `last_turn_end`") {
-		t.Error("the brief should name the two stamped fields, not a vague « ces champs » that swallows blocked_on")
+	if !strings.Contains(hooked, "Do not ask them to maintain `updated_at` or `last_turn_end`") {
+		t.Error("the brief should name the two stamped fields, not a vague \"these fields\" that swallows blocked_on")
 	}
 	got := Build(params("codex", 2, 2))
 	if strings.Contains(got, "last_turn_end") {

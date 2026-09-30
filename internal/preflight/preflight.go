@@ -23,12 +23,12 @@ type dependency struct {
 var (
 	herdrDep = dependency{
 		bin:     "herdr",
-		purpose: "orchestre les panes/agents (indispensable, acw ne fait rien sans lui)",
+		purpose: "orchestrates the panes/agents (required, acw does nothing without it)",
 		install: "https://herdr.dev",
 	}
 	claudeDep = dependency{
 		bin:     "claude",
-		purpose: "le CLI Claude Code lui-même, lancé dans chaque pane master/worker",
+		purpose: "the Claude Code CLI itself, started in every master/worker pane",
 		install: "npm install -g @anthropic-ai/claude-code",
 	}
 )
@@ -58,8 +58,8 @@ func kindDep(kind string) dependency {
 	}
 	return dependency{
 		bin:     kind,
-		purpose: fmt.Sprintf("le CLI de l'agent demandé (--master-kind/--worker-kind %s), lancé dans les panes", kind),
-		install: fmt.Sprintf("aucun binaire %q dans le PATH — installe ce CLI, ou choisis un autre kind", kind),
+		purpose: fmt.Sprintf("the CLI of the requested agent (--master-kind/--worker-kind %s), started in the panes", kind),
+		install: fmt.Sprintf("no %q binary in PATH: install that CLI, or pick another kind", kind),
 	}
 }
 
@@ -73,13 +73,13 @@ func check(deps ...dependency) error {
 	var missing []string
 	for _, d := range deps {
 		if _, err := exec.LookPath(d.bin); err != nil {
-			missing = append(missing, fmt.Sprintf("  - %s : %s\n    installation : %s", d.bin, d.purpose, d.install))
+			missing = append(missing, fmt.Sprintf("  - %s: %s\n    install: %s", d.bin, d.purpose, d.install))
 		}
 	}
 	if len(missing) == 0 {
 		return nil
 	}
-	return fmt.Errorf("dépendance(s) manquante(s) :\n%s", strings.Join(missing, "\n"))
+	return fmt.Errorf("missing dependenc(ies):\n%s", strings.Join(missing, "\n"))
 }
 
 // WarnIfAgentsFileMissing prints a non-fatal note to w when the workers
@@ -119,9 +119,9 @@ func WarnIfAgentsFileMissing(repo, workerKind string, printf func(format string,
 	if claudeFile == "" {
 		return
 	}
-	printf("note: les workers tournent en --worker-kind %s, et les instructions projet ne vivent que dans %s (aucun AGENTS.md) — "+
-		"ces workers ne liront AUCUNE instruction projet, sans la moindre erreur. Porte les conventions dans un AGENTS.md et laisse "+
-		"un CLAUDE.md qui contient @AGENTS.md (Claude Code ne lit son AGENTS.md natif qu'en l'absence de CLAUDE.md).\n",
+	printf("note: the workers run with --worker-kind %s, and the project instructions only live in %s (no AGENTS.md): "+
+		"these workers will read NO project instructions, without any error. Move the conventions into an AGENTS.md and keep "+
+		"a CLAUDE.md that contains @AGENTS.md (Claude Code only reads its native AGENTS.md when there is no CLAUDE.md).\n",
 		workerKind, claudeFile)
 }
 
@@ -131,6 +131,6 @@ func WarnIfAgentsFileMissing(repo, workerKind string, printf func(format string,
 // this tool runs against needs wtm.
 func WarnIfWtmMissing(printf func(format string, a ...any)) {
 	if !wtm.Available() {
-		printf("note: wtm introuvable — les workers n'auront pas d'environnement isolé provisionné automatiquement (pas bloquant, acw fonctionne sans). Si ce projet en a besoin : https://github.com/Hy0sh/worktree-manager\n")
+		printf("note: wtm not found: the workers won't get an isolated environment provisioned automatically (not blocking, acw works without it). If this project needs one: https://github.com/Hy0sh/worktree-manager\n")
 	}
 }

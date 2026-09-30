@@ -91,7 +91,7 @@ func TestCoderCount(t *testing.T) {
 func TestExplainStartNamesTheTrustPrompt(t *testing.T) {
 	blocked := errors.New(`herdr [agent start]: {"error":{"code":"agent_not_ready","message":"agent x is blocked during startup and is not ready for prompts"}}`)
 	got := explainStart(blocked, "/Users/me/studio")
-	if !strings.Contains(got.Error(), "/Users/me/studio") || !strings.Contains(got.Error(), "confiance") {
+	if !strings.Contains(got.Error(), "/Users/me/studio") || !strings.Contains(got.Error(), "trust prompt") {
 		t.Errorf("explainStart() = %v; want the trust prompt and the folder named", got)
 	}
 	if !errors.Is(got, blocked) {

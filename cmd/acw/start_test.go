@@ -9,11 +9,11 @@ import (
 
 func TestReadNotesRelativePathIsReadFromTheRepo(t *testing.T) {
 	repo := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, "rules.md"), []byte("- règle"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, "rules.md"), []byte("- rule"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if got := readNotes(&out, repo, "rules.md"); got != "- règle" {
+	if got := readNotes(&out, repo, "rules.md"); got != "- rule" {
 		t.Errorf("readNotes() = %q; a relative path must be read from the repo, whatever the process cwd", got)
 	}
 }

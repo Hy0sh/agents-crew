@@ -148,7 +148,7 @@ func workerAgent(slug string, workers []Worker) string {
 	for i, w := range workers {
 		parts[i] = names.Worker(slug, i+1) + " " + w.Kind
 	}
-	return "mixte : " + strings.Join(parts, ", ")
+	return "mixed: " + strings.Join(parts, ", ")
 }
 
 // coders counts the workers in the code: only they need an environment.
@@ -188,27 +188,27 @@ func workerOverrides(slug string, workers []Worker) string {
 			continue
 		}
 		name := names.Worker(slug, i+1)
-		fmt.Fprintf(&b, "- %s tourne sur %s", name, DescribeAgent(w.Kind, w.Model))
+		fmt.Fprintf(&b, "- %s runs on %s", name, DescribeAgent(w.Kind, w.Model))
 		if w.Dir != "" {
-			fmt.Fprintf(&b, ", hors code, dans %s : ni worktree, ni environnement, ni branche. Ne lui confie JAMAIS de code, "+
-				"et les règles de worktree, de branche, d'environnement et de PR ci-dessus ne s'appliquent pas à lui ; "+
-				"son fichier de statut est au même chemin absolu que celui des autres, sous le dépôt", w.Dir)
+			fmt.Fprintf(&b, ", outside the code, in %s: no worktree, no environment, no branch. NEVER give it code, "+
+				"and the worktree, branch, environment and PR rules above do not apply to it; "+
+				"its status file is at the same absolute path as the others', under the repo", w.Dir)
 		}
 		if w.Prompt == "" {
-			b.WriteString(", sans consignes propres.\n")
+			b.WriteString(", with no instructions of its own.\n")
 			continue
 		}
 		if w.Kind == "claude" {
-			b.WriteString(". Ses consignes propres sont déjà dans son prompt système, elles survivent à ses réinitialisations : ne les recopie PAS dans ses briefs, tiens-en seulement compte pour lui attribuer des tâches.\n")
+			b.WriteString(". Its own instructions are already in its system prompt, they survive its resets: do NOT copy them into its briefs, only take them into account when assigning it tasks.\n")
 		} else {
-			b.WriteString(". Son agent n'a pas de prompt système réglable par ce dispositif : recopie VERBATIM ses consignes propres dans CHACUN de ses briefs, après chaque réinitialisation, et tiens-en compte pour lui attribuer des tâches.\n")
+			b.WriteString(". Its agent has no system prompt this setup can set: copy its own instructions VERBATIM into EACH of its briefs, after every reset, and take them into account when assigning it tasks.\n")
 		}
-		fmt.Fprintf(&b, "<<<CONSIGNES DE %s\n%s\nFIN DES CONSIGNES DE %s>>>\n", name, strings.TrimSpace(w.Prompt), name)
+		fmt.Fprintf(&b, "<<<INSTRUCTIONS FOR %s\n%s\nEND OF INSTRUCTIONS FOR %s>>>\n", name, strings.TrimSpace(w.Prompt), name)
 	}
 	// Said rather than left to inference: without it the master has to
 	// guess that a worker it was told nothing about takes everything else.
 	if b.Len() > 0 && len(generic) > 0 {
-		fmt.Fprintf(&b, "- %s : aucune consigne propre, polyvalent(s), ils prennent les tâches qui ne relèvent d'aucun worker ci-dessus.\n", strings.Join(generic, ", "))
+		fmt.Fprintf(&b, "- %s: no instructions of their own, general-purpose, they take the tasks that belong to none of the workers above.\n", strings.Join(generic, ", "))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -242,11 +242,11 @@ func Build(p Params) string {
 func BuildFromSource(source string, p Params) (string, error) {
 	tmpl, err := template.New("custom-master").Parse(source)
 	if err != nil {
-		return "", fmt.Errorf("brief personnalisé invalide: %w", err)
+		return "", fmt.Errorf("invalid custom brief: %w", err)
 	}
 	var b bytes.Buffer
 	if err := tmpl.Execute(&b, newMasterData(p)); err != nil {
-		return "", fmt.Errorf("brief personnalisé: %w (variables disponibles : %s)", err, Variables())
+		return "", fmt.Errorf("custom brief: %w (available variables: %s)", err, Variables())
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
 }
@@ -263,17 +263,17 @@ func WorkersReadyMessage(slug string, n int) string {
 }
 
 func envCapRule(n, maxStacks int) string {
-	rule := fmt.Sprintf("il y a %d workers dans le code mais la machine ne supporte que %d environnements isolés (stacks) en même temps. ", n, maxStacks)
+	rule := fmt.Sprintf("there are %d workers in the code but the machine only supports %d isolated environments (stacks) at the same time. ", n, maxStacks)
 	if maxStacks < n {
 		return rule + fmt.Sprintf(
-			"Seuls les %d premiers workers ont un environnement au démarrage ; les autres ont leur worktree mais pas d'environnement monté. "+
-				"C'est TOI qui arbitres : avant qu'un worker sans environnement en ait besoin, libère celui d'un worker inactif ou qui "+
-				"vient de finir (jamais un worker actif), puis attribue-le à celui qui en a besoin — jamais l'inverse, jamais plus de "+
-				"%d environnements montés en même temps tous workers confondus. C'est un pis-aller en attendant mieux (une vraie file "+
-				"d'attente) — sois explicite avec moi sur qui attend quoi si ça devient confus.",
+			"Only the first %d workers have an environment at startup; the others have their worktree but no environment mounted. "+
+				"YOU arbitrate: before a worker without an environment needs one, release the one of a worker that is idle or has "+
+				"just finished (never an active worker), then assign it to the one that needs it. Never the other way round, never more than "+
+				"%d environments mounted at the same time across all workers. This is a stopgap until something better (a real "+
+				"queue): be explicit with me about who is waiting for what if it gets confusing.",
 			maxStacks, maxStacks)
 	}
-	return rule + "Ici la capacité couvre tous les workers, pas d'arbitrage nécessaire."
+	return rule + "Here capacity covers all workers, no arbitration needed."
 }
 
 // stackProfileRule states the intent, not the command: the brief never
@@ -283,10 +283,10 @@ func stackProfileRule(profile string) string {
 	if profile == "" {
 		return ""
 	}
-	return fmt.Sprintf("les environnements des workers démarrent sur le profile de stack « %s », pas sur la stack complète. "+
-		"Si une tâche a besoin de services absents de ce profile, fais basculer l'environnement de ce worker sur un autre profile du projet "+
-		"AVANT qu'il ne commence (les profiles disponibles et la façon d'en changer sont dans l'outillage d'environnement du projet), "+
-		"et ramène-le sur « %s » une fois la tâche finie : un profile plus lourd occupe plus de mémoire pour tous les autres", profile, profile)
+	return fmt.Sprintf("the workers' environments start on the stack profile \"%s\", not on the full stack. "+
+		"If a task needs services missing from this profile, have that worker's environment switched to another profile of the project "+
+		"BEFORE it starts (the available profiles and how to switch are in the project's environment tooling), "+
+		"and bring it back to \"%s\" once the task is done: a heavier profile takes more memory from all the others", profile, profile)
 }
 
 func workerNamesList(slug string, n int) string {

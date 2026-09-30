@@ -15,7 +15,7 @@ func ptr(s string) *string { return &s }
 
 func TestResolveWorkersAppliesOverridesOnTopOfDefaults(t *testing.T) {
 	repo := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, "verifier.md"), []byte("Tu vérifies."), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, "verifier.md"), []byte("You verify."), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	opts := &startOptions{workers: 3, workerKind: "claude", workerModel: "sonnet", overrides: map[string]config.WorkerOverride{
@@ -30,7 +30,7 @@ func TestResolveWorkersAppliesOverridesOnTopOfDefaults(t *testing.T) {
 	want := []workerSpec{
 		{Kind: "claude", Model: "", Overridden: true}, // "" is set, not absent
 		{Kind: "claude", Model: "sonnet"},
-		{Kind: "codex", Model: "sonnet", PromptPath: filepath.Join(repo, "verifier.md"), Prompt: "Tu vérifies.", Overridden: true},
+		{Kind: "codex", Model: "sonnet", PromptPath: filepath.Join(repo, "verifier.md"), Prompt: "You verify.", Overridden: true},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("resolveWorkers() =\n%+v\nwant\n%+v", got, want)
