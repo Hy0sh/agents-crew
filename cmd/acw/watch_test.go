@@ -105,7 +105,7 @@ func TestOwnsRun(t *testing.T) {
 }
 
 func TestPingMessageNamesTheWorker(t *testing.T) {
-	if got := pingMessage("worker2"); !strings.HasPrefix(got, "worker2 a rendu la main.") {
+	if got := pingMessage("worker2"); !strings.HasPrefix(got, "worker2 handed control back.") {
 		t.Errorf("pingMessage() = %q", got)
 	}
 }
@@ -113,23 +113,23 @@ func TestPingMessageNamesTheWorker(t *testing.T) {
 func TestBlockedMessage(t *testing.T) {
 	pane := strings.Repeat("old line\n", 30) + "\n\nBash command\n  rm -rf /tmp/x\nDo you want to proceed?\n"
 	got := blockedMessage("worker2", 1, pane)
-	if !strings.HasPrefix(got, "worker2 est bloqué") || !strings.Contains(got, "rm -rf /tmp/x") {
+	if !strings.HasPrefix(got, "worker2 is blocked") || !strings.Contains(got, "rm -rf /tmp/x") {
 		t.Errorf("blockedMessage() = %q, want the worker named and the pending command", got)
 	}
 	if n := strings.Count(got, "old line"); n > 12 {
 		t.Errorf("blockedMessage() kept %d old lines, want the pane cut to its last lines", n)
 	}
-	if got := blockedMessage("worker2", 2, pane); !strings.HasPrefix(got, "2e blocage") || !strings.Contains(got, "worker2 est bloqué") {
+	if got := blockedMessage("worker2", 2, pane); !strings.HasPrefix(got, "Block #2") || !strings.Contains(got, "worker2 is blocked") {
 		t.Errorf("blockedMessage(2nd) = %q, want the repeat called out first", got)
 	}
 	// acw clear starts the count over, before each new task.
-	if got := blockedMessage("worker2", 2, pane); !strings.Contains(got, "depuis son dernier acw clear") {
+	if got := blockedMessage("worker2", 2, pane); !strings.Contains(got, "since its last acw clear") {
 		t.Errorf("blockedMessage(2nd) = %q, want the count said to run since the last acw clear", got)
 	}
 }
 
 func TestSilentMessage(t *testing.T) {
-	if got := silentMessage("worker1", 31*time.Minute+20*time.Second); !strings.HasPrefix(got, "worker1 travaille depuis 31 min") {
+	if got := silentMessage("worker1", 31*time.Minute+20*time.Second); !strings.HasPrefix(got, "worker1 has been working for 31 min") {
 		t.Errorf("silentMessage() = %q", got)
 	}
 }

@@ -1,1 +1,1 @@
-{{.WorkerNames}} sont prêts (worktree + environnement si l'outillage du projet le permet). Tu peux dispatcher dès que je te donne les tâches.
+{{.WorkerNames}} are ready (worktree + environment if the project's tooling allows it). You can dispatch as soon as I give you the tasks.

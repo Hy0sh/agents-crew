@@ -68,7 +68,7 @@ func runWatch(plan watchPlan, interval time.Duration) {
 		// The master is started before the watcher: gone from a list that
 		// did answer, the swarm was closed without acw stop.
 		if _, ok := herdr.FindAgent(agents, plan.MasterName); !ok {
-			fmt.Fprintln(os.Stderr, "master introuvable, le veilleur s'arrête")
+			fmt.Fprintln(os.Stderr, "master not found, the watcher stops")
 			return
 		}
 		now := time.Now()
@@ -94,15 +94,15 @@ func runWatch(plan watchPlan, interval time.Duration) {
 		}
 		for _, e := range w.observe(now, views) {
 			if err := deliver(plan.Inbox, plan.MasterName, eventMessage(statusDir, agentNames[e.Label], e)); err != nil {
-				fmt.Fprintln(os.Stderr, "message au master:", err)
+				fmt.Fprintln(os.Stderr, "message to the master:", err)
 			}
 		}
 		if plan.Inbox != "" {
 			info, err := os.Stat(plan.Inbox)
 			if w.remindInbox(now, err == nil && info.Size() > 0) {
-				remind := "Des messages acw attendent dans ton inbox depuis plus de 5 min : relance `" + plan.InboxNext + "` en arrière-plan."
+				remind := "acw messages have been waiting in your inbox for more than 5 min: run `" + plan.InboxNext + "` again in the background."
 				if err := herdr.AgentPrompt(plan.MasterName, remind); err != nil {
-					fmt.Fprintln(os.Stderr, "rappel d'inbox:", err)
+					fmt.Fprintln(os.Stderr, "inbox reminder:", err)
 				}
 			}
 		}
@@ -137,11 +137,11 @@ func eventMessage(statusDir, agentName string, e watchEvent) string {
 	case eventBlocked, eventIdleNoTurnEnd:
 		pane, err := herdr.AgentRead(agentName, 40)
 		if err != nil {
-			pane = "(pane illisible : " + err.Error() + ")"
+			pane = "(pane unreadable: " + err.Error() + ")"
 		}
 		msg := blockedMessage(e.Label, countBlock(filepath.Join(statusDir, e.Label+".blocks")), pane)
 		if e.Kind == eventIdleNoTurnEnd {
-			msg = e.Label + " est passé au repos sans finir son tour : il attend peut-être une approbation ou une réponse que herdr ne voit pas comme un blocage. " + msg
+			msg = e.Label + " went idle without finishing its turn: it may be waiting for an approval or an answer that herdr doesn't see as a block. " + msg
 		}
 		return msg
 	case eventSilent:
@@ -158,7 +158,7 @@ func countBlock(path string) int {
 	n, _ := strconv.Atoi(strings.TrimSpace(string(content)))
 	n++
 	if err := os.WriteFile(path, []byte(strconv.Itoa(n)+"\n"), 0o644); err != nil {
-		fmt.Fprintln(os.Stderr, "compteur de blocages:", err)
+		fmt.Fprintln(os.Stderr, "block counter:", err)
 	}
 	return n
 }
@@ -186,17 +186,17 @@ func blockedMessage(label string, count int, pane string) string {
 	if len(lines) > paneTail {
 		lines = lines[len(lines)-paneTail:]
 	}
-	msg := fmt.Sprintf("%s est bloqué : attente probable d'une approbation d'outil ou d'une question. Dernières lignes de son pane :\n%s",
+	msg := fmt.Sprintf("%s is blocked: probably waiting on a tool approval or a question. Last lines of its pane:\n%s",
 		label, strings.Join(lines, "\n"))
 	if count >= 2 {
-		msg = fmt.Sprintf("%de blocage de ce worker depuis son dernier acw clear : il bute peut-être sur une interdiction. ", count) + msg
+		msg = fmt.Sprintf("Block #%d for this worker since its last acw clear: it may be running into a prohibition. ", count) + msg
 	}
 	return msg
 }
 
 func silentMessage(label string, d time.Duration) string {
-	return fmt.Sprintf("%s travaille depuis %d min sans activité visible (ni fin de tour, ni statut, ni fichier modifié dans son worktree). "+
-		"Sonde son worktree ou son pane.", label, int(d.Minutes()))
+	return fmt.Sprintf("%s has been working for %d min with no visible activity (no turn end, no status, no file changed in its worktree). "+
+		"Check its worktree or its pane.", label, int(d.Minutes()))
 }
 
 // acw's watcher replaces the master's own polling: Herdr has no push

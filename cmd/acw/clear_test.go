@@ -38,7 +38,7 @@ func TestClearLabel(t *testing.T) {
 }
 
 func TestClearRefusesBeforeSendingAnything(t *testing.T) {
-	if got := clearRefusal("worker1", "blocked", true); !strings.Contains(got, "bloqué") {
+	if got := clearRefusal("worker1", "blocked", true); !strings.Contains(got, "blocked") {
 		t.Errorf("clearRefusal(blocked) = %q, want a refusal: /clear would queue behind the prompt", got)
 	}
 	if got := clearRefusal("worker2", "idle", false); !strings.Contains(got, "statusline") {

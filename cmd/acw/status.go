@@ -32,7 +32,7 @@ const maxWorkers = 64
 func renderStatus(now time.Time, rows []statusRow, unread int, lastAt time.Time) string {
 	var b strings.Builder
 	for _, r := range rows {
-		fmt.Fprintf(&b, "%s  [%s]  %s · statut %s · tour %s · activité %s · ctx %s%% · 5h %s%%",
+		fmt.Fprintf(&b, "%s  [%s]  %s · status %s · turn %s · activity %s · ctx %s%% · 5h %s%%",
 			r.Label, orDash(r.Agent), orDash(r.State), age(now, r.Updated), age(now, r.TurnEnd), age(now, r.Activity),
 			percent(r.Context), percent(r.FiveHour))
 		if r.Branch != "" {
@@ -51,9 +51,9 @@ func renderStatus(now time.Time, rows []statusRow, unread int, lastAt time.Time)
 		b.WriteString("\n")
 	}
 	if unread == 0 {
-		b.WriteString("inbox : vide\n")
+		b.WriteString("inbox: empty\n")
 	} else {
-		fmt.Fprintf(&b, "inbox : %d messages non lus, le dernier arrivé à %s\n", unread, lastAt.Local().Format("15:04"))
+		fmt.Fprintf(&b, "inbox: %d unread messages, the last one arrived at %s\n", unread, lastAt.Local().Format("15:04"))
 	}
 	return b.String()
 }
@@ -62,7 +62,7 @@ func age(now, t time.Time) string {
 	if t.IsZero() {
 		return "-"
 	}
-	return fmt.Sprintf("il y a %d min", int(now.Sub(t).Minutes()))
+	return fmt.Sprintf("%d min ago", int(now.Sub(t).Minutes()))
 }
 
 func orDash(s string) string {
@@ -77,7 +77,7 @@ func orDash(s string) string {
 func collectStatus(repo string) (rows []statusRow, unread int, lastAt time.Time, err error) {
 	statusDir := names.StatusDir(repo)
 	if _, err := os.Stat(statusDir); err != nil {
-		return nil, 0, time.Time{}, fmt.Errorf("aucun swarm acw dans %s", repo)
+		return nil, 0, time.Time{}, fmt.Errorf("no acw swarm in %s", repo)
 	}
 	agents, err := herdr.AgentList()
 	if err != nil {

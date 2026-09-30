@@ -17,14 +17,14 @@ import (
 // directory, given absolute, outside repo.
 func validateAgentDir(repo, dir string) (string, error) {
 	if !filepath.IsAbs(dir) {
-		return "", fmt.Errorf("%q n'est pas un chemin absolu", dir)
+		return "", fmt.Errorf("%q is not an absolute path", dir)
 	}
 	info, err := os.Stat(dir)
 	if err != nil {
 		return "", err
 	}
 	if !info.IsDir() {
-		return "", fmt.Errorf("%s n'est pas un dossier", dir)
+		return "", fmt.Errorf("%s is not a directory", dir)
 	}
 	// Resolved on both sides: on macOS /tmp is /private/tmp, and a symlink
 	// is exactly how a path inside the repo would slip through.
@@ -37,7 +37,7 @@ func validateAgentDir(repo, dir string) (string, error) {
 		return "", err
 	}
 	if rel, err := filepath.Rel(realRepo, realDir); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("%s est dans le dépôt : un agent qui code travaille dans son worktree, pas dans la copie principale", dir)
+		return "", fmt.Errorf("%s is inside the repo: an agent that codes works in its worktree, not in the main checkout", dir)
 	}
 	return dir, nil
 }
@@ -73,5 +73,5 @@ func explainStart(err error, dir string) error {
 	if err == nil || !strings.Contains(err.Error(), "blocked during startup") {
 		return err
 	}
-	return fmt.Errorf("%w — sans doute la demande de confiance de Claude Code pour %s : lance `claude` une fois dans ce dossier pour l'accepter, puis relance", err, dir)
+	return fmt.Errorf("%w (probably Claude Code's trust prompt for %s: run `claude` once in that directory to accept it, then try again)", err, dir)
 }

@@ -1,8 +1,10 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -35,7 +37,7 @@ func clearLabel(arg, slug string) (string, int, error) {
 	if index, ok := names.WorkerIndex(arg, slug); ok {
 		return fmt.Sprintf("worker%d", index), index, nil
 	}
-	return "", 0, fmt.Errorf("%q n'est pas un worker de ce swarm (worker1, ou son nom herdr worker1-%s)", arg, slug)
+	return "", 0, fmt.Errorf("%q is not a worker of this swarm (worker1, or its herdr name worker1-%s)", arg, slug)
 }
 
 // clearRefusal is why a worker must not be sent /clear, "" when it can.
@@ -44,9 +46,9 @@ func clearLabel(arg, slug string) (string, int, error) {
 func clearRefusal(label, status string, hasUsage bool) string {
 	switch {
 	case status == "blocked":
-		return label + " est bloqué : résous d'abord sa demande en attente, puis relance acw clear."
+		return label + " is blocked: resolve its pending request first, then run acw clear again."
 	case !hasUsage:
-		return label + " n'a pas la statusline d'acw (worker non claude, ou lancé par un acw plus ancien) : réinitialise-le à la main et vérifie son pane."
+		return label + " doesn't have acw's statusline (not a claude worker, or started by an older acw): reset it by hand and check its pane."
 	}
 	return ""
 }
@@ -70,9 +72,9 @@ func clearWorker(repo, arg string, out io.Writer) error {
 		return fmt.Errorf("%s", why)
 	}
 	if status == "working" {
-		fmt.Fprintf(out, "%s travaille encore, attente de son repos…\n", label)
+		fmt.Fprintf(out, "%s is still working, waiting for it to go idle…\n", label)
 		if err := herdr.AgentWait(name, []string{"idle", "done", "blocked"}, clearIdleTimeout); err != nil {
-			return fmt.Errorf("%s n'est pas passé au repos en %s: %w", label, clearIdleTimeout, err)
+			return fmt.Errorf("%s didn't go idle within %s: %w", label, clearIdleTimeout, err)
 		}
 		if status, err = agentStatus(name); err != nil {
 			return err
@@ -82,9 +84,17 @@ func clearWorker(repo, arg string, out io.Writer) error {
 		}
 	}
 
+	// Workers start without a prompt, so no workerN.turn means no turn
+	// yet: nothing to reset, and a /clear there keeps its session_id,
+	// which the wait below would take for a failed clear.
+	if _, err := os.Stat(filepath.Join(statusDir, label+".turn")); errors.Is(err, fs.ErrNotExist) {
+		fmt.Fprintf(out, "%s hasn't had a turn yet: context already empty.\n", label)
+		return nil
+	}
+
 	before, err := readUsage(usagePath)
 	if err != nil || before.SessionID == "" {
-		return fmt.Errorf("%s : session actuelle illisible dans %s, rien n'aurait pu confirmer la réinitialisation", label, usagePath)
+		return fmt.Errorf("%s: current session unreadable in %s, nothing could have confirmed the reset", label, usagePath)
 	}
 	if err := herdr.AgentPrompt(name, "/clear"); err != nil {
 		return err
@@ -93,11 +103,11 @@ func clearWorker(repo, arg string, out io.Writer) error {
 		if u, err := readUsage(usagePath); err == nil && cleared(before.SessionID, u) {
 			// A new task starts: the watcher's block count starts over.
 			_ = os.Remove(filepath.Join(statusDir, label+".blocks"))
-			fmt.Fprintf(out, "%s : contexte réinitialisé.\n", label)
+			fmt.Fprintf(out, "%s: context reset.\n", label)
 			return nil
 		}
 	}
-	return fmt.Errorf("%s : pas de nouvelle session en %s après /clear, vérifie son pane", label, clearTimeout)
+	return fmt.Errorf("%s: no new session within %s after /clear, check its pane", label, clearTimeout)
 }
 
 func agentStatus(name string) (string, error) {
@@ -107,7 +117,7 @@ func agentStatus(name string) (string, error) {
 	}
 	a, ok := herdr.FindAgent(agents, name)
 	if !ok {
-		return "", fmt.Errorf("agent %s introuvable dans herdr", name)
+		return "", fmt.Errorf("agent %s not found in herdr", name)
 	}
 	return a.Status, nil
 }

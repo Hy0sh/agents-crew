@@ -37,7 +37,7 @@ func resolveWorkers(opts *startOptions, repo string) ([]workerSpec, error) {
 	for key, o := range opts.overrides {
 		i, err := strconv.Atoi(key)
 		if err != nil || i < 1 || i > opts.workers {
-			return nil, fmt.Errorf("worker-overrides: %q ne désigne aucun worker (de 1 à %d)", key, opts.workers)
+			return nil, fmt.Errorf("worker-overrides: %q names no worker (1 to %d)", key, opts.workers)
 		}
 		w := &workers[i-1]
 		w.Overridden = true
@@ -54,7 +54,7 @@ func resolveWorkers(opts *startOptions, repo string) ([]workerSpec, error) {
 			}
 			content, err := os.ReadFile(path)
 			if err != nil {
-				return nil, fmt.Errorf("worker-overrides %s: prompt illisible: %w", key, err)
+				return nil, fmt.Errorf("worker-overrides %s: prompt unreadable: %w", key, err)
 			}
 			w.PromptPath, w.Prompt = path, string(content)
 		}

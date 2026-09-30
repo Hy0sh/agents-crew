@@ -103,7 +103,7 @@ func Load(repo string) (*Project, error) {
 		expandPaths(p)
 		for name, preset := range p.Presets {
 			if len(preset.Presets) > 0 {
-				return nil, fmt.Errorf("%s: preset %q: un preset ne peut pas contenir de presets", path, name)
+				return nil, fmt.Errorf("%s: preset %q: a preset can't contain presets", path, name)
 			}
 			expandPaths(preset)
 		}
@@ -133,11 +133,11 @@ func expandPaths(p Project) {
 func (p *Project) WithPreset(name string) (*Project, error) {
 	preset, ok := p.Presets[name]
 	if !ok {
-		available := "aucun n'est défini"
+		available := "none is defined"
 		if len(p.Presets) > 0 {
-			available = "disponibles : " + strings.Join(slices.Sorted(maps.Keys(p.Presets)), ", ")
+			available = "available: " + strings.Join(slices.Sorted(maps.Keys(p.Presets)), ", ")
 		}
-		return nil, fmt.Errorf("preset %q inconnu (%s)", name, available)
+		return nil, fmt.Errorf("unknown preset %q (%s)", name, available)
 	}
 	merged := *p
 	dst, src := reflect.ValueOf(&merged).Elem(), reflect.ValueOf(preset)
