@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -54,6 +55,10 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if err != nil {
 		return err
 	}
+	extra, err := readCustomBrief(opts.extraPath)
+	if err != nil {
+		return err
+	}
 	self, err := os.Executable()
 	if err != nil {
 		return err
@@ -70,7 +75,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if inbox != "" {
 		inboxNext = inboxNextCommand(self, inbox)
 	}
-	masterBrief, err := buildBrief(customBrief, brief.Params{
+	masterBrief, err := buildBrief(briefSource(customBrief, extra), brief.Params{
 		RepoPath:       repo,
 		Slug:           slug,
 		MaxStacks:      maxStacks,
@@ -184,6 +189,19 @@ func readCustomBrief(path string) (string, error) {
 		return "", fmt.Errorf("reading custom brief %s: %w", path, err)
 	}
 	return string(source), nil
+}
+
+// briefSource is the template the master's brief is built from: the custom
+// one, else the built-in one, with extra appended when there is one. ""
+// means the built-in one untouched.
+func briefSource(custom, extra string) string {
+	if extra == "" {
+		return custom
+	}
+	if custom == "" {
+		custom = brief.MasterSource()
+	}
+	return strings.TrimRight(custom, "\n") + "\n\n" + extra
 }
 
 // buildBrief uses the custom template source if non-empty, the built-in

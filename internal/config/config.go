@@ -32,8 +32,11 @@ type Project struct {
 	MasterModel *string `json:"master-model"`
 	WorkerModel *string `json:"worker-model"`
 	Brief       *string `json:"brief"`
-	Profile     *string `json:"profile"`
-	Notes       *string `json:"notes"`
+	// BriefExtra is a template appended to the brief, built-in or custom:
+	// a mode such as a test campaign, without forking the whole brief.
+	BriefExtra *string `json:"brief-extra"`
+	Profile    *string `json:"profile"`
+	Notes      *string `json:"notes"`
 	// MasterDir is where the master starts instead of the repo, e.g. a
 	// folder whose .claude it needs. Checked by the caller.
 	MasterDir *string `json:"master-dir"`
@@ -115,7 +118,7 @@ func Load(repo string) (*Project, error) {
 // expandPaths expands ~ in p's file paths. p is a copy, but its fields
 // are pointers, so the expansion lands in the caller's entry.
 func expandPaths(p Project) {
-	paths := []*string{p.Brief, p.Notes, p.MasterDir}
+	paths := []*string{p.Brief, p.BriefExtra, p.Notes, p.MasterDir}
 	for _, o := range p.WorkerOverrides {
 		paths = append(paths, o.Prompt, o.Dir)
 	}
@@ -172,6 +175,7 @@ func (p *Project) Summary() string {
 	addStr("master-model", p.MasterModel)
 	addStr("worker-model", p.WorkerModel)
 	addStr("brief", p.Brief)
+	addStr("brief-extra", p.BriefExtra)
 	addStr("profile", p.Profile)
 	addStr("notes", p.Notes)
 	addStr("master-dir", p.MasterDir)

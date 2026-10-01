@@ -240,6 +240,20 @@ refuse to start instead of sending a brief with a hole in it.
 Only the brief is a template. The `notes` file is injected as is: a
 `{{.WorkerNames}}` written in it stays literal.
 
+A whole custom brief is a fork: it stops getting what the built-in one
+learns. The two custom briefs that ran a test campaign were still arming
+the Monitor and looping on `herdr agent wait` two releases later. When
+only a mode differs, write that mode alone and point the `brief-extra`
+config key at it: the file is appended to the brief (built-in, or custom
+if `brief` is set too) and goes through the same template, with the same
+variables. A preset is where it usually belongs:
+
+```json
+"presets": {
+  "campaign": { "workers": 5, "brief-extra": "~/.config/acw/campaign-mode.md" }
+}
+```
+
 ## Per-project config
 
 Typing the same flags on every launch of the same repo gets old, and some
@@ -286,6 +300,7 @@ needs no answers to work, so the file only changes the defaults.
 | `master-kind` / `worker-kind` | `--master-kind` / `--worker-kind` | `claude` |
 | `master-model` / `worker-model` | `--master-model` / `--worker-model` | `opus` / `sonnet`; `""` means no `--model`, like the flag |
 | `brief` | `--brief` | built-in template |
+| `brief-extra` | *(no flag)* | none: a template appended to the brief, see [Custom brief template](#custom-brief-template) |
 | `profile` | *(no flag)* | none: the whole stack |
 | `notes` | *(no flag)* | none |
 | `worker-overrides` | *(no flag)* | none: every worker as above |
@@ -423,7 +438,9 @@ acw --preset feature
   A key it leaves out keeps the entry's value.
 - A pipeline (plan, then code, then review) is a different way of
   dispatching, not only different workers: give the preset its own `brief`,
-  or the master will use the roles as interchangeable task runners.
+  or the master will use the roles as interchangeable task runners. A mode
+  that only adds to the everyday brief (a test campaign) is a
+  `brief-extra` instead, which keeps following the built-in brief.
 - One swarm per repo at a time, as without presets: switching is `acw
   stop`, then `acw --preset <other>`.
 - Refused at launch: an unknown preset (the error lists the defined ones),

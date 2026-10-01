@@ -21,6 +21,10 @@ var masterTemplateSource string
 //go:embed templates/workers-ready.md
 var workersReadyTemplateSource string
 
+// MasterSource is the built-in brief's template source, for a brief-extra
+// to be appended to it.
+func MasterSource() string { return masterTemplateSource }
+
 var (
 	masterTemplate       = template.Must(template.New("master").Parse(masterTemplateSource))
 	workersReadyTemplate = template.Must(template.New("workers-ready").Parse(workersReadyTemplateSource))
