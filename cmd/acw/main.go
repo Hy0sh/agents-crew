@@ -39,6 +39,7 @@ type startOptions struct {
 	preset      string                           // picks the config entry's variant, not a config key itself
 	profile     string                           // from the per-project config only, no flag
 	notesPath   string                           // same
+	extraPath   string                           // same: brief-extra
 	masterDir   string                           // same
 	overrides   map[string]config.WorkerOverride // same
 	// silenceMinutes: same, see config.Project.SilenceMinutes.
@@ -70,6 +71,7 @@ func applyConfig(opts *startOptions, p *config.Project, changed func(string) boo
 	setStr("brief", &opts.briefPath, p.Brief)
 	setStr("profile", &opts.profile, p.Profile)
 	setStr("notes", &opts.notesPath, p.Notes)
+	setStr("brief-extra", &opts.extraPath, p.BriefExtra)
 	setStr("master-dir", &opts.masterDir, p.MasterDir)
 	setInt("silence-minutes", &opts.silenceMinutes, p.SilenceMinutes)
 	opts.overrides = p.WorkerOverrides
@@ -111,7 +113,7 @@ agents, in the current directory.
 Per-project config (optional): ~/.config/acw/config.json, or
 $XDG_CONFIG_HOME/acw/config.json. It lives outside the repo, so it works
 where nothing may be committed. Entries are keyed by the directory acw is
-launched from, keys are the flag names, plus six with no flag:
+launched from, keys are the flag names, plus seven with no flag:
 
   {
     "projects": {
@@ -128,6 +130,9 @@ launched from, keys are the flag names, plus six with no flag:
 
   profile           wtm stack profile workers start on (default: the whole
                     stack)
+  brief-extra       template appended to the master's brief, built-in or
+                    custom: a mode (a test campaign...) without a fork of
+                    the whole brief
   notes             markdown file copied verbatim into the master's brief,
                     then into every worker's: the repo's hard rules
   worker-overrides  per worker index (1 to workers): its own kind, model,

@@ -6,6 +6,14 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- A `brief-extra` config key: a template appended to the master's brief,
+  built-in or custom. A mode such as a test campaign no longer needs a
+  fork of the whole brief, which stopped getting every change made to the
+  built-in one: two such forks still looped on `herdr agent wait` two
+  releases after acw replaced it.
+
 acw now speaks English: its output, its errors, the messages it sends the
 master and the built-in brief. The master still talks to you in your own
 language, the one you write to it in. A custom brief is left as it is, but

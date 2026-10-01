@@ -4,8 +4,29 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/Hy0sh/agents-crew/internal/brief"
 )
+
+// An extra is appended to whichever brief applies, and goes through the
+// template like the rest: that's what lets a mode use {{.RepoPath}}.
+func TestBriefExtraIsAppendedAndTemplated(t *testing.T) {
+	if got := briefSource("", ""); got != "" {
+		t.Errorf("briefSource(none) = %q, want the built-in brief untouched", got)
+	}
+	built, err := buildBrief(briefSource("", "TEST MODE in {{.RepoPath}}."), brief.Params{RepoPath: "/repo", Slug: "3f9a1c"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(built, brief.Build(brief.Params{RepoPath: "/repo", Slug: "3f9a1c"})[:200]) || !strings.HasSuffix(built, "TEST MODE in /repo.") {
+		t.Errorf("built-in brief + extra = ...%q, want the built-in brief then the templated extra", built[len(built)-min(len(built), 120):])
+	}
+	if got := briefSource("custom\n", "extra"); got != "custom\n\nextra" {
+		t.Errorf("briefSource(custom, extra) = %q", got)
+	}
+}
 
 func TestReadNotesRelativePathIsReadFromTheRepo(t *testing.T) {
 	repo := t.TempDir()
