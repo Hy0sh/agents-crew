@@ -69,6 +69,12 @@ type MasterData struct {
 	// DispatchCommand, followed by a worker's label and a brief file,
 	// hands the worker its next task (acw dispatch).
 	DispatchCommand string
+	// SwitchCommand is `wtm switch` when acw found it and some worker has
+	// a stack, empty otherwise: the brief stays tooling-neutral unless the
+	// tool is known to be there.
+	SwitchCommand string
+	// StackedWorkers names the workers that have a stack, empty when none.
+	StackedWorkers string
 	// PRWatch is set when acw's watcher follows the user's open pull
 	// requests and sends the master a line per PR that changed.
 	PRWatch bool
@@ -91,7 +97,10 @@ type Params struct {
 	ClearCommand   string
 	// DispatchCommand is acw dispatch, fully written, "" for none.
 	DispatchCommand string
-	PRWatch         bool
+	// SwitchCommand and StackedWorkers: see MasterData.
+	SwitchCommand  string
+	StackedWorkers string
+	PRWatch        bool
 }
 
 // Worker is one worker as it was actually started.
@@ -138,6 +147,8 @@ func newMasterData(p Params) MasterData {
 		StatusCommand:    p.StatusCommand,
 		ClearCommand:     p.ClearCommand,
 		DispatchCommand:  p.DispatchCommand,
+		SwitchCommand:    p.SwitchCommand,
+		StackedWorkers:   p.StackedWorkers,
 		PRWatch:          p.PRWatch,
 	}
 }

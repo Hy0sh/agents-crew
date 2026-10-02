@@ -82,7 +82,7 @@ func provisionWorkers(plan provisionPlan) {
 			statusLine = statusLineCommand(self, statusDir, label)
 		}
 		hook := pingCommand(plan.Inbox, masterName, label, delta)
-		if err := herdr.AgentStart(name, w.Kind, newPane, workerArgs(w, label, hook, statusLine)...); err != nil {
+		if err := herdr.AgentStart(name, w.Kind, newPane, workerArgs(w, label, hook, statusLine, plan.SwitchAllowed && stacked[i-1])...); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: herdr agent start: %v\n", name, explainStart(err, wt))
 			continue
 		}
@@ -169,14 +169,21 @@ func portClashes(report string) string {
 // another kind gets them from the master, copied into each of its briefs.
 //
 // statusLine, when not empty, is acw's status line for it (see
-// recordUsage), in the same --settings.
-func workerArgs(w workerSpec, label, hook, statusLine string) []string {
+// recordUsage), in the same --settings. allowSwitch lets a worker with a
+// stack run wtm switch without a prompt.
+func workerArgs(w workerSpec, label, hook, statusLine string, allowSwitch bool) []string {
 	args := modelArgs(w.Model)
 	if w.Kind != "claude" {
 		return args
 	}
 	if w.PromptPath != "" {
 		args = append(args, "--append-system-prompt-file", w.PromptPath)
+	}
+	if allowSwitch {
+		// The brief tells a worker with a stack to create its branch
+		// with wtm switch; a prompt there would freeze it until someone
+		// comes by. It only acts on the worktree it runs in.
+		args = append(args, "--allowedTools", "Bash(wtm switch:*)")
 	}
 	hooks, err := workerSettings(hook, statusLine)
 	if err != nil {

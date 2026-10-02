@@ -358,6 +358,21 @@ func TestBuildHandsTheMasterDispatch(t *testing.T) {
 	}
 }
 
+func TestBuildSwitchCommandOnlyWhenDetected(t *testing.T) {
+	p := params("claude", 2, 2)
+	if got := Build(p); strings.Contains(got, "wtm switch") {
+		t.Error("without SwitchCommand the brief must not name wtm switch")
+	}
+	p.SwitchCommand = "wtm switch"
+	p.StackedWorkers = "worker1-" + testSlug
+	got := Build(p)
+	for _, want := range []string{"`wtm switch <branch> --from origin/<base>`", "never `git switch -c`", "worker1-" + testSlug} {
+		if !strings.Contains(got, want) {
+			t.Errorf("brief with SwitchCommand is missing %q", want)
+		}
+	}
+}
+
 func TestBuildPRWatchParagraphOnlyWhenOn(t *testing.T) {
 	p := params("claude", 2, 2)
 	if got := Build(p); strings.Contains(got, "PR #") {

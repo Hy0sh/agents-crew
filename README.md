@@ -235,6 +235,8 @@ and keep the variables you need:
 | `{{.StatusCommand}}` | `acw status --repo <repo>`, fully written: every worker at a glance |
 | `{{.ClearCommand}}` | `acw clear --repo <repo>`, fully written, to follow with a worker's label (`worker2`): resets its context and confirms it took |
 | `{{.DispatchCommand}}` | `acw dispatch --repo <repo>`, fully written, to follow with a worker's label and a brief file: reset then brief in one call |
+| `{{.SwitchCommand}}` | `wtm switch` when acw found it (wtm 0.26.0 or later) and some worker has a stack; empty otherwise |
+| `{{.StackedWorkers}}` | the herdr names of the workers that have a wtm stack, empty when none |
 | `{{.PRWatch}}` | `true` when `pr-watch` is on: the master receives `PR #…` lines for the PRs that changed |
 
 Before `worker-overrides`, a template could test `{{if eq .WorkerAgent

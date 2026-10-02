@@ -133,7 +133,7 @@ func TestAppendLineAppends(t *testing.T) {
 }
 
 func TestWorkerArgsOnlyHooksClaudeWorkers(t *testing.T) {
-	claude := workerArgs(workerSpec{Kind: "claude", Model: "sonnet"}, "worker1", "true", "")
+	claude := workerArgs(workerSpec{Kind: "claude", Model: "sonnet"}, "worker1", "true", "", false)
 	if !slices.Contains(claude, "--settings") {
 		t.Errorf("workerArgs(claude) = %v, want a --settings carrying the Stop hook", claude)
 	}
@@ -141,14 +141,14 @@ func TestWorkerArgsOnlyHooksClaudeWorkers(t *testing.T) {
 		t.Errorf("workerArgs(claude) = %v, dropped the model", claude)
 	}
 
-	codex := workerArgs(workerSpec{Kind: "codex", Model: "gpt-5"}, "worker1", "true", "")
+	codex := workerArgs(workerSpec{Kind: "codex", Model: "gpt-5"}, "worker1", "true", "", false)
 	if slices.Contains(codex, "--settings") {
 		t.Errorf("workerArgs(codex) = %v, --settings is Claude Code's own flag and would break the CLI", codex)
 	}
 }
 
 func TestWorkerArgsPromptIsASystemPromptForClaudeOnly(t *testing.T) {
-	claude := workerArgs(workerSpec{Kind: "claude", PromptPath: "/cfg/verifier.md"}, "worker1", "true", "")
+	claude := workerArgs(workerSpec{Kind: "claude", PromptPath: "/cfg/verifier.md"}, "worker1", "true", "", false)
 	i := slices.Index(claude, "--append-system-prompt-file")
 	if i < 0 || i+1 >= len(claude) || claude[i+1] != "/cfg/verifier.md" {
 		t.Errorf("workerArgs(claude with prompt) = %v, want --append-system-prompt-file /cfg/verifier.md", claude)
@@ -157,9 +157,25 @@ func TestWorkerArgsPromptIsASystemPromptForClaudeOnly(t *testing.T) {
 		t.Errorf("workerArgs(claude with prompt) = %v, lost the Stop hook", claude)
 	}
 
-	codex := workerArgs(workerSpec{Kind: "codex", PromptPath: "/cfg/verifier.md"}, "worker1", "true", "")
+	codex := workerArgs(workerSpec{Kind: "codex", PromptPath: "/cfg/verifier.md"}, "worker1", "true", "", false)
 	if slices.Contains(codex, "--append-system-prompt-file") {
 		t.Errorf("workerArgs(codex with prompt) = %v, passed a Claude Code flag to another CLI", codex)
+	}
+}
+
+// Only a claude worker with a stack may run wtm switch without a prompt:
+// it drops its own database, and only the worktree it runs in.
+func TestWorkerArgsAllowWtmSwitchOnlyWhenAsked(t *testing.T) {
+	got := workerArgs(workerSpec{Kind: "claude"}, "worker1", "true", "", true)
+	i := slices.Index(got, "--allowedTools")
+	if i < 0 || i+1 >= len(got) || got[i+1] != "Bash(wtm switch:*)" {
+		t.Errorf("workerArgs(allowSwitch) = %v, want --allowedTools Bash(wtm switch:*)", got)
+	}
+	if got := workerArgs(workerSpec{Kind: "claude"}, "worker1", "true", "", false); slices.Contains(got, "--allowedTools") {
+		t.Errorf("workerArgs(no stack) = %v, want no --allowedTools", got)
+	}
+	if got := workerArgs(workerSpec{Kind: "codex"}, "worker1", "true", "", true); slices.Contains(got, "--allowedTools") {
+		t.Errorf("workerArgs(codex) = %v, --allowedTools is Claude Code's own flag", got)
 	}
 }
 

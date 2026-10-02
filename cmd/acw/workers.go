@@ -162,4 +162,7 @@ type provisionPlan struct {
 	// Inbox is where pings go for a master that watches one, "" when they
 	// are typed into it (see inboxWatchCommand).
 	Inbox string `json:"inbox,omitempty"`
+	// SwitchAllowed is set when wtm has switch: the workers with a stack
+	// may run it without a prompt.
+	SwitchAllowed bool `json:"switch_allowed,omitempty"`
 }

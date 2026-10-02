@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -92,6 +93,16 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 			}
 		}
 	}
+	var switchCommand, stackedNames string
+	if len(stackedLabels) > 0 && wtm.SwitchAvailable() {
+		switchCommand = "wtm switch"
+		var list []string
+		for _, l := range stackedLabels {
+			i, _ := strconv.Atoi(strings.TrimPrefix(l, "worker"))
+			list = append(list, names.Worker(slug, i))
+		}
+		stackedNames = strings.Join(list, ", ")
+	}
 	masterBrief, err := buildBrief(briefSource(customBrief, extra), brief.Params{
 		RepoPath:        repo,
 		Slug:            slug,
@@ -105,6 +116,8 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		StatusCommand:   shellWord(self) + " status --repo " + shellWord(repo),
 		ClearCommand:    shellWord(self) + " clear --repo " + shellWord(repo),
 		DispatchCommand: shellWord(self) + " dispatch --repo " + shellWord(repo),
+		SwitchCommand:   switchCommand,
+		StackedWorkers:  stackedNames,
 		PRWatch:         prWatchRepo != "",
 	})
 	if err != nil {
@@ -152,7 +165,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		return err
 	}
 
-	plan := provisionPlan{Repo: repo, MasterPane: masterPane, Stamp: stamp, MaxStacks: maxStacks, Profile: opts.profile, Workers: workers, Inbox: inbox}
+	plan := provisionPlan{Repo: repo, MasterPane: masterPane, Stamp: stamp, MaxStacks: maxStacks, Profile: opts.profile, Workers: workers, Inbox: inbox, SwitchAllowed: switchCommand != ""}
 	if err := launchBackgroundProvisioning(plan); err != nil {
 		return fmt.Errorf("starting worker provisioning: %w", err)
 	}
