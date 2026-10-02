@@ -37,3 +37,19 @@ func TestSwitchArgs(t *testing.T) {
 		}
 	}
 }
+
+// A repo wtm doesn't know gets no stack: its workers must not be told
+// about wtm switch, which would refuse every time.
+func TestListedProject(t *testing.T) {
+	list := "NAME     DIRECTORY                     BASE     DUMP\n" +
+		"shop     /Users/me/dev/some-repo       main     yes\n" +
+		"other    /Users/me/dev/some-repo-2     develop  no\n"
+	if !listedProject(list, "/Users/me/dev/some-repo") {
+		t.Error("listedProject(registered dir) = false")
+	}
+	for _, dir := range []string{"/Users/me/dev/some", "/Users/me/dev/some-repo/.claude/worktrees/x", "/elsewhere"} {
+		if listedProject(list, dir) {
+			t.Errorf("listedProject(%q) = true, want false", dir)
+		}
+	}
+}

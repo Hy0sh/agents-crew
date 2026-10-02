@@ -86,7 +86,9 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	}
 	notes := readNotes(out, repo, opts.notesPath)
 	var stackedLabels []string
-	if wtm.Available() {
+	// A repo wtm doesn't know gets no stack: its adopts all fail, and its
+	// workers must not be told about wtm switch.
+	if wtm.Available() && wtm.Registered(repo) {
 		for i, s := range stackedWorkers(workers, maxStacks) {
 			if s {
 				stackedLabels = append(stackedLabels, fmt.Sprintf("worker%d", i+1))
