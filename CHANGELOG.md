@@ -6,6 +6,13 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-02
+
+A worker now gets its task in one call, carries the repo rules in its
+system prompt, and, with wtm 0.26.0, starts each task on a fresh stack
+through `wtm switch`. wtm stays optional: without it nothing changes but
+the single call. `acw stop` no longer deletes a worker's task branch.
+
 ### Added
 
 - `acw dispatch workerN <brief-file>`: the wait, the confirmed reset and
@@ -463,7 +470,8 @@ project: 7 PRs, 3 merged. Each entry names what actually went wrong.
   anything, with a clear message and install instructions if not; `wtm` is
   checked too but stays optional.
 
-[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/Hy0sh/agents-crew/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/Hy0sh/agents-crew/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Hy0sh/agents-crew/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Hy0sh/agents-crew/compare/v0.6.0...v0.7.0
