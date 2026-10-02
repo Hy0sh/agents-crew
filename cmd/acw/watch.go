@@ -26,6 +26,9 @@ type watchPlan struct {
 	InboxNext      string          `json:"inbox_next,omitempty"`
 	SilenceMinutes int             `json:"silence_minutes"`
 	Workers        []watchedWorker `json:"workers"`
+	// PRWatchRepo is the GitHub "owner/name" whose open PRs the watcher
+	// follows (see prWatcher), "" when pr-watch is off.
+	PRWatchRepo string `json:"pr_watch_repo,omitempty"`
 	// Stamp is the run's, also written in the status dir: a watcher whose
 	// stamp is no longer there belongs to a swarm that is gone.
 	Stamp string `json:"stamp"`
@@ -55,6 +58,14 @@ func runWatch(plan watchPlan, interval time.Duration) {
 	statusDir := names.StatusDir(plan.Repo)
 	w := newWatcher(time.Duration(plan.SilenceMinutes) * time.Minute)
 	worktrees := worktreeCache{}
+	var prs *prWatcher
+	if plan.PRWatchRepo != "" {
+		prs = newPRWatcher(plan.PRWatchRepo)
+	}
+	var labels []string
+	for _, ww := range plan.Workers {
+		labels = append(labels, ww.Label)
+	}
 	for {
 		if !ownsRun(plan.Repo, plan.Stamp) {
 			return
@@ -95,6 +106,14 @@ func runWatch(plan watchPlan, interval time.Duration) {
 		for _, e := range w.observe(now, views) {
 			if err := deliver(plan.Inbox, plan.MasterName, eventMessage(statusDir, agentNames[e.Label], e)); err != nil {
 				fmt.Fprintln(os.Stderr, "message to the master:", err)
+			}
+		}
+		if prs != nil && now.Sub(prs.last) >= prWatchEvery {
+			prs.last = now
+			for _, line := range prs.poll(prOwners(statusDir, labels)) {
+				if err := deliver(plan.Inbox, plan.MasterName, line); err != nil {
+					fmt.Fprintln(os.Stderr, "message to the master:", err)
+				}
 			}
 		}
 		if plan.Inbox != "" {

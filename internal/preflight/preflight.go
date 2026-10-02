@@ -31,6 +31,11 @@ var (
 		purpose: "the Claude Code CLI itself, started in every master/worker pane",
 		install: "npm install -g @anthropic-ai/claude-code",
 	}
+	ghDep = dependency{
+		bin:     "gh",
+		purpose: "the GitHub CLI, which pr-watch polls your open pull requests with",
+		install: "https://cli.github.com, then gh auth login",
+	}
 )
 
 // CheckStart verifies herdr and the CLI of each distinct agent kind are on
@@ -67,6 +72,19 @@ func kindDep(kind string) dependency {
 // tearing a swarm down (it never starts an agent).
 func CheckStop() error {
 	return check(herdrDep)
+}
+
+// CheckPRWatch verifies gh is installed and logged in to github.com, for
+// pr-watch: a watch that cannot reach GitHub would stay silent, and the
+// master would take that silence for "nothing changed".
+func CheckPRWatch() error {
+	if err := check(ghDep); err != nil {
+		return err
+	}
+	if out, err := exec.Command("gh", "auth", "status", "--hostname", "github.com").CombinedOutput(); err != nil {
+		return fmt.Errorf("pr-watch: gh is not logged in to github.com (gh auth login): %s", strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 func check(deps ...dependency) error {
