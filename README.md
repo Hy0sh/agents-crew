@@ -77,6 +77,7 @@ acw [flags]
 | `--worker-model` | `sonnet` | model for worker agents; same empty-means-nothing rule |
 | `--preset` | *(none)* | named preset of the repo's config entry, laid over it — see [Presets](#presets) |
 | `--brief` | *(built-in)* | path to a custom master brief template, for when you want to change the operating rules without forking the tool — see [Custom brief template](#custom-brief-template) for the variables |
+| `--pr-watch` | off | acw's watcher follows your open non-draft pull requests on the repo and tells the master what changed on them — see [PR watch](#pr-watch) |
 
 `acw --help` / `acw stop --help` document all of this in the terminal too.
 
@@ -306,6 +307,7 @@ needs no answers to work, so the file only changes the defaults.
 | `worker-overrides` | *(no flag)* | none: every worker as above |
 | `master-dir` | *(no flag)* | none: the master starts in the repo |
 | `silence-minutes` | *(no flag)* | `30`: minutes a working worker may show no activity before acw's watcher tells the master |
+| `pr-watch` | `--pr-watch` | `false` |
 | `presets` | *(picked with `--preset`)* | none |
 
 **`profile`** is one of the project's wtm profiles (`wtm project edit

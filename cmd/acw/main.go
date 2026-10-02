@@ -44,6 +44,7 @@ type startOptions struct {
 	overrides   map[string]config.WorkerOverride // same
 	// silenceMinutes: same, see config.Project.SilenceMinutes.
 	silenceMinutes int
+	prWatch        bool
 }
 
 // applyConfig copies the project entry's values into opts, except for
@@ -74,6 +75,9 @@ func applyConfig(opts *startOptions, p *config.Project, changed func(string) boo
 	setStr("brief-extra", &opts.extraPath, p.BriefExtra)
 	setStr("master-dir", &opts.masterDir, p.MasterDir)
 	setInt("silence-minutes", &opts.silenceMinutes, p.SilenceMinutes)
+	if p.PRWatch != nil && !changed("pr-watch") {
+		opts.prWatch = *p.PRWatch
+	}
 	opts.overrides = p.WorkerOverrides
 }
 
@@ -257,6 +261,7 @@ func main() {
 	root.Flags().StringVar(&opts.masterModel, "master-model", "opus", "model for the master agent; empty means no --model is passed to its CLI (per-project: master-model)")
 	root.Flags().StringVar(&opts.workerModel, "worker-model", "sonnet", "model for worker agents; empty means no --model is passed to their CLI (per-project: worker-model)")
 	root.Flags().StringVar(&opts.preset, "preset", "", "named preset of the per-project config entry, laid over it (see presets in the config)")
+	root.Flags().BoolVar(&opts.prWatch, "pr-watch", false, "follow your open non-draft pull requests on this repo and tell the master what changed on them; needs gh, logged in (per-project: pr-watch)")
 	root.Flags().StringVar(&opts.briefPath, "brief", "", "path to a custom master brief template (Go text/template), variables in the README; default: built-in template (per-project: brief)")
 
 	stop := &cobra.Command{

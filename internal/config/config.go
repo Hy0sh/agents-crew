@@ -43,6 +43,9 @@ type Project struct {
 	// SilenceMinutes is how long a working worker may show no activity at
 	// all before acw's watcher tells the master.
 	SilenceMinutes *int `json:"silence-minutes"`
+	// PRWatch makes acw's watcher follow the user's open pull requests on
+	// the repo and tell the master what changed on them.
+	PRWatch *bool `json:"pr-watch"`
 	// WorkerOverrides is keyed by worker index, 1 to workers, as a
 	// string because JSON keys are. The range is checked by the caller,
 	// once the flags have had their say on the worker count.
@@ -180,6 +183,9 @@ func (p *Project) Summary() string {
 	addStr("notes", p.Notes)
 	addStr("master-dir", p.MasterDir)
 	addInt("silence-minutes", p.SilenceMinutes)
+	if p.PRWatch != nil {
+		parts = append(parts, fmt.Sprintf("pr-watch=%t", *p.PRWatch))
+	}
 	if len(p.WorkerOverrides) > 0 {
 		keys := slices.Sorted(maps.Keys(p.WorkerOverrides))
 		parts = append(parts, "worker-overrides="+strings.Join(keys, ","))

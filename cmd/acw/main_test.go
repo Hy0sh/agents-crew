@@ -80,3 +80,17 @@ func TestApplyConfigSilenceMinutes(t *testing.T) {
 		t.Errorf("silenceMinutes = %d, want the default 30 with no key", opts.silenceMinutes)
 	}
 }
+
+func TestApplyConfigPRWatch(t *testing.T) {
+	on := true
+	opts := &startOptions{}
+	applyConfig(opts, &config.Project{PRWatch: &on}, func(string) bool { return false })
+	if !opts.prWatch {
+		t.Error("prWatch = false, want the config's true")
+	}
+	opts = &startOptions{}
+	applyConfig(opts, &config.Project{PRWatch: &on}, func(name string) bool { return name == "pr-watch" })
+	if opts.prWatch {
+		t.Error("prWatch = true; --pr-watch=false given on the command line must win")
+	}
+}
