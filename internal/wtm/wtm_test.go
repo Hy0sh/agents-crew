@@ -22,3 +22,18 @@ func TestStartArgs(t *testing.T) {
 		t.Errorf(`startArgs("light") = %v`, got)
 	}
 }
+
+func TestSwitchArgs(t *testing.T) {
+	for _, c := range []struct {
+		branch, from, profile string
+		want                  []string
+	}{
+		{"feat/x", "", "", []string{"switch", "feat/x"}},
+		{"feat/x", "origin/main", "", []string{"switch", "feat/x", "--from", "origin/main"}},
+		{"feat/x", "origin/main", "light", []string{"switch", "feat/x", "--from", "origin/main", "--profile", "light"}},
+	} {
+		if got := switchArgs(c.branch, c.from, c.profile); !slices.Equal(got, c.want) {
+			t.Errorf("switchArgs(%q, %q, %q) = %v, want %v", c.branch, c.from, c.profile, got, c.want)
+		}
+	}
+}

@@ -41,6 +41,54 @@ func OriginURL(repo string) (string, error) {
 	return run(repo, "remote", "get-url", "origin")
 }
 
+// WorktreeBranches maps each worktree of repo to the branch checked out
+// there, "" for a detached HEAD.
+func WorktreeBranches(repo string) (map[string]string, error) {
+	out, err := run(repo, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	return parseWorktreeBranches(out), nil
+}
+
+func parseWorktreeBranches(porcelain string) map[string]string {
+	branches := map[string]string{}
+	var path string
+	for _, line := range strings.Split(porcelain, "\n") {
+		switch {
+		case strings.HasPrefix(line, "worktree "):
+			path = strings.TrimPrefix(line, "worktree ")
+			branches[path] = ""
+		case strings.HasPrefix(line, "branch refs/heads/"):
+			branches[path] = strings.TrimPrefix(line, "branch refs/heads/")
+		}
+	}
+	return branches
+}
+
+// HasBranch reports whether branch exists in dir's repo, locally or on
+// origin.
+func HasBranch(dir, branch string) bool {
+	for _, ref := range []string{"refs/heads/" + branch, "refs/remotes/origin/" + branch} {
+		if _, err := run(dir, "rev-parse", "--verify", "--quiet", ref); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// Switch puts dir on branch, cut from base when create is set. A branch
+// only on origin is checked out tracking it. git refuses when local
+// changes would be lost, and nothing is stashed.
+func Switch(dir, branch, base string, create bool) error {
+	args := []string{"switch", branch}
+	if create {
+		args = []string{"switch", "-c", branch, base}
+	}
+	_, err := run(dir, args...)
+	return err
+}
+
 // DefaultBaseRef returns the remote's default branch as "origin/<branch>"
 // (e.g. "origin/develop"), or "HEAD" if it cannot be determined — never a
 // hardcoded branch name, so this works across projects regardless of
