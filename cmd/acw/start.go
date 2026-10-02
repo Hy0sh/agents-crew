@@ -82,12 +82,13 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if inbox != "" {
 		inboxNext = inboxNextCommand(self, inbox)
 	}
+	notes := readNotes(out, repo, opts.notesPath)
 	masterBrief, err := buildBrief(briefSource(customBrief, extra), brief.Params{
 		RepoPath:       repo,
 		Slug:           slug,
 		MaxStacks:      maxStacks,
 		Profile:        opts.profile,
-		Notes:          readNotes(out, repo, opts.notesPath),
+		Notes:          notes,
 		Workers:        briefWorkers(workers),
 		InboxWatch:     inboxWatch,
 		InboxNext:      inboxNext,
@@ -101,6 +102,9 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	}
 
 	if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
+		return err
+	}
+	if err := writeSystemPrompts(names.StatusDir(repo), notes, workers); err != nil {
 		return err
 	}
 	stamp := time.Now().Format("20060102150405")

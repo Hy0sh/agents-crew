@@ -329,6 +329,23 @@ func TestBuildSaysWhoStampsTheStatus(t *testing.T) {
 	}
 }
 
+// Claude workers get the repo rules in their system prompt: the master
+// stops copying them into their briefs, and keeps doing it for the others.
+func TestBuildRepoRulesAlreadyInClaudeWorkers(t *testing.T) {
+	p := params("claude", 2, 2)
+	p.Notes = "- rule one"
+	got := Build(p)
+	if !strings.Contains(got, "already have them in their system prompt") || strings.Contains(got, "Copy them VERBATIM into every worker's brief") {
+		t.Errorf("all-claude brief should say the workers already have the rules, got:\n%s", got)
+	}
+
+	p = params("codex", 2, 2)
+	p.Notes = "- rule one"
+	if got := Build(p); !strings.Contains(got, "Copy them VERBATIM") {
+		t.Error("a brief for workers without a system prompt must keep the verbatim copy rule")
+	}
+}
+
 func TestBuildPRWatchParagraphOnlyWhenOn(t *testing.T) {
 	p := params("claude", 2, 2)
 	if got := Build(p); strings.Contains(got, "PR #") {
