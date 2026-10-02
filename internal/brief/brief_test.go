@@ -373,6 +373,12 @@ func TestBuildSwitchCommandOnlyWhenDetected(t *testing.T) {
 	}
 }
 
+func TestBuildNamesTheWaitingSubagentState(t *testing.T) {
+	if got := Build(params("claude", 2, 2)); !strings.Contains(got, "`waiting_subagent`") {
+		t.Error("the status contract should name the waiting_subagent state")
+	}
+}
+
 func TestBuildPRWatchParagraphOnlyWhenOn(t *testing.T) {
 	p := params("claude", 2, 2)
 	if got := Build(p); strings.Contains(got, "PR #") {

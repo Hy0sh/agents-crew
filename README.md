@@ -197,7 +197,14 @@ acw resume
 - `acw dispatch` hands a claude worker its next task in one call: the same
   wait and refusals as `acw clear`, the confirmed reset, then the brief
   file's content typed into its prompt. A blank or unreadable brief is
-  refused before anything is sent.
+  refused before anything is sent. With `--branch <b>` (a fix or a rebase
+  on a known branch) it first runs `git fetch` and puts the worker on that
+  branch: through `wtm switch` for a worker with a wtm stack when wtm has
+  it (0.26.0 or later), which also gives the stack a fresh dump on the same
+  ports, else plain `git switch`. It refuses a branch another worktree
+  holds, and never stashes. Without `--branch` the worker names its branch
+  itself; the brief tells workers with a stack to create it with `wtm
+  switch`.
 - `acw pause` stops the workers' stacks (`wtm stop`) for a break, and `acw
   resume` starts them again (`wtm start`) on the profile the swarm was
   launched with. Worktrees, agents and the workspace stay as they are, and
@@ -330,9 +337,11 @@ move together. acw does not check the name; if wtm doesn't know it, that
 worker's `wtm adopt` fails and says so in the provisioning log.
 
 **`notes`** is a markdown file holding the repo's hard rules. Its content
-goes **verbatim** into the master's brief, with the instruction to copy it,
-still verbatim, into every worker brief. No notes means the master is just
-told to go find the conventions itself.
+goes **verbatim** into the master's brief, and into every claude worker's
+system prompt, which survives `acw clear`: the master no longer copies it
+into their briefs. For the other kinds, which have no system prompt acw can
+set, the master is told to copy it, still verbatim, into every brief. No
+notes means the master is just told to go find the conventions itself.
 
 It's for the handful of rules that cost a force-push when missed — commit
 message shape, where screenshots belong, the directory where a test must

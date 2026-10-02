@@ -6,6 +6,27 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `acw dispatch workerN <brief-file>`: the wait, the confirmed reset and
+  the brief in one call, instead of `acw clear` then `herdr agent prompt`.
+  With `--branch`, the worker is first put on a known branch, through
+  `wtm switch` when it has a stack and wtm has it (0.26.0), else `git
+  switch`. A branch held by another worktree is refused; nothing is ever
+  stashed.
+- Workers with a wtm stack are told to create their task branch with
+  `wtm switch`, and may run it without a prompt: `git switch -c` left their
+  stack registered under the old branch, and the workaround removed the
+  folder they worked in.
+- A `waiting_subagent` state in the status contract, for a worker whose
+  own subagent is still running.
+
+### Changed
+
+- Claude workers get the repo's `notes` in their system prompt, which
+  survives a context reset: the master no longer copies them into every
+  brief, where they drifted from one brief to the next.
+
 ## [0.9.0] - 2026-10-02
 
 acw can now follow your open pull requests for the master. With
