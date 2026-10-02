@@ -328,3 +328,17 @@ func TestBuildSaysWhoStampsTheStatus(t *testing.T) {
 		t.Error("with no hooked worker, the brief should ask for updated_at in UTC")
 	}
 }
+
+func TestBuildPRWatchParagraphOnlyWhenOn(t *testing.T) {
+	p := params("claude", 2, 2)
+	if got := Build(p); strings.Contains(got, "PR #") {
+		t.Error("brief without pr-watch must not mention PR lines")
+	}
+	p.PRWatch = true
+	got := Build(p)
+	for _, want := range []string{"PR #", "dispatch a rebase", "never draft a review reply", "PR watch failing"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("brief with pr-watch is missing %q", want)
+		}
+	}
+}

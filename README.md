@@ -228,6 +228,7 @@ and keep the variables you need:
 | `{{.SilenceMinutes}}` | the `silence-minutes` value: how long a working worker may show no activity before acw's watcher tells the master |
 | `{{.StatusCommand}}` | `acw status --repo <repo>`, fully written: every worker at a glance |
 | `{{.ClearCommand}}` | `acw clear --repo <repo>`, fully written, to follow with a worker's label (`worker2`): resets its context and confirms it took |
+| `{{.PRWatch}}` | `true` when `pr-watch` is on: the master receives `PR #…` lines for the PRs that changed |
 
 Before `worker-overrides`, a template could test `{{if eq .WorkerAgent
 "claude"}}` to know whether pings come in. That still works when all
