@@ -34,12 +34,13 @@ const searchFixture = `{"data": {
   "viewer": {"login": "me"},
   "search": {"nodes": [
     {"number": 12, "url": "https://github.com/some-org/some-repo/pull/12", "mergeable": "CONFLICTING",
-     "reviews": {"totalCount": 2},
-     "lastReview": {"nodes": [{"state": "CHANGES_REQUESTED", "author": {"login": "alice"}}]},
+     "reviews": {"nodes": [{"state": "CHANGES_REQUESTED", "author": {"login": "alice"}},
+                           {"state": "APPROVED", "author": {"login": "bob"}},
+                           {"state": "COMMENTED", "author": {"login": "me"}}]},
      "reviewThreads": {"nodes": [{"isResolved": false}, {"isResolved": true}, {"isResolved": false}]},
      "commits": {"nodes": [{"commit": {"oid": "abc", "committer": {"name": "Me", "user": {"login": "me"}}, "statusCheckRollup": {"state": "FAILURE"}}}]}},
     {"number": 13, "url": "https://github.com/some-org/some-repo/pull/13", "mergeable": "UNKNOWN",
-     "reviews": {"totalCount": 0}, "lastReview": {"nodes": []}, "reviewThreads": {"nodes": []},
+     "reviews": {"nodes": []}, "reviewThreads": {"nodes": []},
      "commits": {"nodes": [{"commit": {"oid": "def", "committer": {"name": "Someone", "user": null}, "statusCheckRollup": null}}]}}
   ]}
 }}`
@@ -49,8 +50,10 @@ func TestParsePRSearch(t *testing.T) {
 	if err != nil || viewer != "me" || len(prs) != 2 {
 		t.Fatalf("parsePRSearch() = %q, %d PRs, %v", viewer, len(prs), err)
 	}
+	// The viewer's own review (a reply to a thread is one) is not counted:
+	// it must not wake the master.
 	want12 := prState{Number: 12, URL: "https://github.com/some-org/some-repo/pull/12", Mergeable: "CONFLICTING", CI: "red",
-		Reviews: 2, LastReview: "CHANGES_REQUESTED by alice", OpenThreads: 2, HeadOID: "abc", Committer: "me"}
+		Reviews: 2, LastReview: "APPROVED by bob", OpenThreads: 2, HeadOID: "abc", Committer: "me"}
 	if prs[0] != want12 {
 		t.Errorf("PR 12 = %+v, want %+v", prs[0], want12)
 	}

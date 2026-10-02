@@ -59,8 +59,7 @@ const prSearchQuery = `query($q: String!) {
     nodes {
       ... on PullRequest {
         number url mergeable
-        reviews { totalCount }
-        lastReview: reviews(last: 1) { nodes { state author { login } } }
+        reviews(last: 100) { nodes { state author { login } } }
         reviewThreads(first: 100) { nodes { isResolved } }
         commits(last: 1) { nodes { commit { oid committer { name user { login } } statusCheckRollup { state } } } }
       }
@@ -77,11 +76,10 @@ type prSearchResponse struct {
 		Viewer struct{ Login string }
 		Search struct {
 			Nodes []struct {
-				Number     int
-				URL        string
-				Mergeable  string
-				Reviews    struct{ TotalCount int }
-				LastReview struct {
+				Number    int
+				URL       string
+				Mergeable string
+				Reviews   struct {
 					Nodes []struct {
 						State  string
 						Author struct{ Login string }
@@ -116,9 +114,15 @@ func parsePRSearch(data []byte) (viewer string, prs []prState, err error) {
 		if n.Number == 0 {
 			continue
 		}
-		pr := prState{Number: n.Number, URL: n.URL, Mergeable: n.Mergeable, CI: "running", Reviews: n.Reviews.TotalCount}
-		if l := n.LastReview.Nodes; len(l) > 0 {
-			pr.LastReview = l[0].State + " by " + l[0].Author.Login
+		pr := prState{Number: n.Number, URL: n.URL, Mergeable: n.Mergeable, CI: "running"}
+		// The viewer's own reviews are left out: replying to a thread
+		// submits one, and it must not wake the master.
+		for _, rv := range n.Reviews.Nodes {
+			if rv.Author.Login == r.Data.Viewer.Login {
+				continue
+			}
+			pr.Reviews++
+			pr.LastReview = rv.State + " by " + rv.Author.Login
 		}
 		for _, t := range n.ReviewThreads.Nodes {
 			if !t.IsResolved {
