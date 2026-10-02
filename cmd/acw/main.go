@@ -317,8 +317,9 @@ func main() {
 	clearRepo = repoFlag(clearCmd)
 
 	var dispatchRepo func() (string, error)
+	var br branchRequest
 	dispatch := &cobra.Command{
-		Use:   "dispatch workerN <brief-file>",
+		Use:   "dispatch workerN <brief-file> [--branch <b>] [--base <ref>]",
 		Short: "Give a worker its next task: wait until it is idle, reset its context, type the brief",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -326,10 +327,12 @@ func main() {
 			if err != nil {
 				return err
 			}
-			return dispatchWorker(repo, args[0], args[1], cmd.OutOrStdout())
+			return dispatchWorker(repo, args[0], args[1], br, cmd.OutOrStdout())
 		},
 	}
 	dispatchRepo = repoFlag(dispatch)
+	dispatch.Flags().StringVar(&br.Branch, "branch", "", "put the worker on this branch first (a fix or a rebase on a known branch), after a git fetch")
+	dispatch.Flags().StringVar(&br.Base, "base", "", "where --branch is cut from when it doesn't exist yet (default: the repo's default branch on origin)")
 
 	pause := &cobra.Command{
 		Use:   "pause",

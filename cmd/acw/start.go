@@ -16,6 +16,7 @@ import (
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
 	"github.com/Hy0sh/agents-crew/internal/preflight"
+	"github.com/Hy0sh/agents-crew/internal/wtm"
 )
 
 // runStart creates the master, hands it its brief, backgrounds worker
@@ -83,6 +84,14 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		inboxNext = inboxNextCommand(self, inbox)
 	}
 	notes := readNotes(out, repo, opts.notesPath)
+	var stackedLabels []string
+	if wtm.Available() {
+		for i, s := range stackedWorkers(workers, maxStacks) {
+			if s {
+				stackedLabels = append(stackedLabels, fmt.Sprintf("worker%d", i+1))
+			}
+		}
+	}
 	masterBrief, err := buildBrief(briefSource(customBrief, extra), brief.Params{
 		RepoPath:        repo,
 		Slug:            slug,
@@ -109,7 +118,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		return err
 	}
 	stamp := time.Now().Format("20060102150405")
-	if err := writeRunInfo(repo, runInfo{Profile: opts.profile, Stamp: stamp, MasterName: masterName, Inbox: inbox}); err != nil {
+	if err := writeRunInfo(repo, runInfo{Profile: opts.profile, Stamp: stamp, MasterName: masterName, Inbox: inbox, Stacked: stackedLabels}); err != nil {
 		return err
 	}
 
@@ -174,6 +183,9 @@ type runInfo struct {
 	Stamp      string `json:"stamp"`
 	MasterName string `json:"master_name"`
 	Inbox      string `json:"inbox,omitempty"`
+	// Stacked lists the workers given a wtm stack at launch (worker2...),
+	// for acw dispatch to know whose branch switch goes through wtm.
+	Stacked []string `json:"stacked,omitempty"`
 }
 
 func writeRunInfo(repo string, info runInfo) error {

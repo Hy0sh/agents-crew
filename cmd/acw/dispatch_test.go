@@ -86,3 +86,48 @@ func TestDispatchStopsAtTheFirstFailure(t *testing.T) {
 		t.Errorf("reset failure after a branch switch = %v, want it to mention the branch", err)
 	}
 }
+
+func TestBranchHolder(t *testing.T) {
+	dir := t.TempDir()
+	self := filepath.Join(dir, "worker1")
+	other := filepath.Join(dir, "worker2")
+	for _, d := range []string{self, other} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+	worktrees := map[string]string{"/repo": "main", self: "feat/x", other: "feat/y"}
+	if got := branchHolder(worktrees, "feat/y", self); got != other {
+		t.Errorf("branchHolder(feat/y) = %q, want %q", got, other)
+	}
+	if got := branchHolder(worktrees, "main", self); got != "/repo" {
+		t.Errorf("branchHolder(main) = %q, want the main checkout", got)
+	}
+	// Already on it, even named through a symlink: not held by another.
+	if got := branchHolder(worktrees, "feat/x", filepath.Join(link, "worker1")); got != "" {
+		t.Errorf("branchHolder(own branch via a symlink) = %q, want none", got)
+	}
+	if got := branchHolder(worktrees, "feat/z", self); got != "" {
+		t.Errorf("branchHolder(free branch) = %q, want none", got)
+	}
+}
+
+func TestChooseBranchStep(t *testing.T) {
+	for _, c := range []struct {
+		stacked, switchOK, exists bool
+		want                      branchStep
+	}{
+		{true, true, true, branchStep{wtm: true}},
+		{true, true, false, branchStep{wtm: true, create: true}},
+		{true, false, true, branchStep{}},              // wtm older than switch: plain git
+		{false, true, false, branchStep{create: true}}, // no stack: plain git
+	} {
+		if got := chooseBranchStep(c.stacked, c.switchOK, c.exists); got != c.want {
+			t.Errorf("chooseBranchStep(%v, %v, %v) = %+v, want %+v", c.stacked, c.switchOK, c.exists, got, c.want)
+		}
+	}
+}
