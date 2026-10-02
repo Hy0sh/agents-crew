@@ -66,6 +66,9 @@ type MasterData struct {
 	// ClearCommand, followed by a worker's label, resets its context and
 	// confirms it took (acw clear).
 	ClearCommand string
+	// DispatchCommand, followed by a worker's label and a brief file,
+	// hands the worker its next task (acw dispatch).
+	DispatchCommand string
 	// PRWatch is set when acw's watcher follows the user's open pull
 	// requests and sends the master a line per PR that changed.
 	PRWatch bool
@@ -86,7 +89,9 @@ type Params struct {
 	SilenceMinutes int
 	StatusCommand  string
 	ClearCommand   string
-	PRWatch        bool
+	// DispatchCommand is acw dispatch, fully written, "" for none.
+	DispatchCommand string
+	PRWatch         bool
 }
 
 // Worker is one worker as it was actually started.
@@ -132,6 +137,7 @@ func newMasterData(p Params) MasterData {
 		SilenceMinutes:   p.SilenceMinutes,
 		StatusCommand:    p.StatusCommand,
 		ClearCommand:     p.ClearCommand,
+		DispatchCommand:  p.DispatchCommand,
 		PRWatch:          p.PRWatch,
 	}
 }

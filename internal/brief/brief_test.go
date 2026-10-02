@@ -346,6 +346,18 @@ func TestBuildRepoRulesAlreadyInClaudeWorkers(t *testing.T) {
 	}
 }
 
+func TestBuildHandsTheMasterDispatch(t *testing.T) {
+	p := params("claude", 2, 2)
+	p.ClearCommand = "/bin/acw clear --repo /repo"
+	p.DispatchCommand = "/bin/acw dispatch --repo /repo"
+	if got := Build(p); !strings.Contains(got, "`/bin/acw dispatch --repo /repo workerN <brief-file>`") {
+		t.Error("brief should hand the master the dispatch command")
+	}
+	if got := Build(params("claude", 2, 2)); strings.Contains(got, "dispatch --repo") {
+		t.Error("no DispatchCommand, no dispatch sentence")
+	}
+}
+
 func TestBuildPRWatchParagraphOnlyWhenOn(t *testing.T) {
 	p := params("claude", 2, 2)
 	if got := Build(p); strings.Contains(got, "PR #") {

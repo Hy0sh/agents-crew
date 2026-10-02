@@ -84,18 +84,19 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	}
 	notes := readNotes(out, repo, opts.notesPath)
 	masterBrief, err := buildBrief(briefSource(customBrief, extra), brief.Params{
-		RepoPath:       repo,
-		Slug:           slug,
-		MaxStacks:      maxStacks,
-		Profile:        opts.profile,
-		Notes:          notes,
-		Workers:        briefWorkers(workers),
-		InboxWatch:     inboxWatch,
-		InboxNext:      inboxNext,
-		SilenceMinutes: opts.silenceMinutes,
-		StatusCommand:  shellWord(self) + " status --repo " + shellWord(repo),
-		ClearCommand:   shellWord(self) + " clear --repo " + shellWord(repo),
-		PRWatch:        prWatchRepo != "",
+		RepoPath:        repo,
+		Slug:            slug,
+		MaxStacks:       maxStacks,
+		Profile:         opts.profile,
+		Notes:           notes,
+		Workers:         briefWorkers(workers),
+		InboxWatch:      inboxWatch,
+		InboxNext:       inboxNext,
+		SilenceMinutes:  opts.silenceMinutes,
+		StatusCommand:   shellWord(self) + " status --repo " + shellWord(repo),
+		ClearCommand:    shellWord(self) + " clear --repo " + shellWord(repo),
+		DispatchCommand: shellWord(self) + " dispatch --repo " + shellWord(repo),
+		PRWatch:         prWatchRepo != "",
 	})
 	if err != nil {
 		return err

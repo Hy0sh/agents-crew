@@ -316,6 +316,21 @@ func main() {
 	}
 	clearRepo = repoFlag(clearCmd)
 
+	var dispatchRepo func() (string, error)
+	dispatch := &cobra.Command{
+		Use:   "dispatch workerN <brief-file>",
+		Short: "Give a worker its next task: wait until it is idle, reset its context, type the brief",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repo, err := dispatchRepo()
+			if err != nil {
+				return err
+			}
+			return dispatchWorker(repo, args[0], args[1], cmd.OutOrStdout())
+		},
+	}
+	dispatchRepo = repoFlag(dispatch)
+
 	pause := &cobra.Command{
 		Use:   "pause",
 		Short: "Stop the workers' stacks for a break; worktrees, agents and workspace stay",
@@ -412,7 +427,7 @@ func main() {
 		},
 	}
 
-	root.AddCommand(stop, status, clearCmd, pause, resume, provision, watch, inboxWatch, inboxNext, turnEnd, statusLine)
+	root.AddCommand(stop, status, clearCmd, dispatch, pause, resume, provision, watch, inboxWatch, inboxNext, turnEnd, statusLine)
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)

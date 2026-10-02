@@ -175,6 +175,7 @@ only way to actually stop it.
 ```sh
 acw status [--repo <dir>]
 acw clear [--repo <dir>] worker1 [worker2...]
+acw dispatch [--repo <dir>] worker1 <brief-file>
 acw pause
 acw resume
 ```
@@ -193,6 +194,10 @@ acw resume
   not finished a turn yet has nothing to reset: `acw clear` says so and
   returns without sending anything, since a `/clear` there keeps the same
   session and could never be confirmed.
+- `acw dispatch` hands a claude worker its next task in one call: the same
+  wait and refusals as `acw clear`, the confirmed reset, then the brief
+  file's content typed into its prompt. A blank or unreadable brief is
+  refused before anything is sent.
 - `acw pause` stops the workers' stacks (`wtm stop`) for a break, and `acw
   resume` starts them again (`wtm start`) on the profile the swarm was
   launched with. Worktrees, agents and the workspace stay as they are, and
@@ -229,6 +234,7 @@ and keep the variables you need:
 | `{{.SilenceMinutes}}` | the `silence-minutes` value: how long a working worker may show no activity before acw's watcher tells the master |
 | `{{.StatusCommand}}` | `acw status --repo <repo>`, fully written: every worker at a glance |
 | `{{.ClearCommand}}` | `acw clear --repo <repo>`, fully written, to follow with a worker's label (`worker2`): resets its context and confirms it took |
+| `{{.DispatchCommand}}` | `acw dispatch --repo <repo>`, fully written, to follow with a worker's label and a brief file: reset then brief in one call |
 | `{{.PRWatch}}` | `true` when `pr-watch` is on: the master receives `PR #…` lines for the PRs that changed |
 
 Before `worker-overrides`, a template could test `{{if eq .WorkerAgent
