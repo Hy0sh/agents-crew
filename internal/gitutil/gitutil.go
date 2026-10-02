@@ -162,3 +162,10 @@ func DeleteBranch(repo, branch string) error {
 	_, err := run(repo, "branch", "-D", branch)
 	return err
 }
+
+// DeleteMergedBranch deletes branch only when git sees nothing on it that
+// would be lost (`git branch -d`).
+func DeleteMergedBranch(repo, branch string) error {
+	_, err := run(repo, "branch", "-d", branch)
+	return err
+}

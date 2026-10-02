@@ -27,6 +27,17 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   survives a context reset: the master no longer copies them into every
   brief, where they drifted from one brief to the next.
 
+### Fixed
+
+- `acw stop` no longer force-deletes the branch a worker is on. It ran
+  `git branch -D` on each worktree's current branch, which is the worker's
+  last task branch: unpushed work was lost with it. Only the
+  `agents/workerN-…` branch acw cut is deleted now, and only when nothing
+  was committed on it.
+- A worker is only counted as having a wtm stack when the repo is in wtm's
+  registry and its adopt succeeded. On a repo wtm doesn't know, workers
+  were told to create branches with `wtm switch`, which refused every time.
+
 ## [0.9.0] - 2026-10-02
 
 acw can now follow your open pull requests for the master. With

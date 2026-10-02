@@ -167,7 +167,10 @@ acw stop
 
 Tears down the swarm running in the **current directory**: each worker's
 environment, the worktrees themselves, the shared status directory, and the
-Herdr workspace. A swarm running for a different repo is left alone.
+Herdr workspace. A swarm running for a different repo is left alone. A
+worker's task branch is kept with its commits, pushed or not; only the
+`agents/workerN-…` branch acw cut for it is deleted, and only when nothing
+was committed on it.
 **Closing the terminal does nothing** — Herdr is a persistent server that
 outlives it, and so do any environments workers started. `acw stop` is the
 only way to actually stop it.
