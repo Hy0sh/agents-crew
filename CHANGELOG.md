@@ -6,6 +6,15 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-01
+
+acw now speaks English: its output, its errors, the messages it sends the
+master and the built-in brief. The master still talks to you in your own
+language, the one you write to it in. A custom brief is left as it is, but
+one that quotes acw's messages (the ping, the idle inbox note) must follow
+their new wording, and a mode can now be appended to the built-in brief
+instead of forking it.
+
 ### Added
 
 - A `brief-extra` config key: a template appended to the master's brief,
@@ -13,15 +22,6 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   fork of the whole brief, which stopped getting every change made to the
   built-in one: two such forks still looped on `herdr agent wait` two
   releases after acw replaced it.
-
-acw now speaks English: its output, its errors, the messages it sends the
-master and the built-in brief. The master still talks to you in your own
-language, the one you write to it in. A custom brief is left as it is, but
-one that quotes acw's messages (the ping, the idle inbox note) must follow
-their new wording.
-
-### Added
-
 - A claude worker's turn-end ping says what moved in its status file since
   its previous ping: `state` before and after, or "status unchanged". Most
   pings ended turns the master had triggered itself, and each cost it a
@@ -415,7 +415,8 @@ project: 7 PRs, 3 merged. Each entry names what actually went wrong.
   anything, with a clear message and install instructions if not; `wtm` is
   checked too but stays optional.
 
-[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/Hy0sh/agents-crew/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Hy0sh/agents-crew/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Hy0sh/agents-crew/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Hy0sh/agents-crew/compare/v0.4.0...v0.5.0
