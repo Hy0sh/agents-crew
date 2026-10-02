@@ -6,6 +6,13 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-02
+
+acw can now follow your open pull requests for the master. With
+`pr-watch` on, the watcher it already runs tells the master, in the same
+inbox, when a PR got a conflict, a review, CI red, someone else's push, or
+was merged or closed, and stays silent the rest of the time.
+
 ### Added
 
 - A `pr-watch` config key and `--pr-watch` flag: acw's watcher follows
@@ -424,7 +431,8 @@ project: 7 PRs, 3 merged. Each entry names what actually went wrong.
   anything, with a clear message and install instructions if not; `wtm` is
   checked too but stays optional.
 
-[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/Hy0sh/agents-crew/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Hy0sh/agents-crew/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Hy0sh/agents-crew/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Hy0sh/agents-crew/compare/v0.5.0...v0.6.0
