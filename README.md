@@ -23,6 +23,7 @@ prompt.
   executable).
 - `wtm` — optional; without it, workers just don't get an isolated
   environment provisioned automatically.
+- [`gh`](https://cli.github.com), logged in — only with `pr-watch` on.
 
 `acw` checks these on every launch and refuses to start with a clear message
 naming what's missing, rather than failing a few calls deep into the run (see
@@ -77,6 +78,7 @@ acw [flags]
 | `--worker-model` | `sonnet` | model for worker agents; same empty-means-nothing rule |
 | `--preset` | *(none)* | named preset of the repo's config entry, laid over it — see [Presets](#presets) |
 | `--brief` | *(built-in)* | path to a custom master brief template, for when you want to change the operating rules without forking the tool — see [Custom brief template](#custom-brief-template) for the variables |
+| `--pr-watch` | off | acw's watcher follows your open non-draft pull requests on the repo and tells the master what changed on them — see [PR watch](#pr-watch) |
 
 `acw --help` / `acw stop --help` document all of this in the terminal too.
 
@@ -227,6 +229,7 @@ and keep the variables you need:
 | `{{.SilenceMinutes}}` | the `silence-minutes` value: how long a working worker may show no activity before acw's watcher tells the master |
 | `{{.StatusCommand}}` | `acw status --repo <repo>`, fully written: every worker at a glance |
 | `{{.ClearCommand}}` | `acw clear --repo <repo>`, fully written, to follow with a worker's label (`worker2`): resets its context and confirms it took |
+| `{{.PRWatch}}` | `true` when `pr-watch` is on: the master receives `PR #…` lines for the PRs that changed |
 
 Before `worker-overrides`, a template could test `{{if eq .WorkerAgent
 "claude"}}` to know whether pings come in. That still works when all
@@ -306,6 +309,7 @@ needs no answers to work, so the file only changes the defaults.
 | `worker-overrides` | *(no flag)* | none: every worker as above |
 | `master-dir` | *(no flag)* | none: the master starts in the repo |
 | `silence-minutes` | *(no flag)* | `30`: minutes a working worker may show no activity before acw's watcher tells the master |
+| `pr-watch` | `--pr-watch` | `false` |
 | `presets` | *(picked with `--preset`)* | none |
 
 **`profile`** is one of the project's wtm profiles (`wtm project edit
@@ -449,6 +453,28 @@ acw --preset feature
 **Errors**: invalid JSON or an unknown key (`worker_model` for
 `worker-model`) refuses to start and names the file. A `notes` file that
 can't be read only warns, and the swarm starts without it.
+
+### PR watch
+
+With `pr-watch` on (`--pr-watch`, or `"pr-watch": true` in the repo's
+entry), acw's watcher looks at your open non-draft pull requests on the
+repo every 2 minutes, with one `gh api graphql` call, and sends the master
+a line only for a PR that changed:
+
+    PR #42 (worker2): conflict with base; review CHANGES_REQUESTED by alice; open threads 1 → 3 | https://github.com/some-org/some-repo/pull/42
+
+What counts as a change: a conflict with the base or its resolution, a new
+review, more unresolved review threads, CI turned red, CI green again after
+a red, a head commit pushed by someone other than you (a reviewer, GitHub's
+"Update branch"), a new PR, a PR merged, closed or turned back to draft. A
+CI still running, a push of yours (workers push under your account), a
+review or thread reply of yours, or a resolved thread is not. The worker is the one whose status file holds the
+PR's `pr_url`. After 3 failed polls in a row the master is told once that
+the watch is failing.
+
+It needs `gh`, logged in to github.com, and an `origin` on GitHub: acw
+refuses to start otherwise. A preset can turn it off for one mode:
+`"presets": {"test-campaign": {"pr-watch": false}}`.
 
 ## How it works
 

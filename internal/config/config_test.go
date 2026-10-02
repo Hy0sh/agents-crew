@@ -220,3 +220,19 @@ func TestLoadSilenceMinutesAndItsPreset(t *testing.T) {
 		t.Errorf("WithPreset(night) = %+v, %v; want silence-minutes 90", night, err)
 	}
 }
+
+// A preset turns pr-watch off for one mode, e.g. a test campaign.
+func TestPRWatchPresetOverridesTheEntry(t *testing.T) {
+	writeConfig(t, `{"projects": {"/repo": {"pr-watch": true, "presets": {"test-campaign": {"pr-watch": false}}}}}`)
+	p, err := Load("/repo")
+	if err != nil || p == nil || p.PRWatch == nil || !*p.PRWatch {
+		t.Fatalf("Load() = %+v, %v; want pr-watch true", p, err)
+	}
+	if !strings.Contains(p.Summary(), "pr-watch=true") {
+		t.Errorf("Summary() = %q, missing pr-watch", p.Summary())
+	}
+	got, err := p.WithPreset("test-campaign")
+	if err != nil || got.PRWatch == nil || *got.PRWatch {
+		t.Errorf("WithPreset(test-campaign).PRWatch = %v, %v; want false", got.PRWatch, err)
+	}
+}

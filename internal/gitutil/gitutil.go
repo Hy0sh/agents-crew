@@ -36,6 +36,11 @@ func Fetch(repo string) error {
 	return err
 }
 
+// OriginURL is the URL of repo's origin remote.
+func OriginURL(repo string) (string, error) {
+	return run(repo, "remote", "get-url", "origin")
+}
+
 // DefaultBaseRef returns the remote's default branch as "origin/<branch>"
 // (e.g. "origin/develop"), or "HEAD" if it cannot be determined — never a
 // hardcoded branch name, so this works across projects regardless of

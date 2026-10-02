@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Hy0sh/agents-crew/internal/brief"
+	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
 	"github.com/Hy0sh/agents-crew/internal/preflight"
@@ -59,6 +60,12 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if err != nil {
 		return err
 	}
+	var prWatchRepo string
+	if opts.prWatch {
+		if prWatchRepo, err = resolvePRWatch(repo); err != nil {
+			return err
+		}
+	}
 	self, err := os.Executable()
 	if err != nil {
 		return err
@@ -87,6 +94,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		SilenceMinutes: opts.silenceMinutes,
 		StatusCommand:  shellWord(self) + " status --repo " + shellWord(repo),
 		ClearCommand:   shellWord(self) + " clear --repo " + shellWord(repo),
+		PRWatch:        prWatchRepo != "",
 	})
 	if err != nil {
 		return err
@@ -138,6 +146,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	// less. Said, so the user knows why.
 	watch := watchPlanFor(repo, masterName, inbox, inboxNext, opts.silenceMinutes, workers)
 	watch.Stamp = stamp
+	watch.PRWatchRepo = prWatchRepo
 	if err := launchBackgroundWatch(watch); err != nil {
 		fmt.Fprintf(out, "⚠ acw watcher not started, the master won't hear about blocks or silences: %v\n", err)
 	}
@@ -291,6 +300,23 @@ func watchPlanFor(repo, masterName, inbox, inboxNext string, silenceMinutes int,
 		})
 	}
 	return plan
+}
+
+// resolvePRWatch is the GitHub repo pr-watch follows, checked before
+// anything is started: gh logged in, origin on GitHub.
+func resolvePRWatch(repo string) (string, error) {
+	if err := preflight.CheckPRWatch(); err != nil {
+		return "", err
+	}
+	remote, err := gitutil.OriginURL(repo)
+	if err != nil {
+		return "", fmt.Errorf("pr-watch: %w", err)
+	}
+	gh, err := githubRepo(remote)
+	if err != nil {
+		return "", fmt.Errorf("pr-watch: %w", err)
+	}
+	return gh, nil
 }
 
 func mustLookPath(bin string) string {

@@ -6,6 +6,15 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- A `pr-watch` config key and `--pr-watch` flag: acw's watcher follows
+  your open non-draft pull requests on the repo and tells the master what
+  changed on them (conflict, review, open threads, CI red or green again,
+  someone else's push, merged or closed), in the same inbox. A master that
+  ran its own PR polling script next to `__inbox-next` had two listeners
+  to keep alive, and two REST calls per PR every cycle.
+
 ## [0.8.0] - 2026-10-01
 
 acw now speaks English: its output, its errors, the messages it sends the
