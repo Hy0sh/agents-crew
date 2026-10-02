@@ -23,6 +23,7 @@ prompt.
   executable).
 - `wtm` — optional; without it, workers just don't get an isolated
   environment provisioned automatically.
+- [`gh`](https://cli.github.com), logged in — only with `pr-watch` on.
 
 `acw` checks these on every launch and refuses to start with a clear message
 naming what's missing, rather than failing a few calls deep into the run (see
@@ -452,6 +453,28 @@ acw --preset feature
 **Errors**: invalid JSON or an unknown key (`worker_model` for
 `worker-model`) refuses to start and names the file. A `notes` file that
 can't be read only warns, and the swarm starts without it.
+
+### PR watch
+
+With `pr-watch` on (`--pr-watch`, or `"pr-watch": true` in the repo's
+entry), acw's watcher looks at your open non-draft pull requests on the
+repo every 2 minutes, with one `gh api graphql` call, and sends the master
+a line only for a PR that changed:
+
+    PR #42 (worker2): conflict with base; review CHANGES_REQUESTED by alice; open threads 1 → 3 | https://github.com/some-org/some-repo/pull/42
+
+What counts as a change: a conflict with the base or its resolution, a new
+review, more unresolved review threads, CI turned red, CI green again after
+a red, a head commit pushed by someone other than you (a reviewer, GitHub's
+"Update branch"), a new PR, a PR merged, closed or turned back to draft. A
+CI still running, a push of yours (workers push under your account) or a
+resolved thread is not. The worker is the one whose status file holds the
+PR's `pr_url`. After 3 failed polls in a row the master is told once that
+the watch is failing.
+
+It needs `gh`, logged in to github.com, and an `origin` on GitHub: acw
+refuses to start otherwise. A preset can turn it off for one mode:
+`"presets": {"test-campaign": {"pr-watch": false}}`.
 
 ## How it works
 
