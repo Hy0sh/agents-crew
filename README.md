@@ -467,8 +467,8 @@ What counts as a change: a conflict with the base or its resolution, a new
 review, more unresolved review threads, CI turned red, CI green again after
 a red, a head commit pushed by someone other than you (a reviewer, GitHub's
 "Update branch"), a new PR, a PR merged, closed or turned back to draft. A
-CI still running, a push of yours (workers push under your account) or a
-resolved thread is not. The worker is the one whose status file holds the
+CI still running, a push of yours (workers push under your account), a
+review or thread reply of yours, or a resolved thread is not. The worker is the one whose status file holds the
 PR's `pr_url`. After 3 failed polls in a row the master is told once that
 the watch is failing.
 
