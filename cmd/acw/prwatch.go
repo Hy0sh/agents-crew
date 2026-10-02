@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -320,8 +321,17 @@ func newPRWatcher(repo string) *prWatcher {
 	}
 }
 
+// ghTimeout bounds each gh call: the watch runs in the watcher's loop, and
+// a gh stuck on the network would stop block and silence alerts with it.
+var ghTimeout = 30 * time.Second
+
 func gh(args ...string) ([]byte, error) {
-	cmd := exec.Command("gh", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), ghTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "gh", args...)
+	// Without it, a child of gh still holding the pipes would keep Output
+	// waiting after the kill.
+	cmd.WaitDelay = time.Second
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

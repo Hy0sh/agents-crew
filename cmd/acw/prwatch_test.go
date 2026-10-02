@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGithubRepo(t *testing.T) {
@@ -175,6 +176,26 @@ func TestPROwners(t *testing.T) {
 	want := map[string]string{"https://github.com/some-org/some-repo/pull/7": "worker1"}
 	if !maps.Equal(got, want) {
 		t.Errorf("prOwners() = %v, want %v", got, want)
+	}
+}
+
+// A gh that hangs must not freeze the watcher: block and silence alerts
+// run in the same loop.
+func TestGhTimesOut(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte("#!/bin/sh\nexec sleep 10\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	defer func(d time.Duration) { ghTimeout = d }(ghTimeout)
+	ghTimeout = 200 * time.Millisecond
+
+	start := time.Now()
+	if _, err := gh("api", "graphql"); err == nil {
+		t.Error("gh() = nil error, want a timeout")
+	}
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Errorf("gh() returned after %v, want it cut at the timeout", elapsed)
 	}
 }
 
