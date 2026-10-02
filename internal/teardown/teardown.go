@@ -133,6 +133,16 @@ func cleanupWorkerWorktrees(repo string) {
 			fmt.Fprintf(os.Stderr, "%s: git worktree remove: %v\n", name, err)
 			continue
 		}
+		// A worker takes each task on a new branch in its worktree: that
+		// branch is its work, pushed or not, and stays. Only the branch acw
+		// cut for it goes, and only if nothing was committed on it.
+		if own := "agents/" + name; branch != own {
+			fmt.Printf("  worktree removed, task branch %s kept.\n", branch)
+			if err := gitutil.DeleteMergedBranch(repo, own); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: %s kept: %v\n", name, own, err)
+			}
+			continue
+		}
 		if err := gitutil.DeleteBranch(repo, branch); err != nil {
 			fmt.Printf("  worktree removed, branch %s kept (see below).\n", branch)
 			fmt.Fprintf(os.Stderr, "%s: git branch -D %s: %v\n", name, branch, err)

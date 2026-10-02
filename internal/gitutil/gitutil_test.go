@@ -1,6 +1,7 @@
 package gitutil
 
 import (
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -115,5 +116,39 @@ func TestOriginURL(t *testing.T) {
 	}
 	if got, err := OriginURL(dir); err != nil || got != "git@github.com:some-org/some-repo.git" {
 		t.Errorf("OriginURL() = %q, %v", got, err)
+	}
+}
+
+func TestParseWorktreeBranches(t *testing.T) {
+	porcelain := "worktree /repo\nHEAD abc\nbranch refs/heads/main\n\n" +
+		"worktree /repo/.claude/worktrees/worker1-1\nHEAD def\nbranch refs/heads/feat/x\n\n" +
+		"worktree /repo/.claude/worktrees/worker2-1\nHEAD 123\ndetached\n"
+	got := parseWorktreeBranches(porcelain)
+	want := map[string]string{"/repo": "main", "/repo/.claude/worktrees/worker1-1": "feat/x", "/repo/.claude/worktrees/worker2-1": ""}
+	if !maps.Equal(got, want) {
+		t.Errorf("parseWorktreeBranches() = %v, want %v", got, want)
+	}
+}
+
+func TestSwitchAndHasBranch(t *testing.T) {
+	dir := gitInit(t)
+	base, err := CurrentBranch(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if HasBranch(dir, "feat/x") {
+		t.Fatal("HasBranch(feat/x) before it exists")
+	}
+	if err := Switch(dir, "feat/x", base, true); err != nil {
+		t.Fatalf("Switch(create) = %v", err)
+	}
+	if got, _ := CurrentBranch(dir); got != "feat/x" || !HasBranch(dir, "feat/x") {
+		t.Errorf("after Switch(create): on %q, HasBranch = %v", got, HasBranch(dir, "feat/x"))
+	}
+	if err := Switch(dir, base, "", false); err != nil {
+		t.Fatalf("Switch(existing) = %v", err)
+	}
+	if got, _ := CurrentBranch(dir); got != base {
+		t.Errorf("after Switch(existing): on %q, want %q", got, base)
 	}
 }

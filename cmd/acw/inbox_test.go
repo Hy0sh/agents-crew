@@ -152,7 +152,7 @@ func TestMasterArgsAllowOnlyTheInboxWatch(t *testing.T) {
 	if !strings.HasPrefix(watch, strings.TrimSuffix(strings.TrimPrefix(got[i+1], "Bash("), ":*)")) {
 		t.Errorf("rule %q does not cover the watch command %q", got[i+1], watch)
 	}
-	for j, want := range []string{"Bash(/bin/acw status:*)", "Bash(/bin/acw clear:*)"} {
+	for j, want := range []string{"Bash(/bin/acw status:*)", "Bash(/bin/acw clear:*)", "Bash(/bin/acw dispatch:*)"} {
 		if i+3+j >= len(got) || got[i+3+j] != want {
 			t.Errorf("masterArgs() = %v, want the rule %s for the commands the brief hands the master", got, want)
 		}

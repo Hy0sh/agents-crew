@@ -53,61 +53,83 @@ func clearRefusal(label, status string, hasUsage bool) string {
 	return ""
 }
 
+// clearTarget is a worker acw clear or acw dispatch acts on, resolved and
+// checked by readyToClear.
+type clearTarget struct {
+	label, name, statusDir, usagePath string
+	index                             int
+}
+
 func clearWorker(repo, arg string, out io.Writer) error {
+	t, err := readyToClear(repo, arg, out)
+	if err != nil {
+		return err
+	}
+	return resetContext(t, out)
+}
+
+// readyToClear resolves arg and waits until the worker can take a /clear:
+// idle, not blocked, with acw's status line to confirm it.
+func readyToClear(repo, arg string, out io.Writer) (clearTarget, error) {
 	slug := names.Slug(repo)
 	label, index, err := clearLabel(arg, slug)
 	if err != nil {
-		return err
+		return clearTarget{}, err
 	}
 	statusDir := names.StatusDir(repo)
-	usagePath := filepath.Join(statusDir, label+".usage.json")
-	name := names.Worker(slug, index)
+	t := clearTarget{label: label, index: index, name: names.Worker(slug, index), statusDir: statusDir,
+		usagePath: filepath.Join(statusDir, label+".usage.json")}
 
-	status, err := agentStatus(name)
+	status, err := agentStatus(t.name)
 	if err != nil {
-		return err
+		return clearTarget{}, err
 	}
-	_, statErr := os.Stat(usagePath)
+	_, statErr := os.Stat(t.usagePath)
 	if why := clearRefusal(label, status, statErr == nil); why != "" {
-		return fmt.Errorf("%s", why)
+		return clearTarget{}, fmt.Errorf("%s", why)
 	}
 	if status == "working" {
 		fmt.Fprintf(out, "%s is still working, waiting for it to go idle…\n", label)
-		if err := herdr.AgentWait(name, []string{"idle", "done", "blocked"}, clearIdleTimeout); err != nil {
-			return fmt.Errorf("%s didn't go idle within %s: %w", label, clearIdleTimeout, err)
+		if err := herdr.AgentWait(t.name, []string{"idle", "done", "blocked"}, clearIdleTimeout); err != nil {
+			return clearTarget{}, fmt.Errorf("%s didn't go idle within %s: %w", label, clearIdleTimeout, err)
 		}
-		if status, err = agentStatus(name); err != nil {
-			return err
+		if status, err = agentStatus(t.name); err != nil {
+			return clearTarget{}, err
 		}
 		if why := clearRefusal(label, status, true); why != "" {
-			return fmt.Errorf("%s", why)
+			return clearTarget{}, fmt.Errorf("%s", why)
 		}
 	}
+	return t, nil
+}
 
+// resetContext sends /clear and returns once the worker's status line
+// shows a new session.
+func resetContext(t clearTarget, out io.Writer) error {
 	// Workers start without a prompt, so no workerN.turn means no turn
 	// yet: nothing to reset, and a /clear there keeps its session_id,
 	// which the wait below would take for a failed clear.
-	if _, err := os.Stat(filepath.Join(statusDir, label+".turn")); errors.Is(err, fs.ErrNotExist) {
-		fmt.Fprintf(out, "%s hasn't had a turn yet: context already empty.\n", label)
+	if _, err := os.Stat(filepath.Join(t.statusDir, t.label+".turn")); errors.Is(err, fs.ErrNotExist) {
+		fmt.Fprintf(out, "%s hasn't had a turn yet: context already empty.\n", t.label)
 		return nil
 	}
 
-	before, err := readUsage(usagePath)
+	before, err := readUsage(t.usagePath)
 	if err != nil || before.SessionID == "" {
-		return fmt.Errorf("%s: current session unreadable in %s, nothing could have confirmed the reset", label, usagePath)
+		return fmt.Errorf("%s: current session unreadable in %s, nothing could have confirmed the reset", t.label, t.usagePath)
 	}
-	if err := herdr.AgentPrompt(name, "/clear"); err != nil {
+	if err := herdr.AgentPrompt(t.name, "/clear"); err != nil {
 		return err
 	}
 	for deadline := time.Now().Add(clearTimeout); time.Now().Before(deadline); time.Sleep(500 * time.Millisecond) {
-		if u, err := readUsage(usagePath); err == nil && cleared(before.SessionID, u) {
+		if u, err := readUsage(t.usagePath); err == nil && cleared(before.SessionID, u) {
 			// A new task starts: the watcher's block count starts over.
-			_ = os.Remove(filepath.Join(statusDir, label+".blocks"))
-			fmt.Fprintf(out, "%s: context reset.\n", label)
+			_ = os.Remove(filepath.Join(t.statusDir, t.label+".blocks"))
+			fmt.Fprintf(out, "%s: context reset.\n", t.label)
 			return nil
 		}
 	}
-	return fmt.Errorf("%s: no new session within %s after /clear, check its pane", label, clearTimeout)
+	return fmt.Errorf("%s: no new session within %s after /clear, check its pane", t.label, clearTimeout)
 }
 
 func agentStatus(name string) (string, error) {

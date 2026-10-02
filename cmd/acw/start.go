@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
 	"github.com/Hy0sh/agents-crew/internal/preflight"
+	"github.com/Hy0sh/agents-crew/internal/wtm"
 )
 
 // runStart creates the master, hands it its brief, backgrounds worker
@@ -82,19 +84,43 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if inbox != "" {
 		inboxNext = inboxNextCommand(self, inbox)
 	}
+	notes := readNotes(out, repo, opts.notesPath)
+	var stackedLabels []string
+	// A repo wtm doesn't know gets no stack: its adopts all fail, and its
+	// workers must not be told about wtm switch.
+	if wtm.Available() && wtm.Registered(repo) {
+		for i, s := range stackedWorkers(workers, maxStacks) {
+			if s {
+				stackedLabels = append(stackedLabels, fmt.Sprintf("worker%d", i+1))
+			}
+		}
+	}
+	var switchCommand, stackedNames string
+	if len(stackedLabels) > 0 && wtm.SwitchAvailable() {
+		switchCommand = "wtm switch"
+		var list []string
+		for _, l := range stackedLabels {
+			i, _ := strconv.Atoi(strings.TrimPrefix(l, "worker"))
+			list = append(list, names.Worker(slug, i))
+		}
+		stackedNames = strings.Join(list, ", ")
+	}
 	masterBrief, err := buildBrief(briefSource(customBrief, extra), brief.Params{
-		RepoPath:       repo,
-		Slug:           slug,
-		MaxStacks:      maxStacks,
-		Profile:        opts.profile,
-		Notes:          readNotes(out, repo, opts.notesPath),
-		Workers:        briefWorkers(workers),
-		InboxWatch:     inboxWatch,
-		InboxNext:      inboxNext,
-		SilenceMinutes: opts.silenceMinutes,
-		StatusCommand:  shellWord(self) + " status --repo " + shellWord(repo),
-		ClearCommand:   shellWord(self) + " clear --repo " + shellWord(repo),
-		PRWatch:        prWatchRepo != "",
+		RepoPath:        repo,
+		Slug:            slug,
+		MaxStacks:       maxStacks,
+		Profile:         opts.profile,
+		Notes:           notes,
+		Workers:         briefWorkers(workers),
+		InboxWatch:      inboxWatch,
+		InboxNext:       inboxNext,
+		SilenceMinutes:  opts.silenceMinutes,
+		StatusCommand:   shellWord(self) + " status --repo " + shellWord(repo),
+		ClearCommand:    shellWord(self) + " clear --repo " + shellWord(repo),
+		DispatchCommand: shellWord(self) + " dispatch --repo " + shellWord(repo),
+		SwitchCommand:   switchCommand,
+		StackedWorkers:  stackedNames,
+		PRWatch:         prWatchRepo != "",
 	})
 	if err != nil {
 		return err
@@ -103,8 +129,11 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
 		return err
 	}
+	if err := writeSystemPrompts(names.StatusDir(repo), notes, workers); err != nil {
+		return err
+	}
 	stamp := time.Now().Format("20060102150405")
-	if err := writeRunInfo(repo, runInfo{Profile: opts.profile, Stamp: stamp, MasterName: masterName, Inbox: inbox}); err != nil {
+	if err := writeRunInfo(repo, runInfo{Profile: opts.profile, Stamp: stamp, MasterName: masterName, Inbox: inbox, Stacked: stackedLabels}); err != nil {
 		return err
 	}
 
@@ -138,7 +167,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		return err
 	}
 
-	plan := provisionPlan{Repo: repo, MasterPane: masterPane, Stamp: stamp, MaxStacks: maxStacks, Profile: opts.profile, Workers: workers, Inbox: inbox}
+	plan := provisionPlan{Repo: repo, MasterPane: masterPane, Stamp: stamp, MaxStacks: maxStacks, Profile: opts.profile, Workers: workers, Inbox: inbox, SwitchAllowed: switchCommand != ""}
 	if err := launchBackgroundProvisioning(plan); err != nil {
 		return fmt.Errorf("starting worker provisioning: %w", err)
 	}
@@ -169,6 +198,9 @@ type runInfo struct {
 	Stamp      string `json:"stamp"`
 	MasterName string `json:"master_name"`
 	Inbox      string `json:"inbox,omitempty"`
+	// Stacked lists the workers given a wtm stack at launch (worker2...),
+	// for acw dispatch to know whose branch switch goes through wtm.
+	Stacked []string `json:"stacked,omitempty"`
 }
 
 func writeRunInfo(repo string, info runInfo) error {

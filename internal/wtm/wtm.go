@@ -99,3 +99,48 @@ func Stop(dir, branch string) error {
 func Remove(dir, branch string) error {
 	return run(dir, "remove", branch)
 }
+
+// Registered reports whether dir is a project in wtm's registry: an
+// unregistered repo's adopts all fail, so its workers have no stack.
+func Registered(dir string) bool {
+	out, err := exec.Command("wtm", "project", "list").Output()
+	return err == nil && listedProject(string(out), dir)
+}
+
+// listedProject reports whether dir is a project's directory in the
+// output of `wtm project list` (a table: name, directory, base, dump).
+func listedProject(list, dir string) bool {
+	for _, line := range strings.Split(list, "\n") {
+		if strings.Contains(" "+line+" ", " "+dir+" ") {
+			return true
+		}
+	}
+	return false
+}
+
+// SwitchAvailable reports whether this wtm has `switch` (0.26.0 and
+// later). Probed rather than read from --version, which a local build
+// reports as devel; an older wtm answers "unknown command" with exit 1.
+// Callers check Available first: no wtm call at all without wtm.
+func SwitchAvailable() bool {
+	return exec.Command("wtm", "switch", "--help").Run() == nil
+}
+
+// Switch moves the worktree at dir to branch on a fresh stack, keeping
+// its ports. from is where a branch that doesn't exist yet is cut from,
+// "" for an existing one. wtm never asks anything without a terminal, and
+// a failure is resumed by running the same command again.
+func Switch(dir, branch, from, profile string, out io.Writer) error {
+	return runTo(dir, out, switchArgs(branch, from, profile)...)
+}
+
+func switchArgs(branch, from, profile string) []string {
+	args := []string{"switch", branch}
+	if from != "" {
+		args = append(args, "--from", from)
+	}
+	if profile != "" {
+		args = append(args, "--profile", profile)
+	}
+	return args
+}

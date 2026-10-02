@@ -40,6 +40,8 @@ func provisionWorkers(plan provisionPlan) {
 	currentPane := plan.MasterPane
 
 	var adopting sync.WaitGroup
+	var adoptedMu sync.Mutex
+	var adopted []string // labels whose wtm adopt succeeded
 	stacked := stackedWorkers(plan.Workers, plan.MaxStacks)
 
 	// The hook calls this same binary back; without its path the workers
@@ -82,23 +84,33 @@ func provisionWorkers(plan provisionPlan) {
 			statusLine = statusLineCommand(self, statusDir, label)
 		}
 		hook := pingCommand(plan.Inbox, masterName, label, delta)
-		if err := herdr.AgentStart(name, w.Kind, newPane, workerArgs(w, label, hook, statusLine)...); err != nil {
+		if err := herdr.AgentStart(name, w.Kind, newPane, workerArgs(w, label, hook, statusLine, plan.SwitchAllowed && stacked[i-1])...); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: herdr agent start: %v\n", name, explainStart(err, wt))
 			continue
 		}
 
 		if stacked[i-1] && wtm.Available() {
 			adopting.Add(1)
-			go func(name, wt string) {
+			go func(name, label, wt string) {
 				defer adopting.Done()
 				if err := wtm.Adopt(wt, plan.Profile); err != nil {
 					fmt.Fprintf(os.Stderr, "%s: wtm adopt failed, it goes on without a dedicated environment: %v\n", name, err)
+					return
 				}
-			}(name, wt)
+				adoptedMu.Lock()
+				adopted = append(adopted, label)
+				adoptedMu.Unlock()
+			}(name, label, wt)
 		}
 	}
 
 	adopting.Wait()
+	if slices.Contains(stacked, true) && wtm.Available() {
+		slices.Sort(adopted)
+		if err := recordStacked(repo, adopted); err != nil {
+			fmt.Fprintln(os.Stderr, "run info:", err)
+		}
+	}
 
 	ready := brief.WorkersReadyMessage(slug, n)
 	// wtm skips clashing ports when it allocates, but not against
@@ -122,6 +134,18 @@ func provisionWorkers(plan provisionPlan) {
 	if err := herdr.AgentPrompt(masterName, ready); err != nil {
 		fmt.Fprintln(os.Stderr, "herdr agent prompt master (workers ready):", err)
 	}
+}
+
+// recordStacked replaces the stacks planned at launch with the ones that
+// came up: acw dispatch reads run.json to choose between wtm switch and
+// git switch, and wtm switch refuses a worktree whose adopt failed.
+func recordStacked(repo string, labels []string) error {
+	run, err := readRunInfo(repo)
+	if err != nil {
+		return err
+	}
+	run.Stacked = labels
+	return writeRunInfo(repo, run)
 }
 
 // portClashes keeps the port clash sections of a `wtm doctor` report, ""
@@ -169,14 +193,21 @@ func portClashes(report string) string {
 // another kind gets them from the master, copied into each of its briefs.
 //
 // statusLine, when not empty, is acw's status line for it (see
-// recordUsage), in the same --settings.
-func workerArgs(w workerSpec, label, hook, statusLine string) []string {
+// recordUsage), in the same --settings. allowSwitch lets a worker with a
+// stack run wtm switch without a prompt.
+func workerArgs(w workerSpec, label, hook, statusLine string, allowSwitch bool) []string {
 	args := modelArgs(w.Model)
 	if w.Kind != "claude" {
 		return args
 	}
 	if w.PromptPath != "" {
 		args = append(args, "--append-system-prompt-file", w.PromptPath)
+	}
+	if allowSwitch {
+		// The brief tells a worker with a stack to create its branch
+		// with wtm switch; a prompt there would freeze it until someone
+		// comes by. It only acts on the worktree it runs in.
+		args = append(args, "--allowedTools", "Bash(wtm switch:*)")
 	}
 	hooks, err := workerSettings(hook, statusLine)
 	if err != nil {

@@ -90,6 +90,43 @@ func briefWorkers(workers []workerSpec) []brief.Worker {
 	return out
 }
 
+// systemPrompt is a claude worker's system prompt: the repo's notes, then
+// its own standing instructions. "" when it has neither.
+func systemPrompt(notes, prompt string) string {
+	var parts []string
+	if s := strings.TrimSpace(notes); s != "" {
+		parts = append(parts, s)
+	}
+	if s := strings.TrimSpace(prompt); s != "" {
+		parts = append(parts, s)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// writeSystemPrompts gives each claude worker one system prompt file in
+// statusDir and points its PromptPath at it. A system prompt survives
+// /clear: the repo rules no longer have to travel in every brief, where
+// they drifted from one brief to the next. Other kinds have no system
+// prompt acw can set and are left as configured.
+func writeSystemPrompts(statusDir, notes string, workers []workerSpec) error {
+	for i := range workers {
+		w := &workers[i]
+		if w.Kind != "claude" {
+			continue
+		}
+		content := systemPrompt(notes, w.Prompt)
+		if content == "" {
+			continue
+		}
+		path := filepath.Join(statusDir, fmt.Sprintf("worker%d.system.md", i+1))
+		if err := os.WriteFile(path, []byte(content+"\n"), 0o644); err != nil {
+			return err
+		}
+		w.PromptPath = path
+	}
+	return nil
+}
+
 // describeWorkers is the launch line's view of the workers: one kind and
 // model when they all share them, each worker otherwise.
 func describeWorkers(workers []workerSpec) string {
@@ -125,4 +162,7 @@ type provisionPlan struct {
 	// Inbox is where pings go for a master that watches one, "" when they
 	// are typed into it (see inboxWatchCommand).
 	Inbox string `json:"inbox,omitempty"`
+	// SwitchAllowed is set when wtm has switch: the workers with a stack
+	// may run it without a prompt.
+	SwitchAllowed bool `json:"switch_allowed,omitempty"`
 }

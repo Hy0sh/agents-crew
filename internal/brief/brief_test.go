@@ -329,6 +329,56 @@ func TestBuildSaysWhoStampsTheStatus(t *testing.T) {
 	}
 }
 
+// Claude workers get the repo rules in their system prompt: the master
+// stops copying them into their briefs, and keeps doing it for the others.
+func TestBuildRepoRulesAlreadyInClaudeWorkers(t *testing.T) {
+	p := params("claude", 2, 2)
+	p.Notes = "- rule one"
+	got := Build(p)
+	if !strings.Contains(got, "already have them in their system prompt") || strings.Contains(got, "Copy them VERBATIM into every worker's brief") {
+		t.Errorf("all-claude brief should say the workers already have the rules, got:\n%s", got)
+	}
+
+	p = params("codex", 2, 2)
+	p.Notes = "- rule one"
+	if got := Build(p); !strings.Contains(got, "Copy them VERBATIM") {
+		t.Error("a brief for workers without a system prompt must keep the verbatim copy rule")
+	}
+}
+
+func TestBuildHandsTheMasterDispatch(t *testing.T) {
+	p := params("claude", 2, 2)
+	p.ClearCommand = "/bin/acw clear --repo /repo"
+	p.DispatchCommand = "/bin/acw dispatch --repo /repo"
+	if got := Build(p); !strings.Contains(got, "`/bin/acw dispatch --repo /repo workerN <brief-file>`") {
+		t.Error("brief should hand the master the dispatch command")
+	}
+	if got := Build(params("claude", 2, 2)); strings.Contains(got, "dispatch --repo") {
+		t.Error("no DispatchCommand, no dispatch sentence")
+	}
+}
+
+func TestBuildSwitchCommandOnlyWhenDetected(t *testing.T) {
+	p := params("claude", 2, 2)
+	if got := Build(p); strings.Contains(got, "wtm switch") {
+		t.Error("without SwitchCommand the brief must not name wtm switch")
+	}
+	p.SwitchCommand = "wtm switch"
+	p.StackedWorkers = "worker1-" + testSlug
+	got := Build(p)
+	for _, want := range []string{"`wtm switch <branch> --from origin/<base>`", "never `git switch -c`", "worker1-" + testSlug} {
+		if !strings.Contains(got, want) {
+			t.Errorf("brief with SwitchCommand is missing %q", want)
+		}
+	}
+}
+
+func TestBuildNamesTheWaitingSubagentState(t *testing.T) {
+	if got := Build(params("claude", 2, 2)); !strings.Contains(got, "`waiting_subagent`") {
+		t.Error("the status contract should name the waiting_subagent state")
+	}
+}
+
 func TestBuildPRWatchParagraphOnlyWhenOn(t *testing.T) {
 	p := params("claude", 2, 2)
 	if got := Build(p); strings.Contains(got, "PR #") {

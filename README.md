@@ -167,7 +167,10 @@ acw stop
 
 Tears down the swarm running in the **current directory**: each worker's
 environment, the worktrees themselves, the shared status directory, and the
-Herdr workspace. A swarm running for a different repo is left alone.
+Herdr workspace. A swarm running for a different repo is left alone. A
+worker's task branch is kept with its commits, pushed or not; only the
+`agents/workerN-…` branch acw cut for it is deleted, and only when nothing
+was committed on it.
 **Closing the terminal does nothing** — Herdr is a persistent server that
 outlives it, and so do any environments workers started. `acw stop` is the
 only way to actually stop it.
@@ -175,6 +178,7 @@ only way to actually stop it.
 ```sh
 acw status [--repo <dir>]
 acw clear [--repo <dir>] worker1 [worker2...]
+acw dispatch [--repo <dir>] worker1 <brief-file>
 acw pause
 acw resume
 ```
@@ -193,6 +197,17 @@ acw resume
   not finished a turn yet has nothing to reset: `acw clear` says so and
   returns without sending anything, since a `/clear` there keeps the same
   session and could never be confirmed.
+- `acw dispatch` hands a claude worker its next task in one call: the same
+  wait and refusals as `acw clear`, the confirmed reset, then the brief
+  file's content typed into its prompt. A blank or unreadable brief is
+  refused before anything is sent. With `--branch <b>` (a fix or a rebase
+  on a known branch) it first runs `git fetch` and puts the worker on that
+  branch: through `wtm switch` for a worker with a wtm stack when wtm has
+  it (0.26.0 or later), which also gives the stack a fresh dump on the same
+  ports, else plain `git switch`. It refuses a branch another worktree
+  holds, and never stashes. Without `--branch` the worker names its branch
+  itself; the brief tells workers with a stack to create it with `wtm
+  switch`.
 - `acw pause` stops the workers' stacks (`wtm stop`) for a break, and `acw
   resume` starts them again (`wtm start`) on the profile the swarm was
   launched with. Worktrees, agents and the workspace stay as they are, and
@@ -229,6 +244,9 @@ and keep the variables you need:
 | `{{.SilenceMinutes}}` | the `silence-minutes` value: how long a working worker may show no activity before acw's watcher tells the master |
 | `{{.StatusCommand}}` | `acw status --repo <repo>`, fully written: every worker at a glance |
 | `{{.ClearCommand}}` | `acw clear --repo <repo>`, fully written, to follow with a worker's label (`worker2`): resets its context and confirms it took |
+| `{{.DispatchCommand}}` | `acw dispatch --repo <repo>`, fully written, to follow with a worker's label and a brief file: reset then brief in one call |
+| `{{.SwitchCommand}}` | `wtm switch` when acw found it (wtm 0.26.0 or later) and some worker has a stack; empty otherwise |
+| `{{.StackedWorkers}}` | the herdr names of the workers that have a wtm stack, empty when none |
 | `{{.PRWatch}}` | `true` when `pr-watch` is on: the master receives `PR #…` lines for the PRs that changed |
 
 Before `worker-overrides`, a template could test `{{if eq .WorkerAgent
@@ -322,9 +340,11 @@ move together. acw does not check the name; if wtm doesn't know it, that
 worker's `wtm adopt` fails and says so in the provisioning log.
 
 **`notes`** is a markdown file holding the repo's hard rules. Its content
-goes **verbatim** into the master's brief, with the instruction to copy it,
-still verbatim, into every worker brief. No notes means the master is just
-told to go find the conventions itself.
+goes **verbatim** into the master's brief, and into every claude worker's
+system prompt, which survives `acw clear`: the master no longer copies it
+into their briefs. For the other kinds, which have no system prompt acw can
+set, the master is told to copy it, still verbatim, into every brief. No
+notes means the master is just told to go find the conventions itself.
 
 It's for the handful of rules that cost a force-push when missed — commit
 message shape, where screenshots belong, the directory where a test must

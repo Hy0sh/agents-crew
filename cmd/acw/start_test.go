@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,5 +47,45 @@ func TestReadNotesMissingFileWarnsAndGoesOn(t *testing.T) {
 	}
 	if out.Len() == 0 {
 		t.Error("a configured notes file that can't be read must warn")
+	}
+}
+
+func TestWriteSystemPrompts(t *testing.T) {
+	dir := t.TempDir()
+	workers := []workerSpec{
+		{Kind: "claude"},
+		{Kind: "claude", Prompt: "You verify.", PromptPath: "/cfg/verifier.md"},
+		{Kind: "codex", Prompt: "You verify.", PromptPath: "/cfg/verifier.md"},
+	}
+	if err := writeSystemPrompts(dir, "- rule one\n", workers); err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []string{"- rule one", "- rule one\n\nYou verify."} {
+		path := filepath.Join(dir, fmt.Sprintf("worker%d.system.md", i+1))
+		content, err := os.ReadFile(path)
+		if err != nil || !strings.Contains(string(content), want) {
+			t.Errorf("worker%d system prompt = %q, %v; want it to contain %q", i+1, content, err, want)
+		}
+		if workers[i].PromptPath != path {
+			t.Errorf("worker%d PromptPath = %q, want %q", i+1, workers[i].PromptPath, path)
+		}
+	}
+	// A codex worker has no system prompt acw can set: left as configured.
+	if workers[2].PromptPath != "/cfg/verifier.md" {
+		t.Errorf("codex PromptPath = %q, want it untouched", workers[2].PromptPath)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "worker3.system.md")); err == nil {
+		t.Error("a codex worker got a system prompt file")
+	}
+}
+
+func TestWriteSystemPromptsWithNothingToSay(t *testing.T) {
+	dir := t.TempDir()
+	workers := []workerSpec{{Kind: "claude"}}
+	if err := writeSystemPrompts(dir, "  \n", workers); err != nil {
+		t.Fatal(err)
+	}
+	if workers[0].PromptPath != "" {
+		t.Errorf("PromptPath = %q with no notes and no prompt, want none", workers[0].PromptPath)
 	}
 }
