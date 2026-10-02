@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -278,4 +281,91 @@ func prOwners(statusDir string, labels []string) map[string]string {
 
 func normalizePRURL(u string) string {
 	return strings.TrimSuffix(strings.TrimSpace(u), "/")
+}
+
+// prFailuresBeforeAlert is how many polls in a row may fail before the
+// master hears that PR signals stopped coming.
+const prFailuresBeforeAlert = 3
+
+// prWatcher runs the PR watch's polls. fetch and fate are the two GitHub
+// calls, replaced in tests.
+type prWatcher struct {
+	fetch    func() ([]byte, error)
+	fate     func(number int) (string, error)
+	prev     map[int]prState // nil until a poll succeeds
+	failures int
+	last     time.Time // when runWatch last polled
+}
+
+// newPRWatcher follows repo, "owner/name", through gh.
+func newPRWatcher(repo string) *prWatcher {
+	owner, name, _ := strings.Cut(repo, "/")
+	return &prWatcher{
+		fetch: func() ([]byte, error) {
+			return gh("api", "graphql", "-f", "query="+prSearchQuery,
+				"-f", "q=repo:"+repo+" is:pr is:open author:@me draft:false")
+		},
+		fate: func(number int) (string, error) {
+			data, err := gh("api", "graphql", "-f", "query="+prFateQuery,
+				"-f", "owner="+owner, "-f", "name="+name, "-F", fmt.Sprintf("number=%d", number))
+			if err != nil {
+				return "", err
+			}
+			return parsePRFate(data)
+		},
+	}
+}
+
+func gh(args ...string) ([]byte, error) {
+	cmd := exec.Command("gh", args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("gh %s: %w: %s", strings.Join(args[:2], " "), err, strings.TrimSpace(stderr.String()))
+	}
+	return out, nil
+}
+
+// poll runs one cycle and returns the lines for the master, none when
+// nothing changed. owners maps a PR url to its worker (see prOwners).
+func (p *prWatcher) poll(owners map[string]string) []string {
+	data, err := p.fetch()
+	var viewer string
+	var cur []prState
+	if err == nil {
+		viewer, cur, err = parsePRSearch(data)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "PR watch:", err)
+		p.failures++
+		if p.failures == prFailuresBeforeAlert {
+			return []string{"PR watch failing: " + err.Error()}
+		}
+		return nil
+	}
+	p.failures = 0
+
+	next, changes, gone := diffPRs(p.prev, cur, viewer)
+	var lines []string
+	for _, c := range changes {
+		lines = append(lines, prLine(c.PR, owners[normalizePRURL(c.PR.URL)], c.Events))
+	}
+	for _, n := range gone {
+		old := p.prev[n]
+		fate, err := p.fate(n)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "PR watch:", err)
+			fate = "gone (state unknown)"
+		}
+		if fate == "" {
+			// Still open: the search dropped it for a moment. Kept, so it
+			// does not come back as a new PR.
+			next[n] = old
+			continue
+		}
+		lines = append(lines, prLine(old, owners[normalizePRURL(old.URL)], []string{fate}))
+	}
+	p.prev = next
+	return lines
 }

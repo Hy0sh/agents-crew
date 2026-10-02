@@ -1,10 +1,13 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -169,5 +172,94 @@ func TestPROwners(t *testing.T) {
 	want := map[string]string{"https://github.com/some-org/some-repo/pull/7": "worker1"}
 	if !maps.Equal(got, want) {
 		t.Errorf("prOwners() = %v, want %v", got, want)
+	}
+}
+
+func searchResponse(nodes ...string) []byte {
+	return []byte(`{"data": {"viewer": {"login": "me"}, "search": {"nodes": [` + strings.Join(nodes, ",") + `]}}}`)
+}
+
+func prNode(number int, mergeable string) string {
+	return fmt.Sprintf(`{"number": %d, "url": "https://github.com/some-org/some-repo/pull/%d", "mergeable": %q,
+		"commits": {"nodes": [{"commit": {"oid": "a", "committer": {"name": "Me", "user": {"login": "me"}}, "statusCheckRollup": {"state": "SUCCESS"}}}]}}`,
+		number, number, mergeable)
+}
+
+func TestPRWatcherPoll(t *testing.T) {
+	responses := [][]byte{
+		searchResponse(prNode(1, "MERGEABLE"), prNode(2, "MERGEABLE")),   // baseline
+		searchResponse(prNode(1, "CONFLICTING")),                         // 2 dropped by the search, still open
+		searchResponse(prNode(1, "CONFLICTING"), prNode(2, "MERGEABLE")), // 2 back: not a new PR
+		searchResponse(prNode(2, "MERGEABLE")),                           // 1 merged
+		searchResponse(prNode(2, "MERGEABLE")),                           // nothing moved
+	}
+	fates := map[int]string{1: "merged", 2: ""}
+	i := 0
+	p := &prWatcher{
+		fetch: func() ([]byte, error) { i++; return responses[i-1], nil },
+		fate:  func(n int) (string, error) { return fates[n], nil },
+	}
+	owners := map[string]string{"https://github.com/some-org/some-repo/pull/1": "worker2"}
+	want := [][]string{
+		nil,
+		{"PR #1 (worker2): conflict with base | https://github.com/some-org/some-repo/pull/1"},
+		nil,
+		{"PR #1 (worker2): merged | https://github.com/some-org/some-repo/pull/1"},
+		nil,
+	}
+	for step, w := range want {
+		if got := p.poll(owners); !slices.Equal(got, w) {
+			t.Errorf("poll %d = %q, want %q", step, got, w)
+		}
+	}
+}
+
+func TestPRWatcherFateUnknown(t *testing.T) {
+	responses := [][]byte{searchResponse(prNode(1, "MERGEABLE")), searchResponse()}
+	i := 0
+	p := &prWatcher{
+		fetch: func() ([]byte, error) { i++; return responses[i-1], nil },
+		fate:  func(int) (string, error) { return "", errors.New("HTTP 502") },
+	}
+	p.poll(nil)
+	want := []string{"PR #1: gone (state unknown) | https://github.com/some-org/some-repo/pull/1"}
+	if got := p.poll(nil); !slices.Equal(got, want) {
+		t.Errorf("poll = %q, want %q", got, want)
+	}
+}
+
+// The master hears once that PR signals stopped, not at every failed
+// poll, and again only after a success broke the streak.
+func TestPRWatcherAlertsOnceAfterRepeatedFailures(t *testing.T) {
+	fail := true
+	p := &prWatcher{
+		fetch: func() ([]byte, error) {
+			if fail {
+				return nil, errors.New("HTTP 502")
+			}
+			return searchResponse(prNode(1, "MERGEABLE")), nil
+		},
+		fate: func(int) (string, error) { return "", nil },
+	}
+	alerts := 0
+	for range 5 {
+		for _, l := range p.poll(nil) {
+			if strings.HasPrefix(l, "PR watch failing: ") {
+				alerts++
+			}
+		}
+	}
+	if alerts != 1 {
+		t.Errorf("%d alerts over 5 failed polls, want 1", alerts)
+	}
+	fail = false
+	if got := p.poll(nil); got != nil {
+		t.Errorf("first successful poll = %q, want the silent baseline", got)
+	}
+	fail = true
+	p.poll(nil)
+	p.poll(nil)
+	if got := p.poll(nil); len(got) != 1 {
+		t.Errorf("third failure after a success = %q, want a new alert", got)
 	}
 }
