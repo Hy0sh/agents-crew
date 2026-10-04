@@ -251,10 +251,14 @@ acw resume
   file's content typed into its prompt. A blank or unreadable brief is
   refused before anything is sent. With `--branch <b>` (a fix or a rebase
   on a known branch) it first runs `git fetch` and puts the worker on that
-  branch: through `wtm switch` for a worker with a wtm stack when wtm has
-  it (0.26.0 or later), which also gives the stack a fresh dump on the same
-  ports, else plain `git switch`. It refuses a branch another worktree
-  holds, and never stashes. Without `--branch` the worker names its branch
+  branch: through `wtm switch` for a worker with a wtm stack, which moves
+  the stack along on the same ports, and refuses that worker when wtm
+  has no switch (before 0.26.0), since a plain `git switch` would leave
+  its stack behind; plain `git switch` for a worker without one. The
+  stack only gets a fresh dump when the branch changes: put back on the
+  branch it is already on (a fix after a KO), it restarts with its data
+  as it was. It refuses a branch another worktree holds, and never
+  stashes. Without `--branch` the worker names its branch
   itself; the brief tells workers with a stack to create it with `wtm
   switch`.
 - `acw pause` stops the workers' stacks (`wtm stop`) for a break, and `acw

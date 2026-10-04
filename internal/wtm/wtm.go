@@ -155,8 +155,9 @@ func SwitchAvailable() bool {
 	return exec.Command("wtm", "switch", "--help").Run() == nil
 }
 
-// Switch moves the worktree at dir to branch on a fresh stack, keeping
-// its ports. from is where a branch that doesn't exist yet is cut from,
+// Switch moves the worktree at dir to branch, keeping its ports: on a
+// fresh stack for another branch, the same stack restarted for the one
+// it is on. from is where a branch that doesn't exist yet is cut from,
 // "" for an existing one. wtm never asks anything without a terminal, and
 // a failure is resumed by running the same command again.
 func Switch(dir, branch, from, profile string, out io.Writer) error {
