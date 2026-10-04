@@ -66,6 +66,21 @@ longer left to a model.
   it locks it: adopts run together each missed the other, took
   neighbouring indices, and with a port stride of 1 two services got the
   same host port, one stack failing to start.
+- A worktree moved to another branch without `wtm switch` no longer loses
+  its stack: wtm finds none under the new branch, which acw took for a
+  worker never given one, then removed the worktree while the stack ran
+  on. For a worker wtm gave a stack to, acw stop and a close keep the
+  worktree and say how to get the stack back; pause and resume fail on it.
+- `--branch` on a worker with a stack is refused when wtm has no `switch`
+  (before 0.26.0), instead of a plain `git switch` that left its stack
+  behind.
+- A branch or a base starting with a dash is refused: it reached git as
+  an option.
+- A repo reached through a symlink is recognised as registered in wtm.
+- The "opened" message only carries the port clashes the worker takes
+  part in, not every clash on the machine.
+- A claude master whose custom brief reads no inbox may still run `acw
+  status`, `acw queue` and `acw done` without a prompt.
 
 ## [0.10.0] - 2026-10-02
 

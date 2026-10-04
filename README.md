@@ -214,7 +214,11 @@ environment, the worktrees themselves, the shared status directory, and the
 Herdr workspace. A swarm running for a different repo is left alone. A
 worker's task branch is kept with its commits, pushed or not; only the
 `agents/workerN-…` branch acw cut for it is deleted, and only when nothing
-was committed on it.
+was committed on it. A worktree wtm gave a stack to but no longer finds it
+under (the worktree changed branch without `wtm switch`) is kept, with the
+repair said: removed, it would leave that stack running with nothing to
+find it by. A worker closed by the pool, `acw pause` and `acw resume` do
+the same.
 **Closing the terminal does nothing** — Herdr is a persistent server that
 outlives it, and so do any environments workers started. `acw stop` is the
 only way to actually stop it.
