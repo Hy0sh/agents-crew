@@ -12,7 +12,7 @@ import (
 )
 
 // fakeSwarm is a repo with one worker worktree on its own branch, a status
-// dir and run.json, and a fake wtm first on PATH that records its calls.
+// dir and its pool, and a fake wtm first on PATH that records its calls.
 // It returns the repo and the file the calls land in.
 func fakeSwarm(t *testing.T, profile string) (repo, calls string) {
 	t.Helper()
@@ -29,7 +29,7 @@ func fakeSwarm(t *testing.T, profile string) (repo, calls string) {
 	if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeRunInfo(repo, runInfo{Profile: profile, MasterName: "master-test", Inbox: names.Inbox(repo)}); err != nil {
+	if err := writeJSON(names.PoolFile(repo), poolState{Plan: provisionPlan{Repo: repo, Profile: profile, Inbox: names.Inbox(repo)}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -96,7 +96,7 @@ func TestPauseFailsOnAStrandedStack(t *testing.T) {
 		t.Fatal(err)
 	}
 	wt := names.WorkerWorktree(repo, 1, "20260925140000")
-	pool := poolState{Workers: []poolWorker{{Index: 1, Worktree: wt, Stacked: true, State: workerBusy}}}
+	pool := poolState{Plan: provisionPlan{Repo: repo, Inbox: names.Inbox(repo)}, Workers: []poolWorker{{Index: 1, Worktree: wt, Stacked: true, State: workerBusy}}}
 	if err := writeJSON(names.PoolFile(repo), pool); err != nil {
 		t.Fatal(err)
 	}

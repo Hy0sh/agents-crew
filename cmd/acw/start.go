@@ -122,9 +122,6 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		return err
 	}
 	stamp := time.Now().Format("20060102150405")
-	if err := writeRunInfo(repo, runInfo{Profile: opts.profile, Stamp: stamp, MasterName: masterName, Inbox: inbox}); err != nil {
-		return err
-	}
 
 	masterDir := repo
 	if opts.masterDir != "" {
@@ -178,35 +175,6 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 
 	// Replace this process with the Herdr TUI, attaching to the workspace just built.
 	return syscall.Exec(mustLookPath("herdr"), []string{"herdr"}, os.Environ())
-}
-
-// runInfo is what a swarm was started with that later commands need
-// again: the profile the config gave at launch (acw resume), which a later
-// config change or another --preset must not silently replace; the run's
-// stamp, by which acw's watcher knows the status dir is still its own; and
-// how to reach the master (its inbox, "" when messages are typed in).
-type runInfo struct {
-	Profile    string `json:"profile"`
-	Stamp      string `json:"stamp"`
-	MasterName string `json:"master_name"`
-	Inbox      string `json:"inbox,omitempty"`
-}
-
-func writeRunInfo(repo string, info runInfo) error {
-	content, err := json.Marshal(info)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(names.RunFile(repo), content, 0o644)
-}
-
-func readRunInfo(repo string) (runInfo, error) {
-	var info runInfo
-	content, err := os.ReadFile(names.RunFile(repo))
-	if err != nil {
-		return info, err
-	}
-	return info, json.Unmarshal(content, &info)
 }
 
 // readCustomBrief returns the custom template's source, "" when path is.

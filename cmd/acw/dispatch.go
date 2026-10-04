@@ -175,10 +175,6 @@ func chooseBranchStep(stacked, switchAvailable, exists bool) (branchStep, error)
 // Nothing is stashed: local changes make git or wtm refuse, and the error
 // says the worker got nothing.
 func switchWorkerBranch(repo string, t clearTarget, br branchRequest, out io.Writer) error {
-	run, err := readRunInfo(repo)
-	if err != nil {
-		return fmt.Errorf("swarm run info unreadable: %w", err)
-	}
 	p, _, err := readPool(repo)
 	if err != nil {
 		return err
@@ -212,7 +208,7 @@ func switchWorkerBranch(repo string, t clearTarget, br branchRequest, out io.Wri
 		if step.create {
 			from = base
 		}
-		err = wtm.Switch(wt, br.Branch, from, run.Profile, out)
+		err = wtm.Switch(wt, br.Branch, from, p.Plan.Profile, out)
 	} else {
 		err = gitutil.Switch(wt, br.Branch, base, step.create)
 	}

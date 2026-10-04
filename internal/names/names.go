@@ -70,12 +70,6 @@ func Inbox(repo string) string {
 	return filepath.Join(StatusDir(repo), "inbox")
 }
 
-// RunFile holds what a running swarm was started with and later commands
-// need again: its stamp, its master, its stack profile.
-func RunFile(repo string) string {
-	return filepath.Join(StatusDir(repo), "run.json")
-}
-
 // PoolFile holds the elastic pool: what a worker is opened with, and each
 // open worker's state.
 func PoolFile(repo string) string {

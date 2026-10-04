@@ -35,13 +35,13 @@ type watchPlan struct {
 }
 
 // ownsRun reports whether repo's status dir still belongs to the run
-// stamped stamp (see runInfo). A watcher can outlive its swarm: acw stop
-// only removes the dir once it found the master, and a stop then a start
-// within one poll recreates it at once, for a new swarm with the same
-// worker names.
+// stamped stamp, the one its pool was written for. A watcher can outlive
+// its swarm: acw stop only removes the dir once it found the master, and
+// a stop then a start within one poll recreates it at once, for a new
+// swarm with the same worker names.
 func ownsRun(repo, stamp string) bool {
-	run, err := readRunInfo(repo)
-	return err == nil && run.Stamp == stamp
+	p, _, err := readPool(repo)
+	return err == nil && p.Plan.Stamp == stamp
 }
 
 // runWatch polls the workers every interval until acw stop removes the

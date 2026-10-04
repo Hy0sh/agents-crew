@@ -93,7 +93,7 @@ func TestOwnsRun(t *testing.T) {
 	if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeRunInfo(repo, runInfo{Stamp: "20260925140000"}); err != nil {
+	if err := writeJSON(names.PoolFile(repo), poolState{Plan: provisionPlan{Stamp: "20260925140000"}}); err != nil {
 		t.Fatal(err)
 	}
 	if !ownsRun(repo, "20260925140000") {
