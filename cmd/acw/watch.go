@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Hy0sh/agents-crew/internal/herdr"
@@ -60,6 +61,14 @@ func runWatch(plan watchPlan, interval time.Duration) {
 		prs = newPRWatcher(plan.PRWatchRepo)
 	}
 	dirtyTold := map[int]bool{}
+	// Held until every opening, close and dispatch it started is over:
+	// acw stop waits for it, so none of them runs during its teardown.
+	if lock, err := os.OpenFile(names.WatchLock(plan.Repo), os.O_CREATE|os.O_RDWR, 0o644); err == nil {
+		if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err == nil {
+			defer lock.Close()
+		}
+	}
+	defer inflight.Wait()
 	for {
 		if !ownsRun(plan.Repo, plan.Stamp) {
 			return

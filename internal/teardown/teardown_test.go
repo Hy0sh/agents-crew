@@ -5,7 +5,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/Hy0sh/agents-crew/internal/names"
 )
@@ -144,6 +146,41 @@ func TestWorktreeKeepsAStackWtmCannotReach(t *testing.T) {
 				t.Error("the worktree must be kept")
 			}
 		})
+	}
+}
+
+// acw stop tears nothing down while the watcher may still open or close a
+// worker: it takes its pool away and waits for its lock.
+func TestStopWatcherWaitsForTheWatcher(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(names.PoolFile(repo), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	held, err := os.OpenFile(names.WatchLock(repo), os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	stopped := make(chan struct{})
+	go func() { stopWatcher(repo); close(stopped) }()
+	select {
+	case <-stopped:
+		t.Fatal("stopWatcher returned while the watcher held its lock")
+	case <-time.After(time.Second):
+	}
+	if exists(names.PoolFile(repo)) {
+		t.Error("the pool is still there: the watcher would go on")
+	}
+	held.Close()
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stopWatcher did not return once the lock was free")
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -373,18 +374,26 @@ func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, no
 		return
 	}
 	for _, a := range assigns {
-		go assignTask(repo, p.Plan, a.w, a.t)
+		background(func() { assignTask(repo, p.Plan, a.w, a.t) })
 	}
 	for _, index := range opens {
-		go openWorker(repo, index)
+		background(func() { openWorker(repo, index) })
 	}
 	for _, w := range closes {
 		why := fmt.Sprintf("free for %d min with nothing queued for it", p.IdleCloseMinutes)
 		if p.Plan.Workers[w.Index-1].Kind != "claude" {
 			why = "its task is done, and acw cannot reset its context for another"
 		}
-		go closeWorker(repo, w, why)
+		background(func() { closeWorker(repo, w, why) })
 	}
+}
+
+// inflight counts what the pool runs in the background: the watcher
+// waits for it before it stops (see runWatch).
+var inflight sync.WaitGroup
+
+func background(f func()) {
+	inflight.Go(f)
 }
 
 // assignTask hands a queued task to the worker the pool gave it to: the

@@ -6,8 +6,11 @@ package teardown
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
+	"time"
 
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
@@ -48,6 +51,7 @@ func Run() error {
 	// even exists, let alone before `herdr agent start` names it — a stop
 	// run during that window found nothing to clean up otherwise, leaving
 	// real Docker stacks orphaned despite reporting success.
+	stopWatcher(repo)
 	cleanupWorkerWorktrees(repo)
 
 	fmt.Print("Closing the Herdr workspace and its agents... ")
@@ -90,6 +94,38 @@ func WorkerWorktrees(repo string) []string {
 		}
 	}
 	return dirs
+}
+
+// watcherWait bounds how long acw stop waits for the watcher: an opening
+// it started may be bringing a stack up.
+const watcherWait = 15 * time.Minute
+
+// stopWatcher stops acw's watcher before anything is torn down: an opening
+// or a close it runs next to the teardown could leave a stack behind, or
+// see a worktree being removed as one with changes. Without pool.json the
+// watcher takes its run for gone at its next poll, finishes what it
+// started, then lets go of its lock. A watcher that is not running holds
+// no lock.
+func stopWatcher(repo string) {
+	if err := os.Remove(names.PoolFile(repo)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		fmt.Fprintf(os.Stderr, "removing the pool: %v\n", err)
+	}
+	lock, err := os.OpenFile(names.WatchLock(repo), os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return
+	}
+	defer lock.Close()
+	told := false
+	for deadline := time.Now().Add(watcherWait); time.Now().Before(deadline); time.Sleep(500 * time.Millisecond) {
+		if syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil {
+			return
+		}
+		if !told {
+			fmt.Println("Waiting for acw's watcher to finish what it started...")
+			told = true
+		}
+	}
+	fmt.Fprintln(os.Stderr, "acw's watcher still runs after", watcherWait, "- tearing down anyway")
 }
 
 func cleanupWorkerWorktrees(repo string) {
