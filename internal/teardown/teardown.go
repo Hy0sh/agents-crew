@@ -94,60 +94,68 @@ func WorkerWorktrees(repo string) []string {
 
 func cleanupWorkerWorktrees(repo string) {
 	for _, dir := range WorkerWorktrees(repo) {
-		name := filepath.Base(dir)
-		branch, err := gitutil.CurrentBranch(dir)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s: resolving the branch: %v\n", name, err)
-			continue
-		}
-		fmt.Printf("%s (%s):\n", name, branch)
-
-		if wtm.Available() {
-			// Best-effort: a worktree whose environment was never adopted
-			// (provisioning failed, or MAX_STACKS left it without one)
-			// makes these fail harmlessly, which is fine — the worktree
-			// removal below still runs.
-			fmt.Print("  stopping the environment... ")
-			if err := wtm.Stop(dir, branch); err != nil {
-				fmt.Println("nothing to stop.")
-				// A repo wtm doesn't know, or a worktree never adopted, is
-				// the ordinary case (no environment was ever given out) —
-				// printing wtm's own "not registered" error under a line
-				// that just said there was nothing to stop reads as a
-				// failure when nothing failed.
-				if !strings.Contains(err.Error(), "is not registered") {
-					fmt.Fprintf(os.Stderr, "%s: wtm stop: %v\n", name, err)
-				}
-			} else {
-				fmt.Print("done. Removing (containers, volumes, images)... ")
-				if err := wtm.Remove(dir, branch); err != nil {
-					fmt.Println("failed, see below.")
-					fmt.Fprintf(os.Stderr, "%s: wtm remove: %v\n", name, err)
-				} else {
-					fmt.Println("done.")
-				}
-			}
-		}
-
-		if err := gitutil.WorktreeRemove(repo, dir); err != nil {
-			fmt.Fprintf(os.Stderr, "%s: git worktree remove: %v\n", name, err)
-			continue
-		}
-		// A worker takes each task on a new branch in its worktree: that
-		// branch is its work, pushed or not, and stays. Only the branch acw
-		// cut for it goes, and only if nothing was committed on it.
-		if own := "agents/" + name; branch != own {
-			fmt.Printf("  worktree removed, task branch %s kept.\n", branch)
-			if err := gitutil.DeleteMergedBranch(repo, own); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: %s kept: %v\n", name, own, err)
-			}
-			continue
-		}
-		if err := gitutil.DeleteBranch(repo, branch); err != nil {
-			fmt.Printf("  worktree removed, branch %s kept (see below).\n", branch)
-			fmt.Fprintf(os.Stderr, "%s: git branch -D %s: %v\n", name, branch, err)
-			continue
-		}
-		fmt.Printf("  worktree and branch %s removed.\n", branch)
+		Worktree(repo, dir)
 	}
+}
+
+// Worktree releases one worker worktree: its environment, the worktree,
+// and the branch acw cut for it. The task branch it was left on stays.
+// acw stop runs it on every worker; the elastic pool on a worker it
+// closes.
+func Worktree(repo, dir string) {
+	name := filepath.Base(dir)
+	branch, err := gitutil.CurrentBranch(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: resolving the branch: %v\n", name, err)
+		return
+	}
+	fmt.Printf("%s (%s):\n", name, branch)
+
+	if wtm.Available() {
+		// Best-effort: a worktree whose environment was never adopted
+		// (provisioning failed, or MAX_STACKS left it without one)
+		// makes these fail harmlessly, which is fine — the worktree
+		// removal below still runs.
+		fmt.Print("  stopping the environment... ")
+		if err := wtm.Stop(dir, branch); err != nil {
+			fmt.Println("nothing to stop.")
+			// A repo wtm doesn't know, or a worktree never adopted, is
+			// the ordinary case (no environment was ever given out) —
+			// printing wtm's own "not registered" error under a line
+			// that just said there was nothing to stop reads as a
+			// failure when nothing failed.
+			if !strings.Contains(err.Error(), "is not registered") {
+				fmt.Fprintf(os.Stderr, "%s: wtm stop: %v\n", name, err)
+			}
+		} else {
+			fmt.Print("done. Removing (containers, volumes, images)... ")
+			if err := wtm.Remove(dir, branch); err != nil {
+				fmt.Println("failed, see below.")
+				fmt.Fprintf(os.Stderr, "%s: wtm remove: %v\n", name, err)
+			} else {
+				fmt.Println("done.")
+			}
+		}
+	}
+
+	if err := gitutil.WorktreeRemove(repo, dir); err != nil {
+		fmt.Fprintf(os.Stderr, "%s: git worktree remove: %v\n", name, err)
+		return
+	}
+	// A worker takes each task on a new branch in its worktree: that
+	// branch is its work, pushed or not, and stays. Only the branch acw
+	// cut for it goes, and only if nothing was committed on it.
+	if own := "agents/" + name; branch != own {
+		fmt.Printf("  worktree removed, task branch %s kept.\n", branch)
+		if err := gitutil.DeleteMergedBranch(repo, own); err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %s kept: %v\n", name, own, err)
+		}
+		return
+	}
+	if err := gitutil.DeleteBranch(repo, branch); err != nil {
+		fmt.Printf("  worktree removed, branch %s kept (see below).\n", branch)
+		fmt.Fprintf(os.Stderr, "%s: git branch -D %s: %v\n", name, branch, err)
+		return
+	}
+	fmt.Printf("  worktree and branch %s removed.\n", branch)
 }

@@ -111,6 +111,12 @@ func PaneRename(paneID, name string) error {
 	return err
 }
 
+// PaneClose closes a pane, and the agent running in it.
+func PaneClose(paneID string) error {
+	_, err := run("pane", "close", paneID)
+	return err
+}
+
 // PaneSplit splits paneID in the given direction, giving it `ratio` of the
 // space and setting the new pane's cwd. It returns the new pane's ID.
 func PaneSplit(paneID, direction string, ratio float64, cwd string) (newPaneID string, err error) {

@@ -8,32 +8,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/Hy0sh/agents-crew/internal/names"
 )
 
 // Only the clash sections reach the master: the rest of the report (docker
 // usage, build cache, leftover volumes) is the user's business.
-// run.json starts with the planned stacks; once adoption is over it keeps
-// only the ones that came up, so dispatch falls back to git switch for a
-// worker whose adopt failed.
-func TestRecordStackedKeepsOnlyTheAdopted(t *testing.T) {
-	repo := t.TempDir()
-	if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := writeRunInfo(repo, runInfo{Stamp: "1", Stacked: []string{"worker1", "worker2"}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := recordStacked(repo, []string{"worker2"}); err != nil {
-		t.Fatal(err)
-	}
-	run, err := readRunInfo(repo)
-	if err != nil || run.Stamp != "1" || !slices.Equal(run.Stacked, []string{"worker2"}) {
-		t.Errorf("run info = %+v, %v; want stamp kept and only worker2 stacked", run, err)
-	}
-}
-
 func TestPortClashesKeepsOnlyTheClashSections(t *testing.T) {
 	report := "docker   289 MB used\n\n" +
 		"port clashes between worktrees of one project (those two cannot run at the same time):\n" +

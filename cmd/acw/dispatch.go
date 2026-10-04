@@ -5,12 +5,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
+	"time"
 
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
-	"github.com/Hy0sh/agents-crew/internal/names"
 	"github.com/Hy0sh/agents-crew/internal/wtm"
 )
 
@@ -62,11 +61,42 @@ func readBrief(path string) (string, error) {
 	return text, nil
 }
 
-func dispatchWorker(repo, arg, briefPath string, br branchRequest, out io.Writer) error {
+// dispatchByHand is acw dispatch: the brief at briefPath to a free worker,
+// held busy in the pool for the time so acw gives it nothing else, and
+// left busy once dispatched, until acw done.
+func dispatchByHand(repo, arg, briefPath string, br branchRequest, out io.Writer) error {
 	text, err := readBrief(briefPath)
 	if err != nil {
 		return err
 	}
+	index, err := workerArg(repo, arg)
+	if err != nil {
+		return err
+	}
+	setState := func(from, to string) error {
+		return withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
+			w := p.worker(index)
+			if w == nil {
+				return false, fmt.Errorf("worker%d is not open: queue the task instead (acw queue add --worker worker%d)", index, index)
+			}
+			if w.State != from {
+				return false, fmt.Errorf("worker%d is %s, not %s", index, w.State, from)
+			}
+			w.State, w.Task, w.Since, w.Used = to, 0, time.Now(), true
+			return true, nil
+		})
+	}
+	if err := setState(workerFree, workerBusy); err != nil {
+		return err
+	}
+	if err := dispatchWorker(repo, arg, text, br, out); err != nil {
+		_ = setState(workerBusy, workerFree)
+		return err
+	}
+	return nil
+}
+
+func dispatchWorker(repo, arg, text string, br branchRequest, out io.Writer) error {
 	steps := dispatchSteps{
 		ready: func() (clearTarget, error) { return readyToClear(repo, arg, out) },
 		reset: func(t clearTarget) error { return resetContext(t, out) },
@@ -129,10 +159,15 @@ func switchWorkerBranch(repo string, t clearTarget, br branchRequest, out io.Wri
 	if err != nil {
 		return fmt.Errorf("swarm run info unreadable: %w", err)
 	}
-	wt := names.WorkerWorktree(repo, t.index, run.Stamp)
-	if _, err := os.Stat(wt); err != nil {
+	p, _, err := readPool(repo)
+	if err != nil {
+		return err
+	}
+	pw := p.worker(t.index)
+	if pw == nil || pw.Worktree == "" {
 		return fmt.Errorf("%s has no worktree (a worker outside the code has no branch): --branch doesn't apply", t.label)
 	}
+	wt := pw.Worktree
 	worktrees, err := gitutil.WorktreeBranches(repo)
 	if err != nil {
 		return err
@@ -147,7 +182,7 @@ func switchWorkerBranch(repo string, t clearTarget, br branchRequest, out io.Wri
 	if base == "" {
 		base = gitutil.DefaultBaseRef(repo)
 	}
-	stacked := slices.Contains(run.Stacked, t.label)
+	stacked := pw.Stacked
 	// wtm.Available first: no wtm call at all on a machine without it.
 	step := chooseBranchStep(stacked, stacked && wtm.Available() && wtm.SwitchAvailable(), gitutil.HasBranch(wt, br.Branch))
 	if step.wtm {

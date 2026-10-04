@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -23,9 +24,8 @@ type watchPlan struct {
 	Inbox string `json:"inbox,omitempty"`
 	// InboxNext is the command the master reruns to read its inbox, named
 	// in the reminder when it forgets to.
-	InboxNext      string          `json:"inbox_next,omitempty"`
-	SilenceMinutes int             `json:"silence_minutes"`
-	Workers        []watchedWorker `json:"workers"`
+	InboxNext      string `json:"inbox_next,omitempty"`
+	SilenceMinutes int    `json:"silence_minutes"`
 	// PRWatchRepo is the GitHub "owner/name" whose open PRs the watcher
 	// follows (see prWatcher), "" when pr-watch is off.
 	PRWatchRepo string `json:"pr_watch_repo,omitempty"`
@@ -44,28 +44,20 @@ func ownsRun(repo, stamp string) bool {
 	return err == nil && run.Stamp == stamp
 }
 
-type watchedWorker struct {
-	Name   string `json:"name"`  // herdr agent name
-	Label  string `json:"label"` // worker1, as in its status file's name
-	Hooked bool   `json:"hooked"`
-}
-
 // runWatch polls the workers every interval until acw stop removes the
-// status directory, and sends the master what observe finds worth it.
-// Nothing here is fatal: a failed poll or delivery is logged, and the
-// next poll tries again.
+// status directory, sends the master what observe finds worth it, and
+// runs the pool (see schedule). Nothing here is fatal: a failed poll or
+// delivery is logged, and the next poll tries again.
 func runWatch(plan watchPlan, interval time.Duration) {
 	statusDir := names.StatusDir(plan.Repo)
+	slug := names.Slug(plan.Repo)
 	w := newWatcher(time.Duration(plan.SilenceMinutes) * time.Minute)
 	worktrees := worktreeCache{}
 	var prs *prWatcher
 	if plan.PRWatchRepo != "" {
 		prs = newPRWatcher(plan.PRWatchRepo)
 	}
-	var labels []string
-	for _, ww := range plan.Workers {
-		labels = append(labels, ww.Label)
-	}
+	dirtyTold := map[int]bool{}
 	for {
 		if !ownsRun(plan.Repo, plan.Stamp) {
 			return
@@ -83,26 +75,36 @@ func runWatch(plan watchPlan, interval time.Duration) {
 			return
 		}
 		now := time.Now()
+		pool, queue, err := readPool(plan.Repo)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "pool:", err)
+			time.Sleep(interval)
+			continue
+		}
 		var views []workerView
+		var labels []string
 		agentNames := map[string]string{}
-		for _, ww := range plan.Workers {
-			a, ok := herdr.FindAgent(agents, ww.Name)
+		for _, pw := range pool.Workers {
+			label, name := pw.label(), names.Worker(slug, pw.Index)
+			labels = append(labels, label)
+			a, ok := herdr.FindAgent(agents, name)
 			if !ok {
 				continue
 			}
-			agentNames[ww.Label] = ww.Name
-			v := workerView{Label: ww.Label, Hooked: ww.Hooked, Status: a.Status}
+			agentNames[label] = name
+			v := workerView{Label: label, Hooked: pool.Plan.Workers[pw.Index-1].Kind == "claude", Status: a.Status}
 			// Only a working worker's activity counts (see observe), and
 			// reading it costs a git status: skipped for the others.
 			if a.Status == "working" {
-				s, mtime := readWorkerStatus(filepath.Join(statusDir, ww.Label+".json"))
-				v.Activity = activity(s, mtime, worktrees.get(now, ww.Label, a.Cwd))
+				s, mtime := readWorkerStatus(filepath.Join(statusDir, label+".json"))
+				v.Activity = activity(s, mtime, worktrees.get(now, label, a.Cwd))
 			}
-			if info, err := os.Stat(filepath.Join(statusDir, ww.Label+".turn")); err == nil {
+			if info, err := os.Stat(filepath.Join(statusDir, label+".turn")); err == nil {
 				v.TurnEnd = info.ModTime()
 			}
 			views = append(views, v)
 		}
+		w.forget(labels)
 		for _, e := range w.observe(now, views) {
 			if err := deliver(plan.Inbox, plan.MasterName, eventMessage(statusDir, agentNames[e.Label], e)); err != nil {
 				fmt.Fprintln(os.Stderr, "message to the master:", err)
@@ -116,6 +118,7 @@ func runWatch(plan watchPlan, interval time.Duration) {
 				}
 			}
 		}
+		runPool(plan.Repo, pool, queue, pollWorkers(pool, agents, statusDir, now), now, dirtyTold)
 		if plan.Inbox != "" {
 			info, err := os.Stat(plan.Inbox)
 			if w.remindInbox(now, err == nil && info.Size() > 0) {
@@ -342,6 +345,16 @@ func (w *watcher) observe(now time.Time, views []workerView) []watchEvent {
 		m.status = v.Status
 	}
 	return events
+}
+
+// forget drops what the watcher remembers of a worker no longer open: a
+// worker opened again under the same label starts with a clean slate.
+func (w *watcher) forget(open []string) {
+	for label := range w.workers {
+		if !slices.Contains(open, label) {
+			delete(w.workers, label)
+		}
+	}
 }
 
 // remindInbox reports, once per batch of unread messages, that they have

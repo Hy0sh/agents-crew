@@ -23,6 +23,7 @@ type statusRow struct {
 	Label, Agent, State, Task  string
 	Branch, BaseBranch, PR     string
 	Updated, TurnEnd, Activity time.Time
+	StateSince                 time.Time
 	Context, FiveHour          *float64
 }
 
@@ -32,8 +33,12 @@ const maxWorkers = 64
 func renderStatus(now time.Time, rows []statusRow, unread int, lastAt time.Time) string {
 	var b strings.Builder
 	for _, r := range rows {
+		state := orDash(r.State)
+		if r.State != "" && !r.StateSince.IsZero() {
+			state += " since " + age(now, r.StateSince)
+		}
 		fmt.Fprintf(&b, "%s  [%s]  %s · status %s · turn %s · activity %s · ctx %s%% · 5h %s%%",
-			r.Label, orDash(r.Agent), orDash(r.State), age(now, r.Updated), age(now, r.TurnEnd), age(now, r.Activity),
+			r.Label, orDash(r.Agent), state, age(now, r.Updated), age(now, r.TurnEnd), age(now, r.Activity),
 			percent(r.Context), percent(r.FiveHour))
 		if r.Branch != "" {
 			branch := r.Branch
@@ -113,6 +118,7 @@ func scanWorkers(statusDir string, agents []herdr.Agent, slug string) []statusRo
 		}
 		row.Updated, _ = time.Parse(time.RFC3339, s.UpdatedAt)
 		row.TurnEnd, _ = time.Parse(time.RFC3339, s.LastTurnEnd)
+		row.StateSince, _ = time.Parse(time.RFC3339, s.StateSince)
 		if u, err := readUsage(filepath.Join(statusDir, label+".usage.json")); err == nil {
 			row.Context, row.FiveHour = u.Context, u.FiveHour
 		}

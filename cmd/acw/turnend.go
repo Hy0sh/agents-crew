@@ -16,8 +16,9 @@ const turnEndUse = "__turn-end"
 // master (see turnEndCommand): it puts in the status file what the worker
 // was trusted with and got wrong in practice. updated_at comes from the
 // file's own mtime (a worker wrote its local time with a Z), last_turn_end
-// from the clock, and blocked_on is cleared once state is no longer
-// blocked (one stayed set long after the answer came in).
+// from the clock, blocked_on is cleared once state is no longer blocked
+// (one stayed set long after the answer came in), and state_since says
+// since when the state holds (see stateSince).
 //
 // It only ever touches a JSON object: a missing file, one the worker left
 // halfway, or anything else is left exactly as it is. Safe to rewrite
@@ -46,6 +47,8 @@ func normalizeStatus(path string, now time.Time) error {
 	if _, ok := status["blocked_on"]; ok && !blockedState(status["state"]) {
 		status["blocked_on"] = ""
 	}
+	state, _ := status["state"].(string)
+	status["state_since"] = stateSince(strings.TrimSuffix(path, ".json")+".since", state, now)
 
 	out, err := json.MarshalIndent(status, "", "  ")
 	if err != nil {
@@ -57,6 +60,23 @@ func normalizeStatus(path string, now time.Time) error {
 	// Given back, so the next turn's updated_at is still the worker's own
 	// last write and not this rewrite.
 	return os.Chtimes(path, written, written)
+}
+
+// stateSince is the turn end at which acw first saw this state, for a
+// queue of workers in the same state to be ordered from the files. What
+// acw saw is kept in workerN.since and not in the status: the worker
+// rewrites its file whole, and would drop it at every write.
+func stateSince(path, state string, now time.Time) string {
+	type seen struct{ State, Since string }
+	var s seen
+	if content, err := os.ReadFile(path); err == nil && json.Unmarshal(content, &s) == nil && s.State == state && s.Since != "" {
+		return s.Since
+	}
+	s = seen{State: state, Since: now.UTC().Format(time.RFC3339)}
+	if out, err := json.Marshal(s); err == nil {
+		_ = writeAtomic(path, out, 0o644)
+	}
+	return s.Since
 }
 
 // markTurnEnd stamps workerN.turn with the turn's end, whether or not the

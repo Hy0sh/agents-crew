@@ -157,6 +157,14 @@ func LastActivity(dir string) time.Time {
 	return latest
 }
 
+// Clean reports whether the worktree at dir has no change, untracked
+// files included: closing it would lose them. A dir git cannot read is
+// not clean.
+func Clean(dir string) bool {
+	out, err := output("--no-optional-locks", "-C", dir, "status", "--porcelain", "--untracked-files=all")
+	return err == nil && len(bytes.TrimSpace(out)) == 0
+}
+
 // DeleteBranch force-deletes branch in repo.
 func DeleteBranch(repo, branch string) error {
 	_, err := run(repo, "branch", "-D", branch)

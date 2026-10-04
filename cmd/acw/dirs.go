@@ -53,19 +53,6 @@ func coderCount(workers []workerSpec) int {
 	return n
 }
 
-// stackedWorkers says which workers get an environment: the first
-// maxStacks coders, in order. A worker outside the code needs none.
-func stackedWorkers(workers []workerSpec, maxStacks int) []bool {
-	stacked := make([]bool, len(workers))
-	for i, w := range workers {
-		if w.Dir == "" && maxStacks > 0 {
-			stacked[i] = true
-			maxStacks--
-		}
-	}
-	return stacked
-}
-
 // explainStart names the likely cause when an agent never became ready:
 // Claude Code asks whether to trust a folder it has never opened, and an
 // agent started in a new master-dir or dir sits on that prompt.
