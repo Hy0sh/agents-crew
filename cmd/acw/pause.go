@@ -31,7 +31,8 @@ func resumeStacks(repo string, out io.Writer) error {
 }
 
 // eachStack runs step on every worker worktree, on the branch it is on
-// (the one wtm keys its stack by, which a worker never changes), and
+// now (the one wtm keys its stack by: a worker moves it along with wtm
+// switch at each task), and
 // reports a failing one without stopping at it. The master hears of it
 // once every worktree was tried.
 func eachStack(repo string, out io.Writer, done string, step func(dir, branch string, run runInfo) error) error {

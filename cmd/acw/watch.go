@@ -211,7 +211,7 @@ func blockedMessage(label string, count int, pane string) string {
 	msg := fmt.Sprintf("%s is blocked: probably waiting on a tool approval or a question. Last lines of its pane:\n%s",
 		label, strings.Join(lines, "\n"))
 	if count >= 2 {
-		msg = fmt.Sprintf("Block #%d for this worker since its last acw clear: it may be running into a prohibition. ", count) + msg
+		msg = fmt.Sprintf("Block #%d for this worker since its last context reset: it may be running into a prohibition. ", count) + msg
 	}
 	return msg
 }

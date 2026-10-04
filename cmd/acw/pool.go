@@ -247,7 +247,7 @@ func queueRemove(repo string, id int, out io.Writer) error {
 }
 
 // markDone frees a busy worker. A worker already free is not an error:
-// the master and pr-watch may both say a task is over.
+// the master may say twice that a task is over.
 func markDone(repo string, index int, now time.Time) (string, error) {
 	var msg string
 	err := withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {

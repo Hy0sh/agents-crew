@@ -122,9 +122,9 @@ func TestBlockedMessage(t *testing.T) {
 	if got := blockedMessage("worker2", 2, pane); !strings.HasPrefix(got, "Block #2") || !strings.Contains(got, "worker2 is blocked") {
 		t.Errorf("blockedMessage(2nd) = %q, want the repeat called out first", got)
 	}
-	// acw clear starts the count over, before each new task.
-	if got := blockedMessage("worker2", 2, pane); !strings.Contains(got, "since its last acw clear") {
-		t.Errorf("blockedMessage(2nd) = %q, want the count said to run since the last acw clear", got)
+	// The context reset before each new task starts the count over.
+	if got := blockedMessage("worker2", 2, pane); !strings.Contains(got, "since its last context reset") {
+		t.Errorf("blockedMessage(2nd) = %q, want the count said to run since the last context reset", got)
 	}
 }
 

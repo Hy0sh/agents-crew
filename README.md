@@ -170,9 +170,11 @@ exits on its own, printing "nothing new", and the master runs it again
 like after any batch. Lines written while the master
 works wait in the inbox. If the master forgets to run it again, acw types
 a reminder into its input after 5 minutes of unread messages. acw starts
-the master allowed to run its two inbox commands
-(`--allowedTools "Bash(<acw> __inbox-watch:*)" "Bash(<acw> __inbox-next:*)"`),
-and nothing broader. A master of another kind has no background commands
+a claude master allowed to run `acw status`, `acw queue` and `acw done`,
+plus its two inbox commands when it reads an inbox
+(`--allowedTools "Bash(<acw> __inbox-watch:*)" "Bash(<acw> __inbox-next:*)"
+"Bash(<acw> status:*)" "Bash(<acw> queue:*)" "Bash(<acw> done:*)"`), and
+nothing broader. A master of another kind has no background commands
 and still gets messages typed in.
 
 acw also starts a watcher next to the swarm, `acw __watch` (log in
@@ -182,7 +184,7 @@ state of each worker and writes to the master when:
 
 - a worker becomes `blocked` (a tool approval or a question): the message
   carries the last lines of its pane, and from that worker's second block
-  since its last `acw clear` (so within one task), a hint that it may be
+  since its last context reset (so within one task), a hint that it may be
   hitting a forbidden call.
   Some prompts show as `idle` rather than `blocked` in herdr, so a claude
   worker gone idle for 15 s without its Stop hook having run gets the same
@@ -267,9 +269,10 @@ acw resume
   the master hears of both in its inbox. Without a terminal wtm asks
   nothing and starts even when memory is tight; its warning is shown as is.
 
-`status` and `clear` take `--repo` because the master may run elsewhere
-(`master-dir`): its brief hands it both commands fully written, and it is
-started allowed to run them. They read what acw keeps in the status
+`status`, `queue` and `done` take `--repo` because the master may run
+elsewhere (`master-dir`): its brief hands it those commands fully
+written, and it is started allowed to run them. `clear` and `dispatch`
+take it too, for you. They read what acw keeps in the status
 directory, including the claude workers' status line, which acw sets to its
 own (`ctx 34% · 5h 78%`) in place of the user's, to record that usage.
 
