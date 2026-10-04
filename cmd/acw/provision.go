@@ -92,8 +92,17 @@ func openWorker(repo string, index int) {
 	if stacked {
 		if err := adoptAlone(pw.Worktree, plan.Profile); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: wtm adopt failed, it goes on without a dedicated environment: %v\n", name, err)
+			// wtm records the index and the path before it starts the
+			// stack: an unknown profile, a port clash or a missing dump
+			// left them behind, with volumes and sometimes containers.
+			if branch, err := gitutil.CurrentBranch(pw.Worktree); err == nil {
+				if err := wtm.Remove(pw.Worktree, branch); err != nil {
+					fmt.Fprintf(os.Stderr, "%s: undoing the failed adopt: %v\n", name, err)
+				}
+			}
 			stacked = false
-			opened += ", WITHOUT its environment (wtm adopt failed): give it no task that needs one"
+			opened += ", WITHOUT its environment (wtm adopt failed): give it no task that needs one, " +
+				"and tell it never to run wtm switch, which it was allowed before the adopt failed"
 		} else {
 			opened += " with its environment"
 			if err := teardown.MarkStacked(pw.Worktree); err != nil {
