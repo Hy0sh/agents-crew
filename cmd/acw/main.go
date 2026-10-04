@@ -295,11 +295,7 @@ func main() {
 			if err := preflight.CheckStop(); err != nil {
 				return err
 			}
-			cwd, err := os.Getwd()
-			if err != nil {
-				return err
-			}
-			return teardown.Run(stackedIn(cwd))
+			return teardown.Run()
 		},
 	}
 

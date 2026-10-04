@@ -109,6 +109,13 @@ func WorktreeAdd(repo, path, branch, baseRef string) error {
 	return err
 }
 
+// GitDir is the private git directory of the worktree at dir (for a linked
+// worktree, .git/worktrees/<name> of its repo): it goes with the worktree
+// and is never committed.
+func GitDir(dir string) (string, error) {
+	return run(dir, "rev-parse", "--absolute-git-dir")
+}
+
 // CurrentBranch returns the branch checked out in dir.
 func CurrentBranch(dir string) (string, error) {
 	return run(dir, "rev-parse", "--abbrev-ref", "HEAD")

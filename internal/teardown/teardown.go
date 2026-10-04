@@ -19,9 +19,8 @@ import (
 // printing progress to stdout and non-fatal errors to stderr. It returns
 // nil even when there was nothing to tear down. Scoped to the current
 // directory, not global: a swarm running for a different repo is left
-// alone, so several can run at once. stacked says whether wtm gave the
-// worktree at a dir a stack (see Worktree).
-func Run(stacked func(dir string) bool) error {
+// alone, so several can run at once.
+func Run() error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
@@ -49,7 +48,7 @@ func Run(stacked func(dir string) bool) error {
 	// even exists, let alone before `herdr agent start` names it — a stop
 	// run during that window found nothing to clean up otherwise, leaving
 	// real Docker stacks orphaned despite reporting success.
-	cleanupWorkerWorktrees(repo, stacked)
+	cleanupWorkerWorktrees(repo)
 
 	fmt.Print("Closing the Herdr workspace and its agents... ")
 	if err := herdr.WorkspaceClose(workspaceID, true); err != nil {
@@ -93,52 +92,81 @@ func WorkerWorktrees(repo string) []string {
 	return dirs
 }
 
-func cleanupWorkerWorktrees(repo string, stacked func(dir string) bool) {
+func cleanupWorkerWorktrees(repo string) {
 	for _, dir := range WorkerWorktrees(repo) {
-		Worktree(repo, dir, stacked(dir))
+		Worktree(repo, dir)
 	}
+}
+
+// stackedMark is the file, in a worktree's private git dir, that says acw
+// got it a wtm stack. Not in pool.json, which acw stop removes and every
+// start rewrites: a worktree kept for its stack must still be known as
+// stacked by the next run's acw stop. It goes with the worktree.
+const stackedMark = "acw-stacked"
+
+// MarkStacked records that the worktree at dir got a wtm stack.
+func MarkStacked(dir string) error {
+	gitDir, err := gitutil.GitDir(dir)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(gitDir, stackedMark), nil, 0o644)
+}
+
+// Stacked reports whether acw got the worktree at dir a wtm stack.
+func Stacked(dir string) bool {
+	gitDir, err := gitutil.GitDir(dir)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(filepath.Join(gitDir, stackedMark))
+	return err == nil
+}
+
+// errNoBranch stands for a worktree whose branch cannot be named to wtm:
+// unreadable, or a detached HEAD.
+var errNoBranch = errors.New("no branch to name")
+
+// Repair says why wtm could not reach the stack of a stacked worktree on
+// branch, from what it answered (err), and what to do about it.
+func Repair(dir, branch string, err error) string {
+	switch {
+	case branch == "HEAD":
+		return fmt.Sprintf("%s is on a detached HEAD (a rebase in progress?): finish or abort it, then run this again", dir)
+	case errors.Is(err, errNoBranch):
+		return fmt.Sprintf("the branch of %s could not be read: fix the worktree, then run this again", dir)
+	case errors.Is(err, wtm.ErrUnregistered):
+		return "its project is no longer in wtm's registry, so wtm can no longer reach its stack: register the project again, then run this again"
+	case errors.Is(err, wtm.ErrNoStack):
+		return wtm.StrandedHint(dir, branch)
+	case err != nil:
+		return fmt.Sprintf("wtm failed (%v): run this again once fixed", err)
+	}
+	return ""
 }
 
 // Worktree releases one worker worktree: its environment, the worktree,
 // and the branch acw cut for it. The task branch it was left on stays.
 // acw stop runs it on every worker; the elastic pool on a worker it
-// closes. When wtm gave it a stack (stacked) but has none under its
-// current branch, the worktree is kept and Worktree returns why: removed,
-// it would leave that stack running with nothing left to find it by.
-func Worktree(repo, dir string, stacked bool) (kept string) {
+// closes. When acw got it a stack and wtm could not remove that stack,
+// the worktree is kept and Worktree returns why: removed, it would leave
+// the stack running with nothing left to find it by.
+func Worktree(repo, dir string) (kept string) {
 	name := filepath.Base(dir)
+	stacked := Stacked(dir)
 	branch, err := gitutil.CurrentBranch(dir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s: resolving the branch: %v\n", name, err)
-		return
+		if !stacked {
+			return ""
+		}
+		branch = ""
 	}
 	fmt.Printf("%s (%s):\n", name, branch)
 
-	if wtm.Available() {
-		// Removed whether it runs or was stopped (acw pause, a reboot): a
-		// stopped stack wtm still lists is one nobody will clean up.
-		fmt.Print("  removing the environment (containers, volumes, images)... ")
-		err := wtm.Remove(dir, branch)
-		switch {
-		case stacked && err != nil:
-			// Not found under its branch, or not removed: either way it
-			// may still run, and the worktree is what leads back to it.
-			kept = wtm.StrandedHint(dir, branch)
-			if !errors.Is(err, wtm.ErrNoStack) {
-				kept = fmt.Sprintf("wtm remove failed (%v); run it again from %s", err, dir)
-			}
-			fmt.Printf("not removed, worktree kept: %s.\n", kept)
-			return kept
-		case errors.Is(err, wtm.ErrNoStack):
-			// A worktree wtm never gave a stack to (beyond max-stacks, a
-			// failed adopt, a repo wtm doesn't know): nothing to remove.
-			fmt.Println("none.")
-		case err != nil:
-			fmt.Println("failed, see below.")
-			fmt.Fprintf(os.Stderr, "%s: wtm remove: %v\n", name, err)
-		default:
-			fmt.Println("done.")
-		}
+	if kept = removeStack(dir, name, branch, stacked); kept != "" {
+		fmt.Printf("  stack not removed, worktree kept: %s.\n", kept)
+		return kept
 	}
 
 	if err := gitutil.WorktreeRemove(repo, dir); err != nil {
@@ -161,5 +189,46 @@ func Worktree(repo, dir string, stacked bool) (kept string) {
 		return
 	}
 	fmt.Printf("  worktree and branch %s removed.\n", branch)
+	return ""
+}
+
+// removeStack removes the worktree's stack, whether it runs or was stopped
+// (acw pause, a reboot): a stopped stack wtm still lists is one nobody will
+// clean up. For a stacked worktree it returns why the stack is still
+// there, "" once it is gone or when there never was one.
+func removeStack(dir, name, branch string, stacked bool) string {
+	if !wtm.Available() {
+		if stacked {
+			return fmt.Sprintf("wtm is not on PATH, so its stack could not be removed: run `wtm remove %s` from %s", branch, dir)
+		}
+		return ""
+	}
+	fmt.Print("  removing the environment (containers, volumes, images)... ")
+	err := errNoBranch
+	if branch != "" && branch != "HEAD" {
+		err = wtm.Remove(dir, branch)
+	}
+	if err != nil && stacked && !errors.Is(err, wtm.ErrUnregistered) {
+		// The branch acw adopted the worktree under: moved away from it
+		// without wtm switch, the worktree left that index behind, which
+		// wtm takes as stale and takes down.
+		if wtm.Remove(dir, "agents/"+name) == nil {
+			err = nil
+		}
+	}
+	switch {
+	case err == nil:
+		fmt.Println("done.")
+	case stacked:
+		fmt.Println("failed.")
+		return Repair(dir, branch, err)
+	case errors.Is(err, wtm.ErrNoStack), errors.Is(err, wtm.ErrUnregistered), errors.Is(err, errNoBranch):
+		// A worktree acw never got a stack (beyond max-stacks, a failed
+		// adopt, a repo wtm doesn't know): nothing to remove.
+		fmt.Println("none.")
+	default:
+		fmt.Println("failed, see below.")
+		fmt.Fprintf(os.Stderr, "%s: wtm remove: %v\n", name, err)
+	}
 	return ""
 }

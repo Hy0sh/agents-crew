@@ -41,23 +41,28 @@ func eachStack(repo string, out io.Writer, done string, step func(dir, branch, p
 		return err
 	}
 	failed := 0
-	stacked := stackedIn(repo)
 	for _, dir := range teardown.WorkerWorktrees(repo) {
 		name := filepath.Base(dir)
+		stacked := teardown.Stacked(dir)
 		branch, err := gitutil.CurrentBranch(dir)
-		if err == nil {
+		switch {
+		case err != nil:
+		case branch == "HEAD" && stacked:
+			err = errors.New(teardown.Repair(dir, branch, nil))
+		case branch != "HEAD":
 			err = step(dir, branch, p.Plan.Profile)
 		}
 		// A worker beyond max-stacks, or whose adopt failed, has a worktree
-		// wtm never gave a stack to: nothing to stop or start there. One wtm
-		// gave a stack to and no longer finds it under its branch is a
-		// failure: that stack is still up, out of acw's reach.
-		if errors.Is(err, wtm.ErrNoStack) && !stacked(dir) {
+		// acw never got a stack: nothing to stop or start there. One that
+		// got one and that wtm no longer reaches is a failure: that stack
+		// may still be up, out of acw's reach.
+		noStack := errors.Is(err, wtm.ErrNoStack) || errors.Is(err, wtm.ErrUnregistered)
+		if !stacked && (noStack || branch == "HEAD") {
 			fmt.Fprintf(out, "%s: no stack, skipped.\n", name)
 			continue
 		}
-		if errors.Is(err, wtm.ErrNoStack) {
-			err = errors.New(wtm.StrandedHint(dir, branch))
+		if noStack {
+			err = errors.New(teardown.Repair(dir, branch, err))
 		}
 		if err != nil {
 			failed++

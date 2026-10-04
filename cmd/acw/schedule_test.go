@@ -76,6 +76,16 @@ func TestScheduleStackCap(t *testing.T) {
 	}
 }
 
+// A stack kept with a closed worker's worktree still takes its room.
+func TestScheduleCountsHeldStacks(t *testing.T) {
+	p := testPool(4, 2)
+	p.Held = 1
+	got := schedule(p, tasks(queuedTask{ID: 1}, queuedTask{ID: 2}), nil, t0)
+	if !slices.Equal(got, []poolAction{{Kind: actOpen, Worker: 1, Stacked: true}}) {
+		t.Errorf("schedule() = %+v, want one opening: the held stack takes the other place", got)
+	}
+}
+
 // A task named for a worker waits for that one, opened if it is not; a
 // worker set apart only takes what is named for it.
 func TestScheduleAffinityAndOverrides(t *testing.T) {

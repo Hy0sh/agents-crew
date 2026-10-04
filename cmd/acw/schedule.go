@@ -20,7 +20,8 @@ import (
 //     ready for one;
 //   - a task no free worker can take opens the lowest worker not open,
 //     within the configured count and, for a worker in the code when the
-//     repo has stacks, within max-stacks; a worker already opening is
+//     repo has stacks, within max-stacks, which also counts the stacks
+//     kept with a closed worker's worktree; a worker already opening is
 //     counted for the first task waiting on it;
 //   - a held task (Error) is skipped;
 //   - general-purpose workers are opened up to min-workers with nothing
@@ -60,7 +61,7 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 	n := len(p.Plan.Workers)
 	spec := func(i int) workerSpec { return p.Plan.Workers[i-1] }
 	open := map[int]bool{}
-	stacks := 0
+	stacks := p.Held
 	var opening []int // generic workers coming up, not yet counted for a task
 	for _, w := range p.Workers {
 		open[w.Index] = true

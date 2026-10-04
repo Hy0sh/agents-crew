@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Hy0sh/agents-crew/internal/names"
+	"github.com/Hy0sh/agents-crew/internal/teardown"
 )
 
 // fakeSwarm is a repo with one worker worktree on its own branch, a status
@@ -87,24 +88,22 @@ func TestPauseSkipsAWorktreeWithoutAStack(t *testing.T) {
 	}
 }
 
-// The same answer for a worker the pool knows wtm gave a stack to: the
-// stack is up under another branch, so pause says so and fails.
+// The same answer for a worktree acw got a stack: the stack is up under
+// another branch, so pause says so and fails.
 func TestPauseFailsOnAStrandedStack(t *testing.T) {
 	repo, calls := fakeSwarm(t, "")
 	script := "#!/bin/sh\necho 'Error: no worktree for branch \"'$2'\"' >&2\nexit 1\n"
 	if err := os.WriteFile(filepath.Join(filepath.Dir(calls), "wtm"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	wt := names.WorkerWorktree(repo, 1, "20260925140000")
-	pool := poolState{Plan: provisionPlan{Repo: repo, Inbox: names.Inbox(repo)}, Workers: []poolWorker{{Index: 1, Worktree: wt, Stacked: true, State: workerBusy}}}
-	if err := writeJSON(names.PoolFile(repo), pool); err != nil {
+	if err := teardown.MarkStacked(names.WorkerWorktree(repo, 1, "20260925140000")); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
 	if err := pauseStacks(repo, &out); err == nil {
 		t.Error("pauseStacks() = nil, want a failure for a stack out of reach")
 	}
-	if !strings.Contains(out.String(), "wtm switch") {
+	if !strings.Contains(out.String(), "wtm list") {
 		t.Errorf("output = %q, want the repair named", out.String())
 	}
 }

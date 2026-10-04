@@ -45,8 +45,7 @@ func openWorker(repo string, index int) {
 			_ = herdr.PaneClose(pane)
 		}
 		if pw.Worktree != "" {
-			// Not adopted yet: an opening fails before its stack.
-			teardown.Worktree(repo, pw.Worktree, false)
+			teardown.Worktree(repo, pw.Worktree)
 		}
 		_ = withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
 			p.remove(index)
@@ -97,6 +96,9 @@ func openWorker(repo string, index int) {
 			opened += ", WITHOUT its environment (wtm adopt failed): give it no task that needs one"
 		} else {
 			opened += " with its environment"
+			if err := teardown.MarkStacked(pw.Worktree); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: recording its stack: %v\n", name, err)
+			}
 			// wtm skips clashing ports when it allocates, but not against
 			// worktrees recorded before it learnt to, nor other projects:
 			// a stack then failed to start and doctor only told afterwards.
@@ -222,11 +224,9 @@ func closeWorker(repo string, w poolWorker, why string) {
 			fmt.Fprintf(os.Stderr, "%s: herdr pane close: %v\n", w.label(), err)
 		}
 	}
-	var stranded string
 	if w.Worktree != "" {
-		if kept := teardown.Worktree(repo, w.Worktree, w.Stacked); kept != "" {
+		if kept := teardown.Worktree(repo, w.Worktree); kept != "" {
 			why += fmt.Sprintf(". Its worktree %s is KEPT: %s. Tell me", w.Worktree, kept)
-			stranded = w.Worktree
 		}
 	}
 	files, _ := filepath.Glob(filepath.Join(names.StatusDir(repo), w.label()+".*"))
@@ -237,9 +237,6 @@ func closeWorker(repo string, w poolWorker, why string) {
 	}
 	_ = withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
 		p.remove(w.Index)
-		if stranded != "" {
-			p.Stranded = append(p.Stranded, stranded)
-		}
 		return true, nil
 	})
 	tell(plan.Plan, w.label()+" closed: "+why+".")

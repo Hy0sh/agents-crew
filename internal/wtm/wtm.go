@@ -21,10 +21,14 @@ func Available() bool {
 	return err == nil
 }
 
-// ErrNoStack is a worktree wtm never gave a stack to (a worker beyond
-// max-stacks, a failed adopt, an unregistered project): nothing to stop
-// or start there, which callers treat as a skip, not a failure.
+// ErrNoStack is wtm finding no stack under the branch it was given: a
+// worktree it never gave one to (a worker beyond max-stacks, a failed
+// adopt), or one that changed branch without wtm switch.
 var ErrNoStack = errors.New("no wtm stack for this worktree")
+
+// ErrUnregistered is a project wtm does not know: it reaches none of its
+// stacks, whatever the branch.
+var ErrUnregistered = errors.New("project not registered in wtm")
 
 func run(dir string, args ...string) error {
 	return runTo(dir, io.Discard, args...)
@@ -39,8 +43,11 @@ func runTo(dir string, out io.Writer, args ...string) error {
 	cmd.Stdout, cmd.Stderr = out, io.MultiWriter(out, &stderr)
 	if err := cmd.Run(); err != nil {
 		msg := stderr.String()
-		if strings.Contains(msg, "no worktree for branch") || strings.Contains(msg, "is not registered") {
+		switch {
+		case strings.Contains(msg, "no worktree for branch"):
 			err = fmt.Errorf("%w: %w", ErrNoStack, err)
+		case strings.Contains(msg, "is not registered"):
+			err = fmt.Errorf("%w: %w", ErrUnregistered, err)
 		}
 		return fmt.Errorf("wtm %v (in %s): %w: %s", args, dir, err, msg)
 	}
@@ -96,12 +103,12 @@ func Stop(dir, branch string) error {
 
 // Remove takes the stack down, running or stopped, and releases its index
 // and its volumes, so wtm's list holds no stack acw is done with. Same
-// requirement as Stop: the branch is a mandatory argument. --force: wtm
-// refuses a worktree with changes otherwise and leaves its stack up,
-// while the caller removes that worktree anyway. A worktree wtm did not
-// create (acw's) keeps its directory; only wtm's files go.
+// requirement as Stop: the branch is a mandatory argument. A worktree wtm
+// did not create (acw's) keeps its directory, only wtm's files go, and
+// wtm never asks --force for one. A branch whose index no worktree holds
+// any more is taken as stale: its stack goes, its index is released.
 func Remove(dir, branch string) error {
-	return run(dir, "remove", branch, "--force")
+	return run(dir, "remove", branch)
 }
 
 // StrandedHint says why a worktree wtm gave a stack to has none under its
@@ -109,9 +116,12 @@ func Remove(dir, branch string) error {
 // branch it was made for, and a plain git switch in the worktree left it
 // there, running.
 func StrandedHint(dir, branch string) string {
-	return fmt.Sprintf("its stack was not found under its current branch %s: the worktree probably changed branch without wtm switch, "+
-		"and its stack still runs under the old one. From %s, run `wtm switch %s` to bring the stack along, "+
-		"or `wtm list` to find the branch it is registered under and `wtm remove <that branch>`", branch, dir, branch)
+	hint := fmt.Sprintf("its stack was not found under its current branch %s: the worktree probably changed branch without wtm switch, "+
+		"and its stack still runs under the old one. Run `wtm list` to find the branch it is registered under and `wtm remove <that branch>`", branch)
+	if SwitchAvailable() {
+		hint += fmt.Sprintf(", or, from %s, `wtm switch %s`, which takes the old stack down with its volumes and starts one on a fresh dump", dir, branch)
+	}
+	return hint
 }
 
 // Registered reports whether dir is a project in wtm's registry: an

@@ -16,6 +16,7 @@ import (
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
+	"github.com/Hy0sh/agents-crew/internal/teardown"
 )
 
 // The elastic pool: acw starts no worker, the master queues tasks, and
@@ -61,27 +62,23 @@ type poolState struct {
 	MinWorkers       int           `json:"min_workers"`
 	IdleCloseMinutes int           `json:"idle_close_minutes"`
 	Workers          []poolWorker  `json:"workers"`
-	// Stranded lists the worktrees a close kept because wtm no longer
-	// found their stack (see closeWorker): acw stop must keep them too.
-	Stranded []string `json:"stranded,omitempty"`
+	// Held is how many stacks still take room with no open worker: kept
+	// with their worktree because wtm could not remove them (see
+	// teardown.Worktree). Read from the disk at every poll, never saved.
+	Held int `json:"-"`
 }
 
-// stackedIn says whether wtm gave the worktree at dir a stack, from the
-// pool of repo's swarm: an open worker with one, or a worktree a close
-// kept for that reason. False without a pool.
-func stackedIn(repo string) func(dir string) bool {
-	p, _, err := readPool(repo)
-	return func(dir string) bool {
-		if err != nil {
-			return false
+// heldStacks counts the worker worktrees of repo that acw got a stack and
+// that no open worker holds: each is a stack that may still run.
+func heldStacks(repo string, p poolState) int {
+	n := 0
+	for _, dir := range teardown.WorkerWorktrees(repo) {
+		open := slices.ContainsFunc(p.Workers, func(w poolWorker) bool { return realPath(w.Worktree) == realPath(dir) })
+		if !open && teardown.Stacked(dir) {
+			n++
 		}
-		for _, w := range p.Workers {
-			if w.Stacked && realPath(w.Worktree) == realPath(dir) {
-				return true
-			}
-		}
-		return slices.ContainsFunc(p.Stranded, func(s string) bool { return realPath(s) == realPath(dir) })
 	}
+	return n
 }
 
 func (p *poolState) worker(index int) *poolWorker {
