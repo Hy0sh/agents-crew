@@ -118,9 +118,11 @@ runs is acw's, from fixed rules a model cannot bend:
   it with `--worker workerN`; the others take everything else. `--worker`
   is also how a fix after a KO goes back to the worker that has the
   context.
-- A task ends when the master runs `acw done workerN`, after checking its
-  result: never on the worker's word, nor on a merged PR, since acw cannot
-  tell which task a PR belongs to.
+- A task ends when the master runs `acw done workerN <id>`, after
+  checking its result: never on the worker's word, nor on a merged PR,
+  since acw cannot tell which task a PR belongs to. With the id, a done
+  for a task already over is refused instead of freeing the worker from
+  the next one acw just handed it.
 - A free worker with nothing queued for it is closed after
   `idle-close-minutes`, unless that would take the pool under
   `min-workers`: its pane and agent, its stack and worktree. Its task
@@ -170,9 +172,11 @@ exits on its own, printing "nothing new", and the master runs it again
 like after any batch. Lines written while the master
 works wait in the inbox. If the master forgets to run it again, acw types
 a reminder into its input after 5 minutes of unread messages. acw starts
-the master allowed to run its two inbox commands
-(`--allowedTools "Bash(<acw> __inbox-watch:*)" "Bash(<acw> __inbox-next:*)"`),
-and nothing broader. A master of another kind has no background commands
+a claude master allowed to run `acw status`, `acw queue` and `acw done`,
+plus its two inbox commands when it reads an inbox
+(`--allowedTools "Bash(<acw> __inbox-watch:*)" "Bash(<acw> __inbox-next:*)"
+"Bash(<acw> status:*)" "Bash(<acw> queue:*)" "Bash(<acw> done:*)"`), and
+nothing broader. A master of another kind has no background commands
 and still gets messages typed in.
 
 acw also starts a watcher next to the swarm, `acw __watch` (log in
@@ -182,7 +186,7 @@ state of each worker and writes to the master when:
 
 - a worker becomes `blocked` (a tool approval or a question): the message
   carries the last lines of its pane, and from that worker's second block
-  since its last `acw clear` (so within one task), a hint that it may be
+  since its last context reset (so within one task), a hint that it may be
   hitting a forbidden call.
   Some prompts show as `idle` rather than `blocked` in herdr, so a claude
   worker gone idle for 15 s without its Stop hook having run gets the same
@@ -212,7 +216,12 @@ environment, the worktrees themselves, the shared status directory, and the
 Herdr workspace. A swarm running for a different repo is left alone. A
 worker's task branch is kept with its commits, pushed or not; only the
 `agents/workerN-…` branch acw cut for it is deleted, and only when nothing
-was committed on it.
+was committed on it. A worktree wtm gave a stack to but no longer finds it
+under (the worktree changed branch without `wtm switch`) is kept, with the
+repair said: removed, it would leave that stack running with nothing to
+find it by. A worker closed by the pool does the same and tells the
+master; `acw pause` and `acw resume` keep nothing and fail on that
+worktree, with the same repair.
 **Closing the terminal does nothing** — Herdr is a persistent server that
 outlives it, and so do any environments workers started. `acw stop` is the
 only way to actually stop it.
@@ -220,7 +229,7 @@ only way to actually stop it.
 ```sh
 acw status [--repo <dir>]
 acw queue [--repo <dir>] [add <brief-file> [--branch <b>] [--worker workerN] [--top] | move <id> <pos> | remove <id>]
-acw done [--repo <dir>] workerN
+acw done [--repo <dir>] workerN [task-id]
 acw clear [--repo <dir>] worker1 [worker2...]
 acw dispatch [--repo <dir>] worker1 <brief-file>
 acw pause
@@ -251,10 +260,14 @@ acw resume
   file's content typed into its prompt. A blank or unreadable brief is
   refused before anything is sent. With `--branch <b>` (a fix or a rebase
   on a known branch) it first runs `git fetch` and puts the worker on that
-  branch: through `wtm switch` for a worker with a wtm stack when wtm has
-  it (0.26.0 or later), which also gives the stack a fresh dump on the same
-  ports, else plain `git switch`. It refuses a branch another worktree
-  holds, and never stashes. Without `--branch` the worker names its branch
+  branch: through `wtm switch` for a worker with a wtm stack, which moves
+  the stack along on the same ports, and refuses that worker when wtm
+  has no switch (before 0.26.0), since a plain `git switch` would leave
+  its stack behind; plain `git switch` for a worker without one. The
+  stack only gets a fresh dump when the branch changes: put back on the
+  branch it is already on (a fix after a KO), it restarts with its data
+  as it was. It refuses a branch another worktree holds, and never
+  stashes. Without `--branch` the worker names its branch
   itself; the brief tells workers with a stack to create it with `wtm
   switch`.
 - `acw pause` stops the workers' stacks (`wtm stop`) for a break, and `acw
@@ -263,9 +276,10 @@ acw resume
   the master hears of both in its inbox. Without a terminal wtm asks
   nothing and starts even when memory is tight; its warning is shown as is.
 
-`status` and `clear` take `--repo` because the master may run elsewhere
-(`master-dir`): its brief hands it both commands fully written, and it is
-started allowed to run them. They read what acw keeps in the status
+`status`, `queue` and `done` take `--repo` because the master may run
+elsewhere (`master-dir`): its brief hands it those commands fully
+written, and it is started allowed to run them. `clear` and `dispatch`
+take it too, for you. They read what acw keeps in the status
 directory, including the claude workers' status line, which acw sets to its
 own (`ctx 34% · 5h 78%`) in place of the user's, to record that usage.
 

@@ -50,7 +50,7 @@ func TestBuildHandsTheMasterTheQueue(t *testing.T) {
 		"`" + p.QueueCommand + " add <brief-file>`",
 		"`" + p.QueueCommand + " move <id> <position>`",
 		"--top", "--worker workerN",
-		"`" + p.DoneCommand + " workerN`",
+		"`" + p.DoneCommand + " workerN <id>`",
 		"up to 2", "free for 10 min",
 	} {
 		if !strings.Contains(got, want) {
@@ -384,7 +384,7 @@ func TestBuildPRWatchParagraphOnlyWhenOn(t *testing.T) {
 	}
 	p.PRWatch = true
 	got := Build(p)
-	for _, want := range []string{"PR #", "dispatch a rebase", "never draft a review reply", "PR watch failing"} {
+	for _, want := range []string{"PR #", "queue a rebase", "never draft a review reply", "PR watch failing"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("brief with pr-watch is missing %q", want)
 		}

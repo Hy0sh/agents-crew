@@ -93,7 +93,7 @@ func TestOwnsRun(t *testing.T) {
 	if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeRunInfo(repo, runInfo{Stamp: "20260925140000"}); err != nil {
+	if err := writeJSON(names.PoolFile(repo), poolState{Plan: provisionPlan{Stamp: "20260925140000"}}); err != nil {
 		t.Fatal(err)
 	}
 	if !ownsRun(repo, "20260925140000") {
@@ -101,6 +101,12 @@ func TestOwnsRun(t *testing.T) {
 	}
 	if ownsRun(repo, "20260925090000") {
 		t.Error("owns a status dir stamped by a later run")
+	}
+	if err := os.WriteFile(names.QueueFile(repo), []byte("{broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !ownsRun(repo, "20260925140000") {
+		t.Error("an unreadable queue made the watcher give up its run")
 	}
 }
 
@@ -122,9 +128,9 @@ func TestBlockedMessage(t *testing.T) {
 	if got := blockedMessage("worker2", 2, pane); !strings.HasPrefix(got, "Block #2") || !strings.Contains(got, "worker2 is blocked") {
 		t.Errorf("blockedMessage(2nd) = %q, want the repeat called out first", got)
 	}
-	// acw clear starts the count over, before each new task.
-	if got := blockedMessage("worker2", 2, pane); !strings.Contains(got, "since its last acw clear") {
-		t.Errorf("blockedMessage(2nd) = %q, want the count said to run since the last acw clear", got)
+	// The context reset before each new task starts the count over.
+	if got := blockedMessage("worker2", 2, pane); !strings.Contains(got, "since its last context reset") {
+		t.Errorf("blockedMessage(2nd) = %q, want the count said to run since the last context reset", got)
 	}
 }
 

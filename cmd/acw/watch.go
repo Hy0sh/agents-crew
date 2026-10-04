@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Hy0sh/agents-crew/internal/herdr"
@@ -35,13 +36,15 @@ type watchPlan struct {
 }
 
 // ownsRun reports whether repo's status dir still belongs to the run
-// stamped stamp (see runInfo). A watcher can outlive its swarm: acw stop
-// only removes the dir once it found the master, and a stop then a start
-// within one poll recreates it at once, for a new swarm with the same
-// worker names.
+// stamped stamp, the one its pool was written for. A watcher can outlive
+// its swarm: acw stop only removes the dir once it found the master, and
+// a stop then a start within one poll recreates it at once, for a new
+// swarm with the same worker names.
 func ownsRun(repo, stamp string) bool {
-	run, err := readRunInfo(repo)
-	return err == nil && run.Stamp == stamp
+	// pool.json alone: a queue.json the master left unreadable must not
+	// stop the watcher for good.
+	p, err := readPoolFile(repo)
+	return err == nil && p.Plan.Stamp == stamp
 }
 
 // runWatch polls the workers every interval until acw stop removes the
@@ -58,6 +61,14 @@ func runWatch(plan watchPlan, interval time.Duration) {
 		prs = newPRWatcher(plan.PRWatchRepo)
 	}
 	dirtyTold := map[int]bool{}
+	// Held until every opening, close and dispatch it started is over:
+	// acw stop waits for it, so none of them runs during its teardown.
+	if lock, err := os.OpenFile(names.WatchLock(plan.Repo), os.O_CREATE|os.O_RDWR, 0o644); err == nil {
+		if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err == nil {
+			defer lock.Close()
+		}
+	}
+	defer inflight.Wait()
 	for {
 		if !ownsRun(plan.Repo, plan.Stamp) {
 			return
@@ -118,6 +129,7 @@ func runWatch(plan watchPlan, interval time.Duration) {
 				}
 			}
 		}
+		pool.Held = heldStacks(plan.Repo, pool)
 		runPool(plan.Repo, pool, queue, pollWorkers(pool, agents, statusDir, now), now, dirtyTold)
 		if plan.Inbox != "" {
 			info, err := os.Stat(plan.Inbox)
@@ -211,7 +223,7 @@ func blockedMessage(label string, count int, pane string) string {
 	msg := fmt.Sprintf("%s is blocked: probably waiting on a tool approval or a question. Last lines of its pane:\n%s",
 		label, strings.Join(lines, "\n"))
 	if count >= 2 {
-		msg = fmt.Sprintf("Block #%d for this worker since its last acw clear: it may be running into a prohibition. ", count) + msg
+		msg = fmt.Sprintf("Block #%d for this worker since its last context reset: it may be running into a prohibition. ", count) + msg
 	}
 	return msg
 }

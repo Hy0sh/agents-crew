@@ -9,10 +9,11 @@ import (
 	"testing"
 
 	"github.com/Hy0sh/agents-crew/internal/names"
+	"github.com/Hy0sh/agents-crew/internal/teardown"
 )
 
 // fakeSwarm is a repo with one worker worktree on its own branch, a status
-// dir and run.json, and a fake wtm first on PATH that records its calls.
+// dir and its pool, and a fake wtm first on PATH that records its calls.
 // It returns the repo and the file the calls land in.
 func fakeSwarm(t *testing.T, profile string) (repo, calls string) {
 	t.Helper()
@@ -29,7 +30,7 @@ func fakeSwarm(t *testing.T, profile string) (repo, calls string) {
 	if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeRunInfo(repo, runInfo{Profile: profile, MasterName: "master-test", Inbox: names.Inbox(repo)}); err != nil {
+	if err := writeJSON(names.PoolFile(repo), poolState{Plan: provisionPlan{Repo: repo, Profile: profile, Inbox: names.Inbox(repo)}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -84,6 +85,26 @@ func TestPauseSkipsAWorktreeWithoutAStack(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "no stack") {
 		t.Errorf("output = %q, want the skip said", out.String())
+	}
+}
+
+// The same answer for a worktree acw got a stack: the stack is up under
+// another branch, so pause says so and fails.
+func TestPauseFailsOnAStrandedStack(t *testing.T) {
+	repo, calls := fakeSwarm(t, "")
+	script := "#!/bin/sh\necho 'Error: no worktree for branch \"'$2'\"' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(filepath.Dir(calls), "wtm"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := teardown.MarkStacked(names.WorkerWorktree(repo, 1, "20260925140000")); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := pauseStacks(repo, &out); err == nil {
+		t.Error("pauseStacks() = nil, want a failure for a stack out of reach")
+	}
+	if !strings.Contains(out.String(), "wtm list") {
+		t.Errorf("output = %q, want the repair named", out.String())
 	}
 }
 

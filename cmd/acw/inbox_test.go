@@ -144,7 +144,7 @@ func TestInboxWatchCommand(t *testing.T) {
 // command the brief gives, and only that command.
 func TestMasterArgsAllowOnlyTheInboxWatch(t *testing.T) {
 	watch, _ := inboxWatchCommand("claude", "", "/bin/acw", "/repo/inbox")
-	got := masterArgs("opus", "/bin/acw", watch)
+	got := masterArgs("claude", "opus", "/bin/acw", watch)
 	i := slices.Index(got, "--allowedTools")
 	if i < 0 || i+1 >= len(got) || got[i+1] != "Bash(/bin/acw __inbox-watch:*)" {
 		t.Errorf("masterArgs() = %v, want --allowedTools Bash(/bin/acw __inbox-watch:*)", got)
@@ -173,8 +173,17 @@ func TestMasterArgsAllowOnlyTheInboxWatch(t *testing.T) {
 		t.Errorf("masterArgs() = %v, dropped the model", got)
 	}
 
-	if got := masterArgs("opus", "/bin/acw", ""); slices.Contains(got, "--allowedTools") {
-		t.Errorf("masterArgs() without inbox = %v; --allowedTools is Claude Code's own flag", got)
+	// A claude master with a custom brief that reads no inbox still runs
+	// status, queue and done: without the rules every acw queue add would
+	// stop on an approval.
+	got = masterArgs("claude", "opus", "/bin/acw", "")
+	want := []string{"--model", "opus", "--allowedTools", "Bash(/bin/acw status:*)", "Bash(/bin/acw queue:*)", "Bash(/bin/acw done:*)"}
+	if !slices.Equal(got, want) {
+		t.Errorf("masterArgs(claude, no inbox) = %v, want %v", got, want)
+	}
+
+	if got := masterArgs("codex", "gpt", "/bin/acw", ""); slices.Contains(got, "--allowedTools") {
+		t.Errorf("masterArgs(codex) = %v; --allowedTools is Claude Code's own flag", got)
 	}
 }
 

@@ -4,12 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
-	"os"
 	"path/filepath"
 
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
-	"github.com/Hy0sh/agents-crew/internal/names"
 	"github.com/Hy0sh/agents-crew/internal/teardown"
 	"github.com/Hy0sh/agents-crew/internal/wtm"
 )
@@ -22,38 +19,50 @@ import (
 
 func pauseStacks(repo string, out io.Writer) error {
 	return eachStack(repo, out, "acw pause: workers' stacks stopped. Worktrees and agents are intact; dispatch nothing that needs an environment before acw resume.",
-		func(dir, branch string, _ runInfo) error { return wtm.Stop(dir, branch) })
+		func(dir, branch, _ string) error { return wtm.Stop(dir, branch) })
 }
 
+// resumeStacks starts the stacks on the profile the swarm was launched
+// with, kept in its pool: a later config change or another --preset must
+// not silently replace it.
 func resumeStacks(repo string, out io.Writer) error {
 	return eachStack(repo, out, "acw resume: workers' stacks started again. The first call to a service may fail while it starts up.",
-		func(dir, branch string, run runInfo) error { return wtm.Start(dir, branch, run.Profile, out) })
+		func(dir, branch, profile string) error { return wtm.Start(dir, branch, profile, out) })
 }
 
 // eachStack runs step on every worker worktree, on the branch it is on
-// (the one wtm keys its stack by, which a worker never changes), and
+// now (the one wtm keys its stack by: a worker moves it along with wtm
+// switch at each task), and
 // reports a failing one without stopping at it. The master hears of it
 // once every worktree was tried.
-func eachStack(repo string, out io.Writer, done string, step func(dir, branch string, run runInfo) error) error {
-	if _, err := os.Stat(names.StatusDir(repo)); errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("no acw swarm in %s", repo)
-	}
-	run, err := readRunInfo(repo)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("%s: %w", names.RunFile(repo), err)
+func eachStack(repo string, out io.Writer, done string, step func(dir, branch, profile string) error) error {
+	p, _, err := readPool(repo)
+	if err != nil {
+		return err
 	}
 	failed := 0
 	for _, dir := range teardown.WorkerWorktrees(repo) {
 		name := filepath.Base(dir)
+		stacked := teardown.Stacked(dir)
 		branch, err := gitutil.CurrentBranch(dir)
-		if err == nil {
-			err = step(dir, branch, run)
+		switch {
+		case err != nil:
+		case branch == "HEAD" && stacked:
+			err = errors.New(teardown.Repair(dir, branch, nil))
+		case branch != "HEAD":
+			err = step(dir, branch, p.Plan.Profile)
 		}
 		// A worker beyond max-stacks, or whose adopt failed, has a worktree
-		// wtm never gave a stack to: nothing to stop or start there.
-		if errors.Is(err, wtm.ErrNoStack) {
+		// acw never got a stack: nothing to stop or start there. One that
+		// got one and that wtm no longer reaches is a failure: that stack
+		// may still be up, out of acw's reach.
+		noStack := errors.Is(err, wtm.ErrNoStack) || errors.Is(err, wtm.ErrUnregistered)
+		if !stacked && (noStack || branch == "HEAD") {
 			fmt.Fprintf(out, "%s: no stack, skipped.\n", name)
 			continue
+		}
+		if noStack {
+			err = errors.New(teardown.Repair(dir, branch, err))
 		}
 		if err != nil {
 			failed++
@@ -62,15 +71,7 @@ func eachStack(repo string, out io.Writer, done string, step func(dir, branch st
 		}
 		fmt.Fprintf(out, "%s: done.\n", name)
 	}
-	inbox := run.Inbox
-	if run.MasterName == "" {
-		// A run.json from an older acw names no master: its inbox is all
-		// there is.
-		inbox = names.Inbox(repo)
-	}
-	if err := deliver(inbox, run.MasterName, done); err != nil {
-		fmt.Fprintln(out, "message to the master:", err)
-	}
+	tell(p.Plan, done)
 	if failed > 0 {
 		return fmt.Errorf("%d stack(s) failed, see above", failed)
 	}

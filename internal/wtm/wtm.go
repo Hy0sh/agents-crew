@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -20,10 +21,14 @@ func Available() bool {
 	return err == nil
 }
 
-// ErrNoStack is a worktree wtm never gave a stack to (a worker beyond
-// max-stacks, a failed adopt, an unregistered project): nothing to stop
-// or start there, which callers treat as a skip, not a failure.
+// ErrNoStack is wtm finding no stack under the branch it was given: a
+// worktree it never gave one to (a worker beyond max-stacks, a failed
+// adopt), or one that changed branch without wtm switch.
 var ErrNoStack = errors.New("no wtm stack for this worktree")
+
+// ErrUnregistered is a project wtm does not know: it reaches none of its
+// stacks, whatever the branch.
+var ErrUnregistered = errors.New("project not registered in wtm")
 
 func run(dir string, args ...string) error {
 	return runTo(dir, io.Discard, args...)
@@ -38,8 +43,11 @@ func runTo(dir string, out io.Writer, args ...string) error {
 	cmd.Stdout, cmd.Stderr = out, io.MultiWriter(out, &stderr)
 	if err := cmd.Run(); err != nil {
 		msg := stderr.String()
-		if strings.Contains(msg, "no worktree for branch") || strings.Contains(msg, "is not registered") {
+		switch {
+		case strings.Contains(msg, "no worktree for branch"):
 			err = fmt.Errorf("%w: %w", ErrNoStack, err)
+		case strings.Contains(msg, "is not registered"):
+			err = fmt.Errorf("%w: %w", ErrUnregistered, err)
 		}
 		return fmt.Errorf("wtm %v (in %s): %w: %s", args, dir, err, msg)
 	}
@@ -93,11 +101,27 @@ func Stop(dir, branch string) error {
 	return run(dir, "stop", branch)
 }
 
-// Remove stops the stack and removes the worktree (its branch is kept).
-// Same requirement as Stop: the branch is a mandatory argument, not
-// inferred from dir.
+// Remove takes the stack down, running or stopped, and releases its index
+// and its volumes, so wtm's list holds no stack acw is done with. Same
+// requirement as Stop: the branch is a mandatory argument. A worktree wtm
+// did not create (acw's) keeps its directory, only wtm's files go, and
+// wtm never asks --force for one. A branch whose index no worktree holds
+// any more is taken as stale: its stack goes, its index is released.
 func Remove(dir, branch string) error {
 	return run(dir, "remove", branch)
+}
+
+// StrandedHint says why a worktree wtm gave a stack to has none under its
+// current branch, and how to get it back: wtm keeps a stack under the
+// branch it was made for, and a plain git switch in the worktree left it
+// there, running.
+func StrandedHint(dir, branch string) string {
+	hint := fmt.Sprintf("its stack was not found under its current branch %s: the worktree probably changed branch without wtm switch, "+
+		"and its stack still runs under the old one. Run `wtm list` to find the branch it is registered under and `wtm remove <that branch>`", branch)
+	if SwitchAvailable() {
+		hint += fmt.Sprintf(", or, from %s, `wtm switch %s`, which takes the old stack down with its volumes and starts one on a fresh dump", dir, branch)
+	}
+	return hint
 }
 
 // Registered reports whether dir is a project in wtm's registry: an
@@ -109,13 +133,31 @@ func Registered(dir string) bool {
 
 // listedProject reports whether dir is a project's directory in the
 // output of `wtm project list` (a table: name, directory, base, dump).
+// Paths are compared resolved, as wtm does: on macOS /tmp is /private/tmp,
+// and a repo reached through a symlink is still the one registered.
 func listedProject(list, dir string) bool {
 	for _, line := range strings.Split(list, "\n") {
 		if strings.Contains(" "+line+" ", " "+dir+" ") {
 			return true
 		}
+		for _, field := range strings.Fields(line) {
+			if filepath.IsAbs(field) && samePath(field, dir) {
+				return true
+			}
+		}
 	}
 	return false
+}
+
+func samePath(a, b string) bool {
+	return resolve(a) == resolve(b)
+}
+
+func resolve(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return filepath.Clean(p)
 }
 
 // SwitchAvailable reports whether this wtm has `switch` (0.26.0 and
@@ -126,8 +168,9 @@ func SwitchAvailable() bool {
 	return exec.Command("wtm", "switch", "--help").Run() == nil
 }
 
-// Switch moves the worktree at dir to branch on a fresh stack, keeping
-// its ports. from is where a branch that doesn't exist yet is cut from,
+// Switch moves the worktree at dir to branch, keeping its ports: on a
+// fresh stack for another branch, the same stack restarted for the one
+// it is on. from is where a branch that doesn't exist yet is cut from,
 // "" for an existing one. wtm never asks anything without a terminal, and
 // a failure is resumed by running the same command again.
 func Switch(dir, branch, from, profile string, out io.Writer) error {

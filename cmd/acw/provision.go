@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -91,18 +92,31 @@ func openWorker(repo string, index int) {
 	if stacked {
 		if err := adoptAlone(pw.Worktree, plan.Profile); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: wtm adopt failed, it goes on without a dedicated environment: %v\n", name, err)
+			// wtm records the index and the path before it starts the
+			// stack: an unknown profile, a port clash or a missing dump
+			// left them behind, with volumes and sometimes containers.
+			if branch, err := gitutil.CurrentBranch(pw.Worktree); err == nil {
+				if err := wtm.Remove(pw.Worktree, branch); err != nil {
+					fmt.Fprintf(os.Stderr, "%s: undoing the failed adopt: %v\n", name, err)
+				}
+			}
 			stacked = false
-			opened += ", WITHOUT its environment (wtm adopt failed): give it no task that needs one"
+			opened += ", WITHOUT its environment (wtm adopt failed): give it no task that needs one, " +
+				"and tell it never to run wtm switch, which it was allowed before the adopt failed"
 		} else {
 			opened += " with its environment"
+			if err := teardown.MarkStacked(pw.Worktree); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: recording its stack: %v\n", name, err)
+			}
 			// wtm skips clashing ports when it allocates, but not against
-			// worktrees recorded before it learnt to, nor other projects:
-			// a stack then failed to start and doctor only told afterwards.
+			// worktrees recorded before it learnt to: a stack then failed
+			// to start and doctor only told afterwards.
 			report, err := wtm.Doctor(repo)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "wtm doctor:", err)
 			}
-			if clashes := portClashes(report); clashes != "" {
+			branch, _ := gitutil.CurrentBranch(pw.Worktree)
+			if clashes := portClashes(report, branch); clashes != "" {
 				opened += "\nwtm doctor reports port clashes, its stack may be down:\n" + clashes
 			}
 		}
@@ -206,7 +220,8 @@ func splitFrom(masterPane string, workerPanes []string, heights map[string]int) 
 // closeWorker tears down a worker the pool no longer needs: its pane and
 // agent, its worktree and environment (its task branch stays, see
 // teardown.Worktree), its files in the status dir but its system prompt,
-// which a reopening needs.
+// which a reopening needs. A worktree whose stack wtm no longer finds is
+// kept, and the master told how to get the stack back.
 func closeWorker(repo string, w poolWorker, why string) {
 	plan, _, err := readPool(repo)
 	if err != nil {
@@ -219,7 +234,9 @@ func closeWorker(repo string, w poolWorker, why string) {
 		}
 	}
 	if w.Worktree != "" {
-		teardown.Worktree(repo, w.Worktree)
+		if kept := teardown.Worktree(repo, w.Worktree); kept != "" {
+			why += fmt.Sprintf(". Its worktree %s is KEPT: %s. Tell me", w.Worktree, kept)
+		}
 	}
 	files, _ := filepath.Glob(filepath.Join(names.StatusDir(repo), w.label()+".*"))
 	for _, f := range files {
@@ -241,24 +258,49 @@ func tell(plan provisionPlan, msg string) {
 	}
 }
 
-// portClashes keeps the port clash sections of a `wtm doctor` report, ""
-// when it has none. A section is its heading line and what follows it up
-// to a blank line.
-func portClashes(report string) string {
-	var kept []string
+// portClashes keeps, from a `wtm doctor` report, the port clashes branch
+// takes part in, "" when it takes part in none: the report covers the
+// whole machine, and the worker just opened only cares about its own. A
+// section is its heading line and what follows it up to a blank line; a
+// clash line names each side as "<branch> <service>", or
+// "<project>/<branch> <service>" between projects. The section's other
+// lines, its hints, go along with its clashes.
+func portClashes(report, branch string) string {
+	var kept, heading, clashes, hints []string
+	flush := func() {
+		if len(clashes) > 0 {
+			kept = append(kept, slices.Concat(heading, clashes, hints)...)
+		}
+		heading, clashes, hints = nil, nil, nil
+	}
 	in := false
 	for _, line := range strings.Split(report, "\n") {
 		switch {
 		case strings.HasPrefix(line, "port clashes"):
-			in = true
+			flush()
+			in, heading = true, []string{line}
 		case strings.TrimSpace(line) == "":
+			flush()
 			in = false
-		}
-		if in {
-			kept = append(kept, line)
+		case !in:
+		case !strings.Contains(line, " is claimed by "):
+			hints = append(hints, line)
+		case claims(line, branch):
+			clashes = append(clashes, line)
 		}
 	}
+	flush()
 	return strings.Join(kept, "\n")
+}
+
+// claims reports whether a clash line names branch as one of its sides.
+func claims(line, branch string) bool {
+	for _, word := range strings.Fields(line) {
+		if word == branch || strings.HasSuffix(word, "/"+branch) {
+			return true
+		}
+	}
+	return false
 }
 
 // workerArgs is what gets forwarded to a worker's own CLI: its model,

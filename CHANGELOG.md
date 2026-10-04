@@ -66,6 +66,41 @@ longer left to a model.
   it locks it: adopts run together each missed the other, took
   neighbouring indices, and with a port stride of 1 two services got the
   same host port, one stack failing to start.
+- A worktree moved to another branch without `wtm switch` no longer loses
+  its stack: wtm finds none under the new branch, which acw took for a
+  worker never given one, then removed the worktree while the stack ran
+  on. For a worker wtm gave a stack to, acw stop and a close keep the
+  worktree and say how to get the stack back; pause and resume fail on it.
+- acw stop and a close remove a worker's stack even when it was stopped
+  (acw pause, a reboot): they ran `wtm remove` only after a successful
+  `wtm stop`, so a stopped stack stayed in wtm's list. One forced `wtm
+  remove` now, which takes the stack down running or not.
+- That a worktree has a stack is recorded in its private git dir, not in
+  pool.json, which acw stop deletes: the next run's acw stop still keeps a
+  worktree whose stack it could not remove. Before keeping one, acw also
+  asks wtm for the stack under the branch it adopted the worktree under;
+  kept stacks count in `max-stacks`. A detached HEAD, a project wtm no
+  longer knows and wtm missing from PATH each get their own repair.
+- A failed `wtm adopt` is undone: it left an index, volumes and sometimes
+  containers behind.
+- Workers run `wtm switch --profile <profile>` when a profile is set: wtm
+  does not remember it, and a worker's first switch brought the whole
+  stack up.
+- `acw done workerN <id>` refuses a task the worker is no longer on, so a
+  second done cannot free it from the next task.
+- acw stop waits for the watcher to finish what it started before tearing
+  the workers down.
+- An unreadable queue.json no longer makes the watcher drop its run.
+- `--branch` on a worker with a stack is refused when wtm has no `switch`
+  (before 0.26.0), instead of a plain `git switch` that left its stack
+  behind.
+- A branch or a base starting with a dash is refused: it reached git as
+  an option.
+- A repo reached through a symlink is recognised as registered in wtm.
+- The "opened" message only carries the port clashes the worker takes
+  part in, not every clash on the machine.
+- A claude master whose custom brief reads no inbox may still run `acw
+  status`, `acw queue` and `acw done` without a prompt.
 
 ## [0.10.0] - 2026-10-02
 

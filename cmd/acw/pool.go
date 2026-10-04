@@ -10,12 +10,14 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
+	"github.com/Hy0sh/agents-crew/internal/teardown"
 )
 
 // The elastic pool: acw starts no worker, the master queues tasks, and
@@ -61,6 +63,23 @@ type poolState struct {
 	MinWorkers       int           `json:"min_workers"`
 	IdleCloseMinutes int           `json:"idle_close_minutes"`
 	Workers          []poolWorker  `json:"workers"`
+	// Held is how many stacks still take room with no open worker: kept
+	// with their worktree because wtm could not remove them (see
+	// teardown.Worktree). Read from the disk at every poll, never saved.
+	Held int `json:"-"`
+}
+
+// heldStacks counts the worker worktrees of repo that acw got a stack and
+// that no open worker holds: each is a stack that may still run.
+func heldStacks(repo string, p poolState) int {
+	n := 0
+	for _, dir := range teardown.WorkerWorktrees(repo) {
+		open := slices.ContainsFunc(p.Workers, func(w poolWorker) bool { return realPath(w.Worktree) == realPath(dir) })
+		if !open && teardown.Stacked(dir) {
+			n++
+		}
+	}
+	return n
 }
 
 func (p *poolState) worker(index int) *poolWorker {
@@ -129,19 +148,12 @@ func withPool(repo string, fn func(p *poolState, q *taskQueue) (changed bool, er
 // readPool reads both files without the lock: each is replaced by a
 // rename, so a reader sees a whole one. A missing queue is an empty one.
 func readPool(repo string) (poolState, taskQueue, error) {
-	var p poolState
 	var q taskQueue
-	content, err := os.ReadFile(names.PoolFile(repo))
+	p, err := readPoolFile(repo)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return p, q, fmt.Errorf("no acw swarm in %s", repo)
-		}
 		return p, q, err
 	}
-	if err := json.Unmarshal(content, &p); err != nil {
-		return p, q, fmt.Errorf("%s: %w", names.PoolFile(repo), err)
-	}
-	content, err = os.ReadFile(names.QueueFile(repo))
+	content, err := os.ReadFile(names.QueueFile(repo))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return p, q, err
 	}
@@ -151,6 +163,22 @@ func readPool(repo string) (poolState, taskQueue, error) {
 		}
 	}
 	return p, q, nil
+}
+
+// readPoolFile reads pool.json alone, for what does not need the queue.
+func readPoolFile(repo string) (poolState, error) {
+	var p poolState
+	content, err := os.ReadFile(names.PoolFile(repo))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return p, fmt.Errorf("no acw swarm in %s", repo)
+		}
+		return p, err
+	}
+	if err := json.Unmarshal(content, &p); err != nil {
+		return p, fmt.Errorf("%s: %w", names.PoolFile(repo), err)
+	}
+	return p, nil
 }
 
 func writeJSON(path string, v any) error {
@@ -169,6 +197,9 @@ func workerArg(repo, arg string) (int, error) {
 
 // queueAdd queues the brief at path, last, or first with top.
 func queueAdd(repo, path string, br branchRequest, worker string, top bool, now time.Time, out io.Writer) error {
+	if err := br.check(); err != nil {
+		return err
+	}
 	text, err := readBrief(path)
 	if err != nil {
 		return err
@@ -225,9 +256,11 @@ func queueRemove(repo string, id int, out io.Writer) error {
 	})
 }
 
-// markDone frees a busy worker. A worker already free is not an error:
-// the master and pr-watch may both say a task is over.
-func markDone(repo string, index int, now time.Time) (string, error) {
+// markDone frees a busy worker. A worker already free is not an error.
+// task, when not 0, is the task the caller means to end: a second done
+// for a task already over could otherwise free a worker the watcher has
+// just handed the next one, which would then get a third brief on top.
+func markDone(repo string, index, task int, now time.Time) (string, error) {
 	var msg string
 	err := withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
 		w := p.worker(index)
@@ -237,6 +270,9 @@ func markDone(repo string, index int, now time.Time) (string, error) {
 		if w.State != workerBusy {
 			msg = fmt.Sprintf("%s is already %s.", w.label(), w.State)
 			return false, nil
+		}
+		if task != 0 && w.Task != task {
+			return false, fmt.Errorf("%s is on task #%d, not #%d: nothing changed", w.label(), w.Task, task)
 		}
 		msg = fmt.Sprintf("%s is free (task #%d done).", w.label(), w.Task)
 		w.State, w.Task, w.Since = workerFree, 0, now
@@ -338,18 +374,26 @@ func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, no
 		return
 	}
 	for _, a := range assigns {
-		go assignTask(repo, p.Plan, a.w, a.t)
+		background(func() { assignTask(repo, p.Plan, a.w, a.t) })
 	}
 	for _, index := range opens {
-		go openWorker(repo, index)
+		background(func() { openWorker(repo, index) })
 	}
 	for _, w := range closes {
 		why := fmt.Sprintf("free for %d min with nothing queued for it", p.IdleCloseMinutes)
 		if p.Plan.Workers[w.Index-1].Kind != "claude" {
 			why = "its task is done, and acw cannot reset its context for another"
 		}
-		go closeWorker(repo, w, why)
+		background(func() { closeWorker(repo, w, why) })
 	}
+}
+
+// inflight counts what the pool runs in the background: the watcher
+// waits for it before it stops (see runWatch).
+var inflight sync.WaitGroup
+
+func background(f func()) {
+	inflight.Go(f)
 }
 
 // assignTask hands a queued task to the worker the pool gave it to: the

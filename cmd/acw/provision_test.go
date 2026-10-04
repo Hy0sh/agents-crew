@@ -35,20 +35,36 @@ func TestSplitFrom(t *testing.T) {
 	}
 }
 
-func TestPortClashesKeepsOnlyTheClashSections(t *testing.T) {
+// Only the clashes the worker just opened takes part in reach the master,
+// with their section's heading and hints: the rest of the report covers
+// the whole machine. Lines as wtm doctor writes them.
+func TestPortClashesKeepsOnlyTheWorkersOwn(t *testing.T) {
 	report := "docker   289 MB used\n\n" +
+		"port clashes between projects (those stacks cannot run at the same time):\n" +
+		"  port 25432 is claimed by other-repo/main DB_PORT and some-repo/agents/worker2-1 DB_PORT\n" +
+		"  offsets are handed out once, at registration\n\n" +
 		"port clashes between worktrees of one project (those two cannot run at the same time):\n" +
-		"  9001 some-repo agents/worker1 rustfs / agents/worker2 minio\n" +
+		"  some-repo: port 29002 is claimed by agents/worker1-1 S3_CONSOLE and agents/worker2-1 S3_PORT\n" +
+		"  some-repo: port 29010 is claimed by agents/worker3-1 X and feat/x Y\n" +
 		"  the stride is too small\n\n" +
 		"78 anonymous volume(s)\n"
 	want := "port clashes between worktrees of one project (those two cannot run at the same time):\n" +
-		"  9001 some-repo agents/worker1 rustfs / agents/worker2 minio\n" +
+		"  some-repo: port 29002 is claimed by agents/worker1-1 S3_CONSOLE and agents/worker2-1 S3_PORT\n" +
 		"  the stride is too small"
-	if got := portClashes(report); got != want {
-		t.Errorf("portClashes() = %q, want %q", got, want)
+	if got := portClashes(report, "agents/worker1-1"); got != want {
+		t.Errorf("portClashes(worker1) = %q, want %q", got, want)
 	}
-	if got := portClashes("docker   289 MB used\n"); got != "" {
-		t.Errorf("portClashes(no clash) = %q, want nothing", got)
+	got := portClashes(report, "agents/worker2-1")
+	for _, line := range []string{"port 25432", "port 29002", "offsets are handed out", "the stride is too small"} {
+		if !strings.Contains(got, line) {
+			t.Errorf("portClashes(worker2) missing %q in %q", line, got)
+		}
+	}
+	if strings.Contains(got, "29010") {
+		t.Errorf("portClashes(worker2) = %q, kept a clash between others", got)
+	}
+	if got := portClashes(report, "agents/worker9-1"); got != "" {
+		t.Errorf("portClashes(not involved) = %q, want nothing", got)
 	}
 }
 
