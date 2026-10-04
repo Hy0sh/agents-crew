@@ -143,12 +143,18 @@ func realPath(p string) string {
 
 // branchStep is how dispatch puts a worker on its branch.
 type branchStep struct {
-	wtm    bool // wtm switch: the worker has a stack, which gets a fresh dump on the same ports
+	wtm    bool // wtm switch: the worker has a stack, which follows it to the branch, on the same ports
 	create bool // the branch doesn't exist yet: cut it from the base
 }
 
-func chooseBranchStep(stacked, switchAvailable, exists bool) branchStep {
-	return branchStep{wtm: stacked && switchAvailable, create: !exists}
+// chooseBranchStep refuses a worker with a stack when wtm has no switch:
+// wtm keeps a stack under its branch, and a plain git switch leaves it
+// under the old one, where acw stop and pause no longer find it.
+func chooseBranchStep(stacked, switchAvailable, exists bool) (branchStep, error) {
+	if stacked && !switchAvailable {
+		return branchStep{}, fmt.Errorf("its stack would stay behind on its current branch: changing the branch of a worker with a stack needs wtm 0.26 or later (wtm switch)")
+	}
+	return branchStep{wtm: stacked, create: !exists}, nil
 }
 
 // switchWorkerBranch fetches then puts the worker's worktree on br.Branch.
@@ -175,6 +181,11 @@ func switchWorkerBranch(repo string, t clearTarget, br branchRequest, out io.Wri
 	if holder := branchHolder(worktrees, br.Branch, wt); holder != "" {
 		return fmt.Errorf("%s is checked out in %s: give the task to that worker, or have it leave the branch first", br.Branch, holder)
 	}
+	// wtm.Available first: no wtm call at all on a machine without it.
+	step, err := chooseBranchStep(pw.Stacked, pw.Stacked && wtm.Available() && wtm.SwitchAvailable(), gitutil.HasBranch(wt, br.Branch))
+	if err != nil {
+		return fmt.Errorf("%s not put on %s, nothing was sent to it: %w", t.label, br.Branch, err)
+	}
 	if err := gitutil.Fetch(wt); err != nil {
 		return fmt.Errorf("%s: %w", t.label, err)
 	}
@@ -182,9 +193,6 @@ func switchWorkerBranch(repo string, t clearTarget, br branchRequest, out io.Wri
 	if base == "" {
 		base = gitutil.DefaultBaseRef(repo)
 	}
-	stacked := pw.Stacked
-	// wtm.Available first: no wtm call at all on a machine without it.
-	step := chooseBranchStep(stacked, stacked && wtm.Available() && wtm.SwitchAvailable(), gitutil.HasBranch(wt, br.Branch))
 	if step.wtm {
 		from := ""
 		if step.create {

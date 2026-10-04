@@ -123,11 +123,15 @@ func TestChooseBranchStep(t *testing.T) {
 	}{
 		{true, true, true, branchStep{wtm: true}},
 		{true, true, false, branchStep{wtm: true, create: true}},
-		{true, false, true, branchStep{}},              // wtm older than switch: plain git
 		{false, true, false, branchStep{create: true}}, // no stack: plain git
+		{false, false, true, branchStep{}},             // no stack, no wtm: plain git
 	} {
-		if got := chooseBranchStep(c.stacked, c.switchOK, c.exists); got != c.want {
-			t.Errorf("chooseBranchStep(%v, %v, %v) = %+v, want %+v", c.stacked, c.switchOK, c.exists, got, c.want)
+		if got, err := chooseBranchStep(c.stacked, c.switchOK, c.exists); err != nil || got != c.want {
+			t.Errorf("chooseBranchStep(%v, %v, %v) = %+v, %v; want %+v", c.stacked, c.switchOK, c.exists, got, err, c.want)
 		}
+	}
+	// A plain git switch would leave the stack under the old branch.
+	if _, err := chooseBranchStep(true, false, true); err == nil || !strings.Contains(err.Error(), "wtm 0.26") {
+		t.Errorf("chooseBranchStep(stacked, no switch) = %v, want a refusal naming wtm 0.26", err)
 	}
 }
