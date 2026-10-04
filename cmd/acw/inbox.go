@@ -52,23 +52,28 @@ func inboxNextCommand(exe, inbox string) string {
 }
 
 // masterArgs is what gets forwarded to the master's CLI: its model and,
-// when it watches an inbox, the permission to run acw's two inbox
+// for a claude master, the permission to run the acw commands it is
+// handed: status, queue and done, its view of the swarm, its hold on the
+// queue and the end of a task (not dispatch nor clear: acw does both when
+// it hands a task out); and, when it watches an inbox, the two inbox
 // commands: the Monitor one (__inbox-watch, for a custom brief that still
 // arms one) and the background one (__inbox-next). Claude Code asks
 // approval for a Monitor it has no rule for, with no "don't ask again",
 // and a prompt at every re-run would stall the master just the same.
-// Scoped to acw's own commands, not Bash in general.
-func masterArgs(model, exe, inboxWatch string) []string {
+// Scoped to acw's own commands, not Bash in general; --allowedTools is
+// Claude Code's own flag, so no other kind gets it.
+func masterArgs(kind, model, exe, inboxWatch string) []string {
 	args := modelArgs(model)
-	if inboxWatch == "" {
+	if kind != "claude" {
 		return args
 	}
-	return append(args, "--allowedTools",
-		"Bash("+shellWord(exe)+" "+inboxWatchUse+":*)",
-		"Bash("+shellWord(exe)+" "+inboxNextUse+":*)",
-		// The commands the brief hands the master: its view of the swarm,
-		// its hold on the queue, the end of a task. Not dispatch nor
-		// clear: acw does both when it hands a task out.
+	args = append(args, "--allowedTools")
+	if inboxWatch != "" {
+		args = append(args,
+			"Bash("+shellWord(exe)+" "+inboxWatchUse+":*)",
+			"Bash("+shellWord(exe)+" "+inboxNextUse+":*)")
+	}
+	return append(args,
 		"Bash("+shellWord(exe)+" status:*)",
 		"Bash("+shellWord(exe)+" queue:*)",
 		"Bash("+shellWord(exe)+" done:*)")
