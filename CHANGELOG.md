@@ -71,6 +71,10 @@ longer left to a model.
   worker never given one, then removed the worktree while the stack ran
   on. For a worker wtm gave a stack to, acw stop and a close keep the
   worktree and say how to get the stack back; pause and resume fail on it.
+- acw stop and a close remove a worker's stack even when it was stopped
+  (acw pause, a reboot): they ran `wtm remove` only after a successful
+  `wtm stop`, so a stopped stack stayed in wtm's list. One forced `wtm
+  remove` now, which takes the stack down running or not.
 - `--branch` on a worker with a stack is refused when wtm has no `switch`
   (before 0.26.0), instead of a plain `git switch` that left its stack
   behind.

@@ -94,11 +94,14 @@ func Stop(dir, branch string) error {
 	return run(dir, "stop", branch)
 }
 
-// Remove stops the stack and removes the worktree (its branch is kept).
-// Same requirement as Stop: the branch is a mandatory argument, not
-// inferred from dir.
+// Remove takes the stack down, running or stopped, and releases its index
+// and its volumes, so wtm's list holds no stack acw is done with. Same
+// requirement as Stop: the branch is a mandatory argument. --force: wtm
+// refuses a worktree with changes otherwise and leaves its stack up,
+// while the caller removes that worktree anyway. A worktree wtm did not
+// create (acw's) keeps its directory; only wtm's files go.
 func Remove(dir, branch string) error {
-	return run(dir, "remove", branch)
+	return run(dir, "remove", branch, "--force")
 }
 
 // StrandedHint says why a worktree wtm gave a stack to has none under its

@@ -77,3 +77,27 @@ func TestWorktreeKeepsAStrandedStack(t *testing.T) {
 		t.Error("a worktree wtm never gave a stack to should be removed")
 	}
 }
+
+// A stack is removed whether it runs or was stopped (acw pause, a
+// reboot): stopped, wtm still lists it. One call, forced, since the
+// worktree goes anyway.
+func TestWorktreeRemovesTheStackRunningOrNot(t *testing.T) {
+	repo := t.TempDir()
+	git(t, repo, "init", "-q")
+	git(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
+	wt := names.WorkerWorktree(repo, 1, "20261002")
+	git(t, repo, "worktree", "add", "-q", "-b", names.WorkerBranch(1, "20261002"), wt)
+	bin := t.TempDir()
+	calls := filepath.Join(bin, "calls")
+	if err := os.WriteFile(filepath.Join(bin, "wtm"), []byte("#!/bin/sh\necho \"$@\" >> '"+calls+"'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if kept := Worktree(repo, wt, true); kept != "" {
+		t.Fatalf("Worktree() = %q, want the stack and the worktree removed", kept)
+	}
+	if got, _ := os.ReadFile(calls); string(got) != "remove "+names.WorkerBranch(1, "20261002")+" --force\n" {
+		t.Errorf("wtm calls = %q, want one forced remove and no stop first", got)
+	}
+}

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
@@ -116,35 +115,29 @@ func Worktree(repo, dir string, stacked bool) (kept string) {
 	fmt.Printf("%s (%s):\n", name, branch)
 
 	if wtm.Available() {
-		// Best-effort: a worktree whose environment was never adopted
-		// (provisioning failed, or MAX_STACKS left it without one)
-		// makes these fail harmlessly, which is fine — the worktree
-		// removal below still runs.
-		fmt.Print("  stopping the environment... ")
-		err := wtm.Stop(dir, branch)
-		if stacked && errors.Is(err, wtm.ErrNoStack) {
+		// Removed whether it runs or was stopped (acw pause, a reboot): a
+		// stopped stack wtm still lists is one nobody will clean up.
+		fmt.Print("  removing the environment (containers, volumes, images)... ")
+		err := wtm.Remove(dir, branch)
+		switch {
+		case stacked && err != nil:
+			// Not found under its branch, or not removed: either way it
+			// may still run, and the worktree is what leads back to it.
 			kept = wtm.StrandedHint(dir, branch)
-			fmt.Printf("not found, worktree kept: %s.\n", kept)
+			if !errors.Is(err, wtm.ErrNoStack) {
+				kept = fmt.Sprintf("wtm remove failed (%v); run it again from %s", err, dir)
+			}
+			fmt.Printf("not removed, worktree kept: %s.\n", kept)
 			return kept
-		}
-		if err != nil {
-			fmt.Println("nothing to stop.")
-			// A repo wtm doesn't know, or a worktree never adopted, is
-			// the ordinary case (no environment was ever given out) —
-			// printing wtm's own "not registered" error under a line
-			// that just said there was nothing to stop reads as a
-			// failure when nothing failed.
-			if !strings.Contains(err.Error(), "is not registered") {
-				fmt.Fprintf(os.Stderr, "%s: wtm stop: %v\n", name, err)
-			}
-		} else {
-			fmt.Print("done. Removing (containers, volumes, images)... ")
-			if err := wtm.Remove(dir, branch); err != nil {
-				fmt.Println("failed, see below.")
-				fmt.Fprintf(os.Stderr, "%s: wtm remove: %v\n", name, err)
-			} else {
-				fmt.Println("done.")
-			}
+		case errors.Is(err, wtm.ErrNoStack):
+			// A worktree wtm never gave a stack to (beyond max-stacks, a
+			// failed adopt, a repo wtm doesn't know): nothing to remove.
+			fmt.Println("none.")
+		case err != nil:
+			fmt.Println("failed, see below.")
+			fmt.Fprintf(os.Stderr, "%s: wtm remove: %v\n", name, err)
+		default:
+			fmt.Println("done.")
 		}
 	}
 
