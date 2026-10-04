@@ -6,10 +6,14 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-04
+
 The swarm is now elastic: no worker at launch, a task queue the master
 orders, and acw opening and closing workers by fixed rules. What to do and
 in which order stays the master's call; where and when it runs is no
-longer left to a model.
+longer left to a model. A worker's stack is tracked across runs and never
+left running behind a deleted worktree; with wtm 0.27.0, acw also reaches
+the stack of a worker that switched branches without `wtm switch`.
 
 ### Added
 
@@ -566,7 +570,8 @@ project: 7 PRs, 3 merged. Each entry names what actually went wrong.
   anything, with a clear message and install instructions if not; `wtm` is
   checked too but stays optional.
 
-[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/Hy0sh/agents-crew/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/Hy0sh/agents-crew/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/Hy0sh/agents-crew/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Hy0sh/agents-crew/compare/v0.7.0...v0.8.0
