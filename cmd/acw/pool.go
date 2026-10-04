@@ -61,6 +61,27 @@ type poolState struct {
 	MinWorkers       int           `json:"min_workers"`
 	IdleCloseMinutes int           `json:"idle_close_minutes"`
 	Workers          []poolWorker  `json:"workers"`
+	// Stranded lists the worktrees a close kept because wtm no longer
+	// found their stack (see closeWorker): acw stop must keep them too.
+	Stranded []string `json:"stranded,omitempty"`
+}
+
+// stackedIn says whether wtm gave the worktree at dir a stack, from the
+// pool of repo's swarm: an open worker with one, or a worktree a close
+// kept for that reason. False without a pool.
+func stackedIn(repo string) func(dir string) bool {
+	p, _, err := readPool(repo)
+	return func(dir string) bool {
+		if err != nil {
+			return false
+		}
+		for _, w := range p.Workers {
+			if w.Stacked && realPath(w.Worktree) == realPath(dir) {
+				return true
+			}
+		}
+		return slices.ContainsFunc(p.Stranded, func(s string) bool { return realPath(s) == realPath(dir) })
+	}
 }
 
 func (p *poolState) worker(index int) *poolWorker {

@@ -44,7 +44,8 @@ func openWorker(repo string, index int) {
 			_ = herdr.PaneClose(pane)
 		}
 		if pw.Worktree != "" {
-			teardown.Worktree(repo, pw.Worktree)
+			// Not adopted yet: an opening fails before its stack.
+			teardown.Worktree(repo, pw.Worktree, false)
 		}
 		_ = withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
 			p.remove(index)
@@ -206,7 +207,8 @@ func splitFrom(masterPane string, workerPanes []string, heights map[string]int) 
 // closeWorker tears down a worker the pool no longer needs: its pane and
 // agent, its worktree and environment (its task branch stays, see
 // teardown.Worktree), its files in the status dir but its system prompt,
-// which a reopening needs.
+// which a reopening needs. A worktree whose stack wtm no longer finds is
+// kept, and the master told how to get the stack back.
 func closeWorker(repo string, w poolWorker, why string) {
 	plan, _, err := readPool(repo)
 	if err != nil {
@@ -218,8 +220,12 @@ func closeWorker(repo string, w poolWorker, why string) {
 			fmt.Fprintf(os.Stderr, "%s: herdr pane close: %v\n", w.label(), err)
 		}
 	}
+	var stranded string
 	if w.Worktree != "" {
-		teardown.Worktree(repo, w.Worktree)
+		if kept := teardown.Worktree(repo, w.Worktree, w.Stacked); kept != "" {
+			why += fmt.Sprintf(". Its worktree %s is KEPT: %s. Tell me", w.Worktree, kept)
+			stranded = w.Worktree
+		}
 	}
 	files, _ := filepath.Glob(filepath.Join(names.StatusDir(repo), w.label()+".*"))
 	for _, f := range files {
@@ -229,6 +235,9 @@ func closeWorker(repo string, w poolWorker, why string) {
 	}
 	_ = withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
 		p.remove(w.Index)
+		if stranded != "" {
+			p.Stranded = append(p.Stranded, stranded)
+		}
 		return true, nil
 	})
 	tell(plan.Plan, w.label()+" closed: "+why+".")

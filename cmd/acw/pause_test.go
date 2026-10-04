@@ -87,6 +87,28 @@ func TestPauseSkipsAWorktreeWithoutAStack(t *testing.T) {
 	}
 }
 
+// The same answer for a worker the pool knows wtm gave a stack to: the
+// stack is up under another branch, so pause says so and fails.
+func TestPauseFailsOnAStrandedStack(t *testing.T) {
+	repo, calls := fakeSwarm(t, "")
+	script := "#!/bin/sh\necho 'Error: no worktree for branch \"'$2'\"' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(filepath.Dir(calls), "wtm"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wt := names.WorkerWorktree(repo, 1, "20260925140000")
+	pool := poolState{Workers: []poolWorker{{Index: 1, Worktree: wt, Stacked: true, State: workerBusy}}}
+	if err := writeJSON(names.PoolFile(repo), pool); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := pauseStacks(repo, &out); err == nil {
+		t.Error("pauseStacks() = nil, want a failure for a stack out of reach")
+	}
+	if !strings.Contains(out.String(), "wtm switch") {
+		t.Errorf("output = %q, want the repair named", out.String())
+	}
+}
+
 func TestPauseWithoutASwarmRefuses(t *testing.T) {
 	err := pauseStacks(t.TempDir(), &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "no acw swarm") {

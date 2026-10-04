@@ -43,6 +43,7 @@ func eachStack(repo string, out io.Writer, done string, step func(dir, branch st
 		return fmt.Errorf("%s: %w", names.RunFile(repo), err)
 	}
 	failed := 0
+	stacked := stackedIn(repo)
 	for _, dir := range teardown.WorkerWorktrees(repo) {
 		name := filepath.Base(dir)
 		branch, err := gitutil.CurrentBranch(dir)
@@ -50,10 +51,15 @@ func eachStack(repo string, out io.Writer, done string, step func(dir, branch st
 			err = step(dir, branch, run)
 		}
 		// A worker beyond max-stacks, or whose adopt failed, has a worktree
-		// wtm never gave a stack to: nothing to stop or start there.
-		if errors.Is(err, wtm.ErrNoStack) {
+		// wtm never gave a stack to: nothing to stop or start there. One wtm
+		// gave a stack to and no longer finds it under its branch is a
+		// failure: that stack is still up, out of acw's reach.
+		if errors.Is(err, wtm.ErrNoStack) && !stacked(dir) {
 			fmt.Fprintf(out, "%s: no stack, skipped.\n", name)
 			continue
+		}
+		if errors.Is(err, wtm.ErrNoStack) {
+			err = errors.New(wtm.StrandedHint(dir, branch))
 		}
 		if err != nil {
 			failed++

@@ -101,6 +101,16 @@ func Remove(dir, branch string) error {
 	return run(dir, "remove", branch)
 }
 
+// StrandedHint says why a worktree wtm gave a stack to has none under its
+// current branch, and how to get it back: wtm keeps a stack under the
+// branch it was made for, and a plain git switch in the worktree left it
+// there, running.
+func StrandedHint(dir, branch string) string {
+	return fmt.Sprintf("its stack was not found under its current branch %s: the worktree probably changed branch without wtm switch, "+
+		"and its stack still runs under the old one. From %s, run `wtm switch %s` to bring the stack along, "+
+		"or `wtm list` to find the branch it is registered under and `wtm remove <that branch>`", branch, dir, branch)
+}
+
 // Registered reports whether dir is a project in wtm's registry: an
 // unregistered repo's adopts all fail, so its workers have no stack.
 func Registered(dir string) bool {

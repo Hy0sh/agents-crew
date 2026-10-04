@@ -4,6 +4,7 @@
 package teardown
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,8 +20,9 @@ import (
 // printing progress to stdout and non-fatal errors to stderr. It returns
 // nil even when there was nothing to tear down. Scoped to the current
 // directory, not global: a swarm running for a different repo is left
-// alone, so several can run at once.
-func Run() error {
+// alone, so several can run at once. stacked says whether wtm gave the
+// worktree at a dir a stack (see Worktree).
+func Run(stacked func(dir string) bool) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
@@ -48,7 +50,7 @@ func Run() error {
 	// even exists, let alone before `herdr agent start` names it — a stop
 	// run during that window found nothing to clean up otherwise, leaving
 	// real Docker stacks orphaned despite reporting success.
-	cleanupWorkerWorktrees(repo)
+	cleanupWorkerWorktrees(repo, stacked)
 
 	fmt.Print("Closing the Herdr workspace and its agents... ")
 	if err := herdr.WorkspaceClose(workspaceID, true); err != nil {
@@ -92,17 +94,19 @@ func WorkerWorktrees(repo string) []string {
 	return dirs
 }
 
-func cleanupWorkerWorktrees(repo string) {
+func cleanupWorkerWorktrees(repo string, stacked func(dir string) bool) {
 	for _, dir := range WorkerWorktrees(repo) {
-		Worktree(repo, dir)
+		Worktree(repo, dir, stacked(dir))
 	}
 }
 
 // Worktree releases one worker worktree: its environment, the worktree,
 // and the branch acw cut for it. The task branch it was left on stays.
 // acw stop runs it on every worker; the elastic pool on a worker it
-// closes.
-func Worktree(repo, dir string) {
+// closes. When wtm gave it a stack (stacked) but has none under its
+// current branch, the worktree is kept and Worktree returns why: removed,
+// it would leave that stack running with nothing left to find it by.
+func Worktree(repo, dir string, stacked bool) (kept string) {
 	name := filepath.Base(dir)
 	branch, err := gitutil.CurrentBranch(dir)
 	if err != nil {
@@ -117,7 +121,13 @@ func Worktree(repo, dir string) {
 		// makes these fail harmlessly, which is fine — the worktree
 		// removal below still runs.
 		fmt.Print("  stopping the environment... ")
-		if err := wtm.Stop(dir, branch); err != nil {
+		err := wtm.Stop(dir, branch)
+		if stacked && errors.Is(err, wtm.ErrNoStack) {
+			kept = wtm.StrandedHint(dir, branch)
+			fmt.Printf("not found, worktree kept: %s.\n", kept)
+			return kept
+		}
+		if err != nil {
 			fmt.Println("nothing to stop.")
 			// A repo wtm doesn't know, or a worktree never adopted, is
 			// the ordinary case (no environment was ever given out) —
@@ -158,4 +168,5 @@ func Worktree(repo, dir string) {
 		return
 	}
 	fmt.Printf("  worktree and branch %s removed.\n", branch)
+	return ""
 }
