@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
@@ -56,33 +57,18 @@ func openWorker(repo string, index int) {
 	cwd := w.Dir
 	if pw.Worktree != "" {
 		cwd = pw.Worktree
-		if err := gitutil.Fetch(repo); err != nil {
-			fmt.Fprintln(os.Stderr, "git fetch:", err)
-		}
-		branch := names.WorkerBranch(index, strings.TrimPrefix(filepath.Base(pw.Worktree), label+"-"))
-		if err := gitutil.WorktreeAdd(repo, pw.Worktree, branch, gitutil.DefaultBaseRef(repo)); err != nil {
-			pw.Worktree = "" // not made: nothing to tear down
-			fail("git worktree add", err, "")
-			return
-		}
 	}
-
-	anchor, direction, ratio := splitFrom(p, index)
-	pane, err := herdr.PaneSplit(anchor, direction, ratio, cwd)
+	pane, step, err := placeWorker(repo, plan.MasterPane, *pw, cwd)
 	if err != nil {
-		fail("herdr pane split", err, "")
+		if step == "git worktree add" {
+			pw.Worktree = "" // not made: nothing to tear down
+		}
+		fail(step, err, pane)
 		return
 	}
 	if err := herdr.PaneRename(pane, label); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: herdr pane rename: %v\n", name, err)
 	}
-	// Recorded at once: the next worker opened splits off this one.
-	_ = withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
-		if w := p.worker(index); w != nil {
-			w.Pane = pane
-		}
-		return true, nil
-	})
 
 	// The hook calls this same binary back; without its path the worker
 	// still pings, it only loses the status normalization.
@@ -103,7 +89,7 @@ func openWorker(repo string, index int) {
 	opened := label + " opened"
 	stacked := pw.Stacked
 	if stacked {
-		if err := wtm.Adopt(pw.Worktree, plan.Profile); err != nil {
+		if err := adoptAlone(pw.Worktree, plan.Profile); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: wtm adopt failed, it goes on without a dedicated environment: %v\n", name, err)
 			stacked = false
 			opened += ", WITHOUT its environment (wtm adopt failed): give it no task that needs one"
@@ -130,17 +116,91 @@ func openWorker(repo string, index int) {
 	tell(plan, opened+": acw gives it the next task it may take.")
 }
 
-// splitFrom is where a new worker's pane goes: right of the master's for
-// the first one, under the last worker's otherwise.
-// ponytail: a column that only grows down, rebalanced by no one after a
-// close; a real layout when it gets in the way.
-func splitFrom(p poolState, index int) (pane, direction string, ratio float64) {
-	for i := len(p.Workers) - 1; i >= 0; i-- {
-		if w := p.Workers[i]; w.Index != index && w.Pane != "" {
-			return w.Pane, "down", 0.5
+// placing serializes the fast half of every opening, from git worktree add
+// to the pane's split: workers opened in the same poll took the same
+// .git/config lock (one add failed and left its branch behind) and all
+// split off the master, none seeing the others' panes yet.
+var placing sync.Mutex
+
+// adopting runs one wtm adopt at a time. wtm checks a new index's ports
+// against the other worktrees' from a registry read before it locks it:
+// two adopts at once each missed the other, took neighbouring indices,
+// and with a stride of 1 two of their services got the same host port,
+// one stack failing to start. Slower when several open at once, but each
+// pane and agent is already up while its stack waits.
+var adopting sync.Mutex
+
+func adoptAlone(dir, profile string) error {
+	adopting.Lock()
+	defer adopting.Unlock()
+	return wtm.Adopt(dir, profile)
+}
+
+// placeWorker makes w's worktree, when it has one, and its pane, recorded
+// in the pool before the next opening looks for where to split. step
+// names what failed; pane is the one made, if any, for the caller to close.
+func placeWorker(repo, masterPane string, w poolWorker, cwd string) (pane, step string, err error) {
+	placing.Lock()
+	defer placing.Unlock()
+	if w.Worktree != "" {
+		if err := gitutil.Fetch(repo); err != nil {
+			fmt.Fprintln(os.Stderr, "git fetch:", err)
+		}
+		branch := names.WorkerBranch(w.Index, strings.TrimPrefix(filepath.Base(w.Worktree), w.label()+"-"))
+		if err := gitutil.WorktreeAdd(repo, w.Worktree, branch, gitutil.DefaultBaseRef(repo)); err != nil {
+			// Best effort: git may have made the branch before failing.
+			_ = gitutil.DeleteBranch(repo, branch)
+			return "", "git worktree add", err
 		}
 	}
-	return p.Plan.MasterPane, "right", 0.6
+	p, _, err := readPool(repo)
+	if err != nil {
+		return "", "reading the pool", err
+	}
+	var others []string
+	for _, o := range p.Workers {
+		if o.Index != w.Index && o.Pane != "" {
+			others = append(others, o.Pane)
+		}
+	}
+	var heights map[string]int
+	if len(others) > 0 {
+		if heights, err = herdr.PaneHeights(masterPane); err != nil {
+			fmt.Fprintln(os.Stderr, "herdr pane layout:", err)
+		}
+	}
+	anchor, direction, ratio := splitFrom(masterPane, others, heights)
+	if pane, err = herdr.PaneSplit(anchor, direction, ratio, cwd); err != nil {
+		return "", "herdr pane split", err
+	}
+	err = withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
+		if pw := p.worker(w.Index); pw != nil {
+			pw.Pane = pane
+		}
+		return true, nil
+	})
+	if err != nil {
+		return pane, "recording its pane", err
+	}
+	return pane, "", nil
+}
+
+// splitFrom is where a new worker's pane goes: the master keeps the left
+// 60 %, the workers share one column on the right. The first one splits
+// off the master; each next one halves the tallest worker pane, which
+// keeps the column even as workers open and close. Without heights, the
+// last worker pane.
+func splitFrom(masterPane string, workerPanes []string, heights map[string]int) (pane, direction string, ratio float64) {
+	if len(workerPanes) == 0 {
+		return masterPane, "right", 0.6
+	}
+	tallest := workerPanes[len(workerPanes)-1]
+	for _, p := range workerPanes {
+		if heights[p] > heights[tallest] {
+			tallest = p
+		}
+	}
+	return tallest, "down", 0.5
 }
 
 // closeWorker tears down a worker the pool no longer needs: its pane and

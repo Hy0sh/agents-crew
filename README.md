@@ -106,9 +106,14 @@ runs is acw's, from fixed rules a model cannot bend:
   up to `workers`, and for a worker in the code when the repo has wtm
   stacks, up to `max-stacks`. Opening is the worktree (named after the
   moment it opens, so a reopened worker never collides with the branch
-  its first opening left), its pane split next to the others, its agent,
-  then `wtm adopt`; `wtm doctor`'s port clash sections, if any, go into
-  the "opened" message. A failed opening is undone and the master told.
+  its first opening left), its pane, its agent, then `wtm adopt`;
+  `wtm doctor`'s port clash sections, if any, go into the "opened"
+  message. A failed opening is undone and the master told. Workers opened
+  together come up one at a time up to their pane, and one `wtm adopt`
+  at a time: run together, `git worktree add` raced for `.git/config`,
+  and two adopts each missed the other's ports. The master keeps the left
+  60 % of the screen; the workers share one column on the right, each new
+  one halving the tallest worker pane.
 - A worker set apart in `worker-overrides` only takes the tasks queued for
   it with `--worker workerN`; the others take everything else. `--worker`
   is also how a fix after a KO goes back to the worker that has the
