@@ -83,6 +83,19 @@ func TestQueueAddMoveRemove(t *testing.T) {
 	}
 }
 
+// A branch or a base starting with a dash would reach git as an option.
+func TestQueueAddRefusesOptionLikeBranches(t *testing.T) {
+	repo := testSwarm(t, 1)
+	for _, br := range []branchRequest{{Branch: "--orphan=x"}, {Branch: "fix/x", Base: "-d"}} {
+		if err := queueAdd(repo, briefFile(t, "x"), br, "", false, t0, io.Discard); err == nil {
+			t.Errorf("queueAdd(%+v) = nil, want a refusal", br)
+		}
+	}
+	if got := queueIDs(t, repo); len(got) != 0 {
+		t.Errorf("queue = %v, nothing should have been queued", got)
+	}
+}
+
 // Moving a held task is the master letting it go again.
 func TestQueueMoveClearsTheHold(t *testing.T) {
 	repo := testSwarm(t, 1)

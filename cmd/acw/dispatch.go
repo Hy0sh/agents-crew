@@ -65,6 +65,9 @@ func readBrief(path string) (string, error) {
 // held busy in the pool for the time so acw gives it nothing else, and
 // left busy once dispatched, until acw done.
 func dispatchByHand(repo, arg, briefPath string, br branchRequest, out io.Writer) error {
+	if err := br.check(); err != nil {
+		return err
+	}
 	text, err := readBrief(briefPath)
 	if err != nil {
 		return err
@@ -119,6 +122,17 @@ func dispatchWorker(repo, arg, text string, br branchRequest, out io.Writer) err
 // branch itself once it has read its task.
 type branchRequest struct {
 	Branch, Base string
+}
+
+// check refuses a branch or a base git would read as an option: both go
+// on git's command line as they are, and come from the master.
+func (br branchRequest) check() error {
+	for _, name := range []string{br.Branch, br.Base} {
+		if strings.HasPrefix(name, "-") {
+			return fmt.Errorf("%q starts with a dash: git would take it for an option", name)
+		}
+	}
+	return nil
 }
 
 // branchHolder is the worktree other than self where branch is checked

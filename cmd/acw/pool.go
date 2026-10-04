@@ -190,6 +190,9 @@ func workerArg(repo, arg string) (int, error) {
 
 // queueAdd queues the brief at path, last, or first with top.
 func queueAdd(repo, path string, br branchRequest, worker string, top bool, now time.Time, out io.Writer) error {
+	if err := br.check(); err != nil {
+		return err
+	}
 	text, err := readBrief(path)
 	if err != nil {
 		return err
