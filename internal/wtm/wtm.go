@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -109,13 +110,31 @@ func Registered(dir string) bool {
 
 // listedProject reports whether dir is a project's directory in the
 // output of `wtm project list` (a table: name, directory, base, dump).
+// Paths are compared resolved, as wtm does: on macOS /tmp is /private/tmp,
+// and a repo reached through a symlink is still the one registered.
 func listedProject(list, dir string) bool {
 	for _, line := range strings.Split(list, "\n") {
 		if strings.Contains(" "+line+" ", " "+dir+" ") {
 			return true
 		}
+		for _, field := range strings.Fields(line) {
+			if filepath.IsAbs(field) && samePath(field, dir) {
+				return true
+			}
+		}
 	}
 	return false
+}
+
+func samePath(a, b string) bool {
+	return resolve(a) == resolve(b)
+}
+
+func resolve(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return filepath.Clean(p)
 }
 
 // SwitchAvailable reports whether this wtm has `switch` (0.26.0 and
