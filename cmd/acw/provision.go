@@ -109,8 +109,8 @@ func openWorker(repo string, index int) {
 				fmt.Fprintf(os.Stderr, "%s: recording its stack: %v\n", name, err)
 			}
 			// wtm skips clashing ports when it allocates, but not against
-			// worktrees recorded before it learnt to, nor other projects:
-			// a stack then failed to start and doctor only told afterwards.
+			// worktrees recorded before it learnt to: a stack then failed
+			// to start and doctor only told afterwards.
 			report, err := wtm.Doctor(repo)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "wtm doctor:", err)

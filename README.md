@@ -219,8 +219,9 @@ worker's task branch is kept with its commits, pushed or not; only the
 was committed on it. A worktree wtm gave a stack to but no longer finds it
 under (the worktree changed branch without `wtm switch`) is kept, with the
 repair said: removed, it would leave that stack running with nothing to
-find it by. A worker closed by the pool, `acw pause` and `acw resume` do
-the same.
+find it by. A worker closed by the pool does the same and tells the
+master; `acw pause` and `acw resume` keep nothing and fail on that
+worktree, with the same repair.
 **Closing the terminal does nothing** — Herdr is a persistent server that
 outlives it, and so do any environments workers started. `acw stop` is the
 only way to actually stop it.

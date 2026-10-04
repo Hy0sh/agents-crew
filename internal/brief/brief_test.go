@@ -384,7 +384,7 @@ func TestBuildPRWatchParagraphOnlyWhenOn(t *testing.T) {
 	}
 	p.PRWatch = true
 	got := Build(p)
-	for _, want := range []string{"PR #", "dispatch a rebase", "never draft a review reply", "PR watch failing"} {
+	for _, want := range []string{"PR #", "queue a rebase", "never draft a review reply", "PR watch failing"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("brief with pr-watch is missing %q", want)
 		}

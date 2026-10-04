@@ -213,7 +213,9 @@ func switchWorkerBranch(repo string, t clearTarget, br branchRequest, out io.Wri
 		err = gitutil.Switch(wt, br.Branch, base, step.create)
 	}
 	if err != nil {
-		return fmt.Errorf("%s not put on %s, nothing was sent to it (run the same command again once fixed): %w", t.label, br.Branch, err)
+		// wtm switch checks out first and brings the stack after: a failure
+		// may leave the worktree on the branch with its stack not up yet.
+		return fmt.Errorf("%s may not be on %s yet, or be on it with its environment not ready; nothing was sent to it: run the same command again to finish: %w", t.label, br.Branch, err)
 	}
 	fmt.Fprintf(out, "%s: on %s.\n", t.label, br.Branch)
 	return nil
