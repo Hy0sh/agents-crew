@@ -75,6 +75,22 @@ longer left to a model.
   (acw pause, a reboot): they ran `wtm remove` only after a successful
   `wtm stop`, so a stopped stack stayed in wtm's list. One forced `wtm
   remove` now, which takes the stack down running or not.
+- That a worktree has a stack is recorded in its private git dir, not in
+  pool.json, which acw stop deletes: the next run's acw stop still keeps a
+  worktree whose stack it could not remove. Before keeping one, acw also
+  asks wtm for the stack under the branch it adopted the worktree under;
+  kept stacks count in `max-stacks`. A detached HEAD, a project wtm no
+  longer knows and wtm missing from PATH each get their own repair.
+- A failed `wtm adopt` is undone: it left an index, volumes and sometimes
+  containers behind.
+- Workers run `wtm switch --profile <profile>` when a profile is set: wtm
+  does not remember it, and a worker's first switch brought the whole
+  stack up.
+- `acw done workerN <id>` refuses a task the worker is no longer on, so a
+  second done cannot free it from the next task.
+- acw stop waits for the watcher to finish what it started before tearing
+  the workers down.
+- An unreadable queue.json no longer makes the watcher drop its run.
 - `--branch` on a worker with a stack is refused when wtm has no `switch`
   (before 0.26.0), instead of a plain `git switch` that left its stack
   behind.
