@@ -29,6 +29,16 @@ func TestBriefExtraIsAppendedAndTemplated(t *testing.T) {
 	}
 }
 
+// wtm does not remember the profile a stack was adopted on.
+func TestSwitchCommandCarriesTheProfile(t *testing.T) {
+	if got := switchCommandFor(""); got != "wtm switch" {
+		t.Errorf("switchCommandFor(\"\") = %q", got)
+	}
+	if got := switchCommandFor("light"); got != "wtm switch --profile light" {
+		t.Errorf("switchCommandFor(light) = %q, want the profile passed on", got)
+	}
+}
+
 func TestReadNotesRelativePathIsReadFromTheRepo(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, "rules.md"), []byte("- rule"), 0o644); err != nil {

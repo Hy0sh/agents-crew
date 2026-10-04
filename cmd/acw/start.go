@@ -90,7 +90,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	stacks := coders > 0 && wtm.Available() && wtm.Registered(repo)
 	var switchCommand string
 	if stacks && wtm.SwitchAvailable() {
-		switchCommand = "wtm switch"
+		switchCommand = switchCommandFor(opts.profile)
 	}
 	masterBrief, err := buildBrief(briefSource(customBrief, extra), brief.Params{
 		RepoPath:         repo,
@@ -175,6 +175,17 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 
 	// Replace this process with the Herdr TUI, attaching to the workspace just built.
 	return syscall.Exec(mustLookPath("herdr"), []string{"herdr"}, os.Environ())
+}
+
+// switchCommandFor is the wtm switch the brief hands the workers: with
+// the swarm's profile, which wtm does not remember, or a worker's first
+// switch would bring its stack back up whole. The workers' permission,
+// Bash(wtm switch:*), covers it.
+func switchCommandFor(profile string) string {
+	if profile == "" {
+		return "wtm switch"
+	}
+	return "wtm switch --profile " + shellWord(profile)
 }
 
 // readCustomBrief returns the custom template's source, "" when path is.
