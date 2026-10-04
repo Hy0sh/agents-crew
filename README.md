@@ -118,9 +118,11 @@ runs is acw's, from fixed rules a model cannot bend:
   it with `--worker workerN`; the others take everything else. `--worker`
   is also how a fix after a KO goes back to the worker that has the
   context.
-- A task ends when the master runs `acw done workerN`, after checking its
-  result: never on the worker's word, nor on a merged PR, since acw cannot
-  tell which task a PR belongs to.
+- A task ends when the master runs `acw done workerN <id>`, after
+  checking its result: never on the worker's word, nor on a merged PR,
+  since acw cannot tell which task a PR belongs to. With the id, a done
+  for a task already over is refused instead of freeing the worker from
+  the next one acw just handed it.
 - A free worker with nothing queued for it is closed after
   `idle-close-minutes`, unless that would take the pool under
   `min-workers`: its pane and agent, its stack and worktree. Its task
@@ -226,7 +228,7 @@ only way to actually stop it.
 ```sh
 acw status [--repo <dir>]
 acw queue [--repo <dir>] [add <brief-file> [--branch <b>] [--worker workerN] [--top] | move <id> <pos> | remove <id>]
-acw done [--repo <dir>] workerN
+acw done [--repo <dir>] workerN [task-id]
 acw clear [--repo <dir>] worker1 [worker2...]
 acw dispatch [--repo <dir>] worker1 <brief-file>
 acw pause

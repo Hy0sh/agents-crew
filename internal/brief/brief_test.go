@@ -50,7 +50,7 @@ func TestBuildHandsTheMasterTheQueue(t *testing.T) {
 		"`" + p.QueueCommand + " add <brief-file>`",
 		"`" + p.QueueCommand + " move <id> <position>`",
 		"--top", "--worker workerN",
-		"`" + p.DoneCommand + " workerN`",
+		"`" + p.DoneCommand + " workerN <id>`",
 		"up to 2", "free for 10 min",
 	} {
 		if !strings.Contains(got, want) {

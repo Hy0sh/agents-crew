@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -361,9 +362,9 @@ func main() {
 
 	var doneRepo func() (string, error)
 	done := &cobra.Command{
-		Use:   "done workerN",
+		Use:   "done workerN [task-id]",
 		Short: "Mark a worker's task as finished: acw gives it the next one, or closes it",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			repo, err := doneRepo()
 			if err != nil {
@@ -373,7 +374,13 @@ func main() {
 			if err != nil {
 				return err
 			}
-			msg, err := markDone(repo, index, time.Now())
+			task := 0
+			if len(args) == 2 {
+				if task, err = strconv.Atoi(strings.TrimPrefix(args[1], "#")); err != nil {
+					return fmt.Errorf("%q is not a task id", args[1])
+				}
+			}
+			msg, err := markDone(repo, index, task, time.Now())
 			if err != nil {
 				return err
 			}

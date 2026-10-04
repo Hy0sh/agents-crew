@@ -133,7 +133,7 @@ func TestQueueConcurrentAddsAllLand(t *testing.T) {
 
 func TestMarkDone(t *testing.T) {
 	repo := testSwarm(t, 2, poolWorker{Index: 1, State: workerBusy, Task: 3})
-	msg, err := markDone(repo, 1, t0)
+	msg, err := markDone(repo, 1, 3, t0)
 	if err != nil || !strings.Contains(msg, "free") {
 		t.Fatalf("markDone() = %q, %v", msg, err)
 	}
@@ -141,11 +141,23 @@ func TestMarkDone(t *testing.T) {
 	if w := p.worker(1); w.State != workerFree || w.Task != 0 || !w.Since.Equal(t0) {
 		t.Errorf("worker1 = %+v, want free since now, no task", w)
 	}
-	if msg, err := markDone(repo, 1, t0); err != nil || !strings.Contains(msg, "already free") {
+	if msg, err := markDone(repo, 1, 0, t0); err != nil || !strings.Contains(msg, "already free") {
 		t.Errorf("markDone() twice = %q, %v; want no error, already free", msg, err)
 	}
-	if _, err := markDone(repo, 2, t0); err == nil {
+	if _, err := markDone(repo, 2, 0, t0); err == nil {
 		t.Error("markDone() on a worker that is not open should fail")
+	}
+}
+
+// A done for a task already over must not free the worker from the next
+// one the watcher just handed it.
+func TestMarkDoneRefusesAnotherTask(t *testing.T) {
+	repo := testSwarm(t, 1, poolWorker{Index: 1, State: workerBusy, Task: 4})
+	if _, err := markDone(repo, 1, 3, t0); err == nil || !strings.Contains(err.Error(), "#4") {
+		t.Errorf("markDone(task 3) on a worker busy with #4 = %v, want a refusal naming #4", err)
+	}
+	if p, _, _ := readPool(repo); p.worker(1).State != workerBusy {
+		t.Error("worker1 was freed from task #4")
 	}
 }
 

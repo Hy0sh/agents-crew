@@ -246,9 +246,11 @@ func queueRemove(repo string, id int, out io.Writer) error {
 	})
 }
 
-// markDone frees a busy worker. A worker already free is not an error:
-// the master may say twice that a task is over.
-func markDone(repo string, index int, now time.Time) (string, error) {
+// markDone frees a busy worker. A worker already free is not an error.
+// task, when not 0, is the task the caller means to end: a second done
+// for a task already over could otherwise free a worker the watcher has
+// just handed the next one, which would then get a third brief on top.
+func markDone(repo string, index, task int, now time.Time) (string, error) {
 	var msg string
 	err := withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
 		w := p.worker(index)
@@ -258,6 +260,9 @@ func markDone(repo string, index int, now time.Time) (string, error) {
 		if w.State != workerBusy {
 			msg = fmt.Sprintf("%s is already %s.", w.label(), w.State)
 			return false, nil
+		}
+		if task != 0 && w.Task != task {
+			return false, fmt.Errorf("%s is on task #%d, not #%d: nothing changed", w.label(), w.Task, task)
 		}
 		msg = fmt.Sprintf("%s is free (task #%d done).", w.label(), w.Task)
 		w.State, w.Task, w.Since = workerFree, 0, now
