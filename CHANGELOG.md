@@ -6,6 +6,59 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+The swarm is now elastic: no worker at launch, a task queue the master
+orders, and acw opening and closing workers by fixed rules. What to do and
+in which order stays the master's call; where and when it runs is no
+longer left to a model.
+
+### Added
+
+- A task queue held by acw: `acw queue` lists the workers and the queue,
+  `acw queue add <brief-file>` (with `--top`, `--worker workerN`,
+  `--branch`, `--base`), `move` and `remove` change it. acw's watcher hands
+  the tasks out in that order, with the same steps as `acw dispatch`. A
+  task it could not hand out is held first in the queue with the reason
+  until the master moves or removes it.
+- `acw done workerN`: the master ends a task once it checked its result;
+  only then does the worker get another, or close.
+- `min-workers` (default 0) and `idle-close-minutes` (default 10), keys and
+  flags: workers kept open with nothing queued, and how long a free one
+  above that stays open. `min-workers` equal to `workers` is the fixed
+  swarm of before.
+
+- `state_since` in a claude worker's status file, stamped by `acw
+  __turn-end`: the turn end at which the current `state` was first seen.
+  Workers waiting in the same state (a review, a demo, an arbitration) can
+  be taken in order from the files rather than from the master's memory,
+  which a compaction loses. `acw status` shows it next to the state.
+
+### Changed
+
+- `workers` is a ceiling: acw opens a worker when a task waits and none is
+  free, up to it, and for a worker in the code when the repo has wtm
+  stacks, up to `max-stacks`; it closes a worker free for
+  `idle-close-minutes` with nothing queued for it, never under
+  `min-workers` and never with changes in its worktree. The master no
+  longer arbitrates environments.
+- A worker set apart in `worker-overrides` only takes the tasks queued for
+  it with `--worker`.
+- A worker's worktree is named after the moment it opens, not the run's
+  start: a reopened worker never collides with the branch its first
+  opening left.
+- The master may run `acw status`, `acw queue` and `acw done` without a
+  prompt, no longer `acw clear` nor `acw dispatch`: acw does both when it
+  hands a task out. `acw dispatch` stays for you, and marks the worker busy
+  until `acw done`.
+- A custom brief loses `{{.ClearCommand}}`, `{{.DispatchCommand}}` and
+  `{{.StackedWorkers}}`, and gains `{{.QueueCommand}}`, `{{.DoneCommand}}`,
+  `{{.MinWorkers}}` and `{{.IdleCloseMinutes}}`. One still naming a removed
+  variable is refused at launch, before anything starts.
+
+### Removed
+
+- The "workers ready" message and the provisioning at launch: each opening
+  is its own message.
+
 ## [0.10.0] - 2026-10-02
 
 A worker now gets its task in one call, carries the repo rules in its

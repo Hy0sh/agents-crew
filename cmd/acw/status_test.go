@@ -17,7 +17,7 @@ func TestRenderStatusShowsAgesUsageAndTheInbox(t *testing.T) {
 	ctx, quota := 23.0, 78.0
 	rows := []statusRow{
 		{
-			Label: "worker1", Agent: "working", State: "in_progress", Task: "some task",
+			Label: "worker1", Agent: "working", State: "in_progress", StateSince: now.Add(-25 * time.Minute), Task: "some task",
 			Branch: "feat/x", BaseBranch: "feat/w", PR: "https://example.test/pr/1",
 			Updated: now.Add(-40 * time.Minute), TurnEnd: now.Add(-3 * time.Minute), Activity: now.Add(-2 * time.Minute),
 			Context: &ctx, FiveHour: &quota,
@@ -26,7 +26,7 @@ func TestRenderStatusShowsAgesUsageAndTheInbox(t *testing.T) {
 	}
 	got := renderStatus(now, rows, 2, now.Add(-7*time.Minute))
 	for _, want := range []string{
-		"worker1", "working", "in_progress", "some task",
+		"worker1", "working", "in_progress since 25 min ago", "some task",
 		"status 40 min ago", "turn 3 min ago", "activity 2 min ago",
 		"ctx 23%", "5h 78%", "feat/x ← feat/w", "https://example.test/pr/1",
 		"inbox: 2 unread messages, the last one arrived at 14:03",

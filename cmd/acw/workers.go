@@ -150,15 +150,20 @@ func describeWorkers(workers []workerSpec) string {
 	return strings.Join(parts, ", ")
 }
 
-// provisionPlan is everything the detached provisioner needs, passed as
-// one JSON argument: a list per worker doesn't fit positional arguments.
+// provisionPlan is everything opening a worker needs, kept in pool.json
+// for the life of the swarm.
 type provisionPlan struct {
-	Repo       string       `json:"repo"`
-	MasterPane string       `json:"master_pane"`
-	Stamp      string       `json:"stamp"`
-	MaxStacks  int          `json:"max_stacks"`
-	Profile    string       `json:"profile"`
-	Workers    []workerSpec `json:"workers"`
+	Repo       string `json:"repo"`
+	MasterPane string `json:"master_pane"`
+	Stamp      string `json:"stamp"`
+	// Stacks is set when a worker in the code gets a wtm stack: wtm is
+	// there and knows the repo. MaxStacks then caps how many are open.
+	Stacks    bool   `json:"stacks,omitempty"`
+	MaxStacks int    `json:"max_stacks"`
+	Profile   string `json:"profile"`
+	// Workers is every worker that may be opened, worker1 first: its
+	// length is the configured count.
+	Workers []workerSpec `json:"workers"`
 	// Inbox is where pings go for a master that watches one, "" when they
 	// are typed into it (see inboxWatchCommand).
 	Inbox string `json:"inbox,omitempty"`

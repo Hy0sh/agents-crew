@@ -4,148 +4,181 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"slices"
+	"path/filepath"
 	"strings"
-	"sync"
+	"time"
 
-	"github.com/Hy0sh/agents-crew/internal/brief"
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
-	"github.com/Hy0sh/agents-crew/internal/layout"
 	"github.com/Hy0sh/agents-crew/internal/names"
+	"github.com/Hy0sh/agents-crew/internal/teardown"
 	"github.com/Hy0sh/agents-crew/internal/wtm"
 )
 
-// provisionWorkers runs as a detached background process (see
-// launchBackgroundProvisioning). For each worker, in order: `git worktree
-// add` (seconds), split its pane off the shared layout, rename it, start
-// its agent — that whole chain is fast, so each pane and agent appears
-// within seconds of launch, one after another, instead of waiting for
-// every worker at once. `wtm adopt` (the slow part, real services coming
-// up) runs in its own goroutine per worker once the pane is already live,
-// so N workers provision their environments concurrently instead of
-// serially. Errors are logged and provisioning continues for the
-// remaining workers where it safely can — a partial swarm beats none.
-func provisionWorkers(plan provisionPlan) {
-	repo, stamp, n := plan.Repo, plan.Stamp, len(plan.Workers)
-	slug := names.Slug(repo)
-	masterName := names.Master(slug)
-
-	if err := gitutil.Fetch(repo); err != nil {
-		fmt.Fprintln(os.Stderr, "git fetch:", err)
-	}
-	baseRef := gitutil.DefaultBaseRef(repo)
-
-	splits := layout.WorkerSplits(n)
-	currentPane := plan.MasterPane
-
-	var adopting sync.WaitGroup
-	var adoptedMu sync.Mutex
-	var adopted []string // labels whose wtm adopt succeeded
-	stacked := stackedWorkers(plan.Workers, plan.MaxStacks)
-
-	// The hook calls this same binary back; without its path the workers
-	// still ping, they only lose the status normalization.
-	self, err := os.Executable()
+// openWorker brings up worker index, already in the pool as opening (see
+// applyActions): its worktree, its pane next to the others, its agent,
+// then its stack, the slow part. Run in its own goroutine by the watcher,
+// so blocks and silences are still reported while a stack comes up. Once
+// done the worker is free and the next poll gives it a task; on a
+// failure, what was made is undone and the master is told.
+func openWorker(repo string, index int) {
+	p, _, err := readPool(repo)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "acw's path not found, statuses won't be normalized:", err)
-	}
-	statusDir := names.StatusDir(repo)
-
-	for i := 1; i <= n; i++ {
-		label := fmt.Sprintf("worker%d", i) // cosmetic pane label, kept short
-		name := names.Worker(slug, i)       // actual herdr agent name, unique per repo
-		w := plan.Workers[i-1]
-
-		// A worker outside the code starts in its own dir: no worktree.
-		wt := w.Dir
-		if wt == "" {
-			wt = names.WorkerWorktree(repo, i, stamp)
-			if err := gitutil.WorktreeAdd(repo, wt, names.WorkerBranch(i, stamp), baseRef); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: git worktree add: %v\n", name, err)
-				continue
-			}
-		}
-
-		split := splits[i-1]
-		newPane, err := herdr.PaneSplit(currentPane, split.Direction, split.Ratio, wt)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s: herdr pane split: %v\n", name, err)
-			continue
-		}
-		currentPane = newPane
-
-		if err := herdr.PaneRename(newPane, label); err != nil {
-			fmt.Fprintf(os.Stderr, "%s: herdr pane rename: %v\n", name, err)
-		}
-		delta, statusLine := "", ""
-		if self != "" {
-			delta = turnEndCommand(self, statusDir, label)
-			statusLine = statusLineCommand(self, statusDir, label)
-		}
-		hook := pingCommand(plan.Inbox, masterName, label, delta)
-		if err := herdr.AgentStart(name, w.Kind, newPane, workerArgs(w, label, hook, statusLine, plan.SwitchAllowed && stacked[i-1])...); err != nil {
-			fmt.Fprintf(os.Stderr, "%s: herdr agent start: %v\n", name, explainStart(err, wt))
-			continue
-		}
-
-		if stacked[i-1] && wtm.Available() {
-			adopting.Add(1)
-			go func(name, label, wt string) {
-				defer adopting.Done()
-				if err := wtm.Adopt(wt, plan.Profile); err != nil {
-					fmt.Fprintf(os.Stderr, "%s: wtm adopt failed, it goes on without a dedicated environment: %v\n", name, err)
-					return
-				}
-				adoptedMu.Lock()
-				adopted = append(adopted, label)
-				adoptedMu.Unlock()
-			}(name, label, wt)
-		}
-	}
-
-	adopting.Wait()
-	if slices.Contains(stacked, true) && wtm.Available() {
-		slices.Sort(adopted)
-		if err := recordStacked(repo, adopted); err != nil {
-			fmt.Fprintln(os.Stderr, "run info:", err)
-		}
-	}
-
-	ready := brief.WorkersReadyMessage(slug, n)
-	// wtm skips clashing ports when it allocates, but not against
-	// worktrees recorded before it learnt to, nor other projects: a
-	// worker's stack then failed to start and doctor only told afterwards.
-	if slices.Contains(stacked, true) && wtm.Available() {
-		report, err := wtm.Doctor(repo)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "wtm doctor:", err)
-		}
-		if clashes := portClashes(report); clashes != "" {
-			ready += "\n\nwtm doctor reports port clashes: an affected worker may have no stack. Tell me before dispatching it a task that needs one.\n" + clashes
-		}
-	}
-	if plan.Inbox != "" {
-		if err := appendLine(plan.Inbox, ready); err != nil {
-			fmt.Fprintln(os.Stderr, "master's inbox (workers ready):", err)
-		}
+		fmt.Fprintln(os.Stderr, "opening a worker:", err)
 		return
 	}
-	if err := herdr.AgentPrompt(masterName, ready); err != nil {
-		fmt.Fprintln(os.Stderr, "herdr agent prompt master (workers ready):", err)
+	plan := p.Plan
+	pw := p.worker(index)
+	if pw == nil {
+		return
 	}
+	slug := names.Slug(repo)
+	masterName := names.Master(slug)
+	label := pw.label()               // cosmetic pane label, kept short
+	name := names.Worker(slug, index) // actual herdr agent name, unique per repo
+	w := plan.Workers[index-1]
+	fail := func(step string, err error, pane string) {
+		fmt.Fprintf(os.Stderr, "%s: %s: %v\n", name, step, err)
+		if pane != "" {
+			_ = herdr.PaneClose(pane)
+		}
+		if pw.Worktree != "" {
+			teardown.Worktree(repo, pw.Worktree)
+		}
+		_ = withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
+			p.remove(index)
+			return true, nil
+		})
+		tell(plan, fmt.Sprintf("%s could not be opened (%s: %v). The tasks waiting for it stay queued.", label, step, err))
+	}
+
+	// A worker outside the code starts in its own dir: no worktree.
+	cwd := w.Dir
+	if pw.Worktree != "" {
+		cwd = pw.Worktree
+		if err := gitutil.Fetch(repo); err != nil {
+			fmt.Fprintln(os.Stderr, "git fetch:", err)
+		}
+		branch := names.WorkerBranch(index, strings.TrimPrefix(filepath.Base(pw.Worktree), label+"-"))
+		if err := gitutil.WorktreeAdd(repo, pw.Worktree, branch, gitutil.DefaultBaseRef(repo)); err != nil {
+			pw.Worktree = "" // not made: nothing to tear down
+			fail("git worktree add", err, "")
+			return
+		}
+	}
+
+	anchor, direction, ratio := splitFrom(p, index)
+	pane, err := herdr.PaneSplit(anchor, direction, ratio, cwd)
+	if err != nil {
+		fail("herdr pane split", err, "")
+		return
+	}
+	if err := herdr.PaneRename(pane, label); err != nil {
+		fmt.Fprintf(os.Stderr, "%s: herdr pane rename: %v\n", name, err)
+	}
+	// Recorded at once: the next worker opened splits off this one.
+	_ = withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
+		if w := p.worker(index); w != nil {
+			w.Pane = pane
+		}
+		return true, nil
+	})
+
+	// The hook calls this same binary back; without its path the worker
+	// still pings, it only loses the status normalization.
+	delta, statusLine := "", ""
+	if self, err := os.Executable(); err == nil {
+		statusDir := names.StatusDir(repo)
+		delta = turnEndCommand(self, statusDir, label)
+		statusLine = statusLineCommand(self, statusDir, label)
+	} else {
+		fmt.Fprintln(os.Stderr, "acw's path not found, statuses won't be normalized:", err)
+	}
+	hook := pingCommand(plan.Inbox, masterName, label, delta)
+	if err := herdr.AgentStart(name, w.Kind, pane, workerArgs(w, label, hook, statusLine, plan.SwitchAllowed && pw.Stacked)...); err != nil {
+		fail("herdr agent start", explainStart(err, cwd), pane)
+		return
+	}
+
+	opened := label + " opened"
+	stacked := pw.Stacked
+	if stacked {
+		if err := wtm.Adopt(pw.Worktree, plan.Profile); err != nil {
+			fmt.Fprintf(os.Stderr, "%s: wtm adopt failed, it goes on without a dedicated environment: %v\n", name, err)
+			stacked = false
+			opened += ", WITHOUT its environment (wtm adopt failed): give it no task that needs one"
+		} else {
+			opened += " with its environment"
+			// wtm skips clashing ports when it allocates, but not against
+			// worktrees recorded before it learnt to, nor other projects:
+			// a stack then failed to start and doctor only told afterwards.
+			report, err := wtm.Doctor(repo)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "wtm doctor:", err)
+			}
+			if clashes := portClashes(report); clashes != "" {
+				opened += "\nwtm doctor reports port clashes, its stack may be down:\n" + clashes
+			}
+		}
+	}
+	_ = withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
+		if w := p.worker(index); w != nil {
+			w.State, w.Since, w.Stacked = workerFree, time.Now(), stacked
+		}
+		return true, nil
+	})
+	tell(plan, opened+": acw gives it the next task it may take.")
 }
 
-// recordStacked replaces the stacks planned at launch with the ones that
-// came up: acw dispatch reads run.json to choose between wtm switch and
-// git switch, and wtm switch refuses a worktree whose adopt failed.
-func recordStacked(repo string, labels []string) error {
-	run, err := readRunInfo(repo)
-	if err != nil {
-		return err
+// splitFrom is where a new worker's pane goes: right of the master's for
+// the first one, under the last worker's otherwise.
+// ponytail: a column that only grows down, rebalanced by no one after a
+// close; a real layout when it gets in the way.
+func splitFrom(p poolState, index int) (pane, direction string, ratio float64) {
+	for i := len(p.Workers) - 1; i >= 0; i-- {
+		if w := p.Workers[i]; w.Index != index && w.Pane != "" {
+			return w.Pane, "down", 0.5
+		}
 	}
-	run.Stacked = labels
-	return writeRunInfo(repo, run)
+	return p.Plan.MasterPane, "right", 0.6
+}
+
+// closeWorker tears down a worker the pool no longer needs: its pane and
+// agent, its worktree and environment (its task branch stays, see
+// teardown.Worktree), its files in the status dir but its system prompt,
+// which a reopening needs.
+func closeWorker(repo string, w poolWorker, why string) {
+	plan, _, err := readPool(repo)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "closing a worker:", err)
+		return
+	}
+	if w.Pane != "" {
+		if err := herdr.PaneClose(w.Pane); err != nil {
+			fmt.Fprintf(os.Stderr, "%s: herdr pane close: %v\n", w.label(), err)
+		}
+	}
+	if w.Worktree != "" {
+		teardown.Worktree(repo, w.Worktree)
+	}
+	files, _ := filepath.Glob(filepath.Join(names.StatusDir(repo), w.label()+".*"))
+	for _, f := range files {
+		if !strings.HasSuffix(f, ".system.md") {
+			_ = os.Remove(f)
+		}
+	}
+	_ = withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
+		p.remove(w.Index)
+		return true, nil
+	})
+	tell(plan.Plan, w.label()+" closed: "+why+".")
+}
+
+// tell sends the master a line about the pool.
+func tell(plan provisionPlan, msg string) {
+	if err := deliver(plan.Inbox, names.Master(names.Slug(plan.Repo)), msg); err != nil {
+		fmt.Fprintln(os.Stderr, "message to the master:", err)
+	}
 }
 
 // portClashes keeps the port clash sections of a `wtm doctor` report, ""

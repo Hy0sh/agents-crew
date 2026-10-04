@@ -109,6 +109,43 @@ func TestNormalizeStatusKeepsTheWorkersMtime(t *testing.T) {
 	}
 }
 
+// state_since is the turn end at which the current state was first seen,
+// so a queue of workers in the same state can be ordered from the files.
+// The worker rewrites its file whole and drops what it did not write: the
+// state acw last saw lives beside it, in workerN.since.
+func TestNormalizeStatusStampsStateSinceOnAChange(t *testing.T) {
+	first := time.Date(2026, 9, 25, 14, 0, 0, 0, time.UTC)
+	path := writeStatus(t, `{"state":"demo_ready"}`, first)
+
+	if err := normalizeStatus(path, first); err != nil {
+		t.Fatal(err)
+	}
+	if got := readStatus(t, path)["state_since"]; got != "2026-09-25T14:00:00Z" {
+		t.Fatalf("first turn: state_since = %v, want now", got)
+	}
+
+	// Same state, file rewritten whole by the worker without the field.
+	if err := os.WriteFile(path, []byte(`{"state":"demo_ready","summary":"waiting"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := normalizeStatus(path, first.Add(20*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if got := readStatus(t, path)["state_since"]; got != "2026-09-25T14:00:00Z" {
+		t.Errorf("same state: state_since = %v, want it kept", got)
+	}
+
+	if err := os.WriteFile(path, []byte(`{"state":"demo_step"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := normalizeStatus(path, first.Add(30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if got := readStatus(t, path)["state_since"]; got != "2026-09-25T14:30:00Z" {
+		t.Errorf("new state: state_since = %v, want now", got)
+	}
+}
+
 func TestNormalizeStatusKeepsBlockedOnWhileBlocked(t *testing.T) {
 	path := writeStatus(t, `{"state":"blocked","blocked_on":"which option?"}`, time.Now())
 	if err := normalizeStatus(path, time.Now()); err != nil {

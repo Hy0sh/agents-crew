@@ -26,10 +26,9 @@ import (
 	"github.com/Hy0sh/agents-crew/internal/wtm"
 )
 
-const provisionUse = "__provision-workers"
-
 type startOptions struct {
 	workers     int
+	minWorkers  int
 	maxStacks   int
 	masterKind  string
 	workerKind  string
@@ -44,7 +43,9 @@ type startOptions struct {
 	overrides   map[string]config.WorkerOverride // same
 	// silenceMinutes: same, see config.Project.SilenceMinutes.
 	silenceMinutes int
-	prWatch        bool
+	// idleCloseMinutes: same, see config.Project.IdleCloseMinutes.
+	idleCloseMinutes int
+	prWatch          bool
 }
 
 // applyConfig copies the project entry's values into opts, except for
@@ -64,6 +65,7 @@ func applyConfig(opts *startOptions, p *config.Project, changed func(string) boo
 		}
 	}
 	setInt("workers", &opts.workers, p.Workers)
+	setInt("min-workers", &opts.minWorkers, p.MinWorkers)
 	setInt("max-stacks", &opts.maxStacks, p.MaxStacks)
 	setStr("master-kind", &opts.masterKind, p.MasterKind)
 	setStr("worker-kind", &opts.workerKind, p.WorkerKind)
@@ -75,10 +77,26 @@ func applyConfig(opts *startOptions, p *config.Project, changed func(string) boo
 	setStr("brief-extra", &opts.extraPath, p.BriefExtra)
 	setStr("master-dir", &opts.masterDir, p.MasterDir)
 	setInt("silence-minutes", &opts.silenceMinutes, p.SilenceMinutes)
+	setInt("idle-close-minutes", &opts.idleCloseMinutes, p.IdleCloseMinutes)
 	if p.PRWatch != nil && !changed("pr-watch") {
 		opts.prWatch = *p.PRWatch
 	}
 	opts.overrides = p.WorkerOverrides
+}
+
+// checkCounts refuses counts the pool cannot run with: workers is how
+// many may be open, min-workers how many stay open, so 1 <= workers and
+// 0 <= min-workers <= workers.
+func checkCounts(opts *startOptions) error {
+	switch {
+	case opts.workers < 1:
+		return fmt.Errorf("workers is %d: at least 1, it is how many workers acw may open", opts.workers)
+	case opts.minWorkers < 0 || opts.minWorkers > opts.workers:
+		return fmt.Errorf("min-workers is %d: from 0 to workers (%d)", opts.minWorkers, opts.workers)
+	case opts.idleCloseMinutes < 0:
+		return fmt.Errorf("idle-close-minutes is %d: 0 or more", opts.idleCloseMinutes)
+	}
+	return nil
 }
 
 // completeFlags offers the root's flags on a bare Tab, next to the
@@ -203,7 +221,7 @@ func withWtm(run func(repo string) error) error {
 }
 
 func main() {
-	opts := &startOptions{silenceMinutes: 30}
+	opts := &startOptions{silenceMinutes: 30, idleCloseMinutes: 10}
 
 	root := &cobra.Command{
 		Use:     "acw",
@@ -230,6 +248,9 @@ func main() {
 				}
 				fmt.Fprintf(cmd.ErrOrStderr(), "config: %s → %s\n", config.Path(), summary)
 			}
+			if err := checkCounts(opts); err != nil {
+				return fmt.Errorf("config acw: %w", err)
+			}
 			workers, err := resolveWorkers(opts, cwd)
 			if err != nil {
 				return fmt.Errorf("config acw: %w", err)
@@ -254,8 +275,10 @@ func main() {
 	// dependency) gets only its message instead of being buried under it.
 	root.PersistentPreRun = func(cmd *cobra.Command, args []string) { cmd.SilenceUsage = true }
 
-	root.Flags().IntVarP(&opts.workers, "workers", "n", 3, "number of worker agents (per-project: workers)")
-	root.Flags().IntVar(&opts.maxStacks, "max-stacks", 0, "concurrent isolated environments the machine can hold (default: same as --workers) (per-project: max-stacks)")
+	root.Flags().IntVarP(&opts.workers, "workers", "n", 3, "most worker agents open at once, opened as tasks are queued (per-project: workers)")
+	root.Flags().IntVar(&opts.minWorkers, "min-workers", 0, "workers kept open with nothing queued; --workers for a fixed swarm (per-project: min-workers)")
+	root.Flags().IntVar(&opts.idleCloseMinutes, "idle-close-minutes", 10, "how long a free worker above --min-workers stays open with nothing queued for it (per-project: idle-close-minutes)")
+	root.Flags().IntVar(&opts.maxStacks, "max-stacks", 0, "concurrent isolated environments the machine can hold, which also caps the workers in the code (default: same as --workers) (per-project: max-stacks)")
 	root.Flags().StringVar(&opts.masterKind, "master-kind", "claude", "herdr agent kind for the master (claude, codex, gemini...) (per-project: master-kind)")
 	root.Flags().StringVar(&opts.workerKind, "worker-kind", "claude", "herdr agent kind for the workers (claude, codex, gemini...) (per-project: worker-kind)")
 	root.Flags().StringVar(&opts.masterModel, "master-model", "opus", "model for the master agent; empty means no --model is passed to its CLI (per-project: master-model)")
@@ -327,12 +350,38 @@ func main() {
 			if err != nil {
 				return err
 			}
-			return dispatchWorker(repo, args[0], args[1], br, cmd.OutOrStdout())
+			return dispatchByHand(repo, args[0], args[1], br, cmd.OutOrStdout())
 		},
 	}
 	dispatchRepo = repoFlag(dispatch)
 	dispatch.Flags().StringVar(&br.Branch, "branch", "", "put the worker on this branch first (a fix or a rebase on a known branch), after a git fetch")
 	dispatch.Flags().StringVar(&br.Base, "base", "", "where --branch is cut from when it doesn't exist yet (default: the repo's default branch on origin)")
+
+	queue := queueCommand()
+
+	var doneRepo func() (string, error)
+	done := &cobra.Command{
+		Use:   "done workerN",
+		Short: "Mark a worker's task as finished: acw gives it the next one, or closes it",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repo, err := doneRepo()
+			if err != nil {
+				return err
+			}
+			index, err := workerArg(repo, args[0])
+			if err != nil {
+				return err
+			}
+			msg, err := markDone(repo, index, time.Now())
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), msg)
+			return nil
+		},
+	}
+	doneRepo = repoFlag(done)
 
 	pause := &cobra.Command{
 		Use:   "pause",
@@ -348,23 +397,6 @@ func main() {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withWtm(func(repo string) error { return resumeStacks(repo, cmd.OutOrStdout()) })
-		},
-	}
-
-	// Internal: re-exec'd as a detached background process by runStart to
-	// provision workers without delaying the Herdr TUI opening. Hidden from
-	// --help and completion; not a documented interface.
-	provision := &cobra.Command{
-		Use:    provisionUse + " <plan-json>",
-		Hidden: true,
-		Args:   cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := decodePlan[provisionPlan](args[0], "provisioning")
-			if err != nil {
-				return err
-			}
-			provisionWorkers(plan)
-			return nil
 		},
 	}
 
@@ -430,7 +462,7 @@ func main() {
 		},
 	}
 
-	root.AddCommand(stop, status, clearCmd, dispatch, pause, resume, provision, watch, inboxWatch, inboxNext, turnEnd, statusLine)
+	root.AddCommand(stop, status, queue, done, clearCmd, dispatch, pause, resume, watch, inboxWatch, inboxNext, turnEnd, statusLine)
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)

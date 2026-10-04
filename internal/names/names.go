@@ -76,6 +76,23 @@ func RunFile(repo string) string {
 	return filepath.Join(StatusDir(repo), "run.json")
 }
 
+// PoolFile holds the elastic pool: what a worker is opened with, and each
+// open worker's state.
+func PoolFile(repo string) string {
+	return filepath.Join(StatusDir(repo), "pool.json")
+}
+
+// QueueFile holds the tasks waiting for a worker.
+func QueueFile(repo string) string {
+	return filepath.Join(StatusDir(repo), "queue.json")
+}
+
+// PoolLock is locked by whoever changes the pool or the queue: the
+// watcher, and the master's acw queue and acw done.
+func PoolLock(repo string) string {
+	return filepath.Join(StatusDir(repo), "pool.lock")
+}
+
 // WorkerWorktree is worker i's worktree for the run started at stamp.
 func WorkerWorktree(repo string, i int, stamp string) string {
 	return filepath.Join(WorktreesDir(repo), fmt.Sprintf("worker%d-%s", i, stamp))

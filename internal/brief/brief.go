@@ -18,24 +18,24 @@ import (
 //go:embed templates/master.md
 var masterTemplateSource string
 
-//go:embed templates/workers-ready.md
-var workersReadyTemplateSource string
-
 // MasterSource is the built-in brief's template source, for a brief-extra
 // to be appended to it.
 func MasterSource() string { return masterTemplateSource }
 
-var (
-	masterTemplate       = template.Must(template.New("master").Parse(masterTemplateSource))
-	workersReadyTemplate = template.Must(template.New("workers-ready").Parse(workersReadyTemplateSource))
-)
+var masterTemplate = template.Must(template.New("master").Parse(masterTemplateSource))
 
 // MasterData is what the master brief template can reference. Exported so
 // a custom template (see BuildFromSource) can use the same fields as the
 // built-in one.
 type MasterData struct {
-	RepoPath         string
-	N                int
+	RepoPath string
+	// N is how many workers acw may open at once.
+	N int
+	// MinWorkers is how many it keeps open with nothing queued.
+	MinWorkers int
+	// IdleCloseMinutes is how long a free worker above MinWorkers stays
+	// open with nothing queued for it.
+	IdleCloseMinutes int
 	WorkerAgent      string
 	WorkerNames      string
 	EnvCapRule       string
@@ -63,18 +63,15 @@ type MasterData struct {
 	SilenceMinutes int
 	// StatusCommand shows every worker at a glance (acw status).
 	StatusCommand string
-	// ClearCommand, followed by a worker's label, resets its context and
-	// confirms it took (acw clear).
-	ClearCommand string
-	// DispatchCommand, followed by a worker's label and a brief file,
-	// hands the worker its next task (acw dispatch).
-	DispatchCommand string
-	// SwitchCommand is `wtm switch` when acw found it and some worker has
-	// a stack, empty otherwise: the brief stays tooling-neutral unless the
-	// tool is known to be there.
+	// QueueCommand lists the queue (acw queue), and with add, move or
+	// remove changes it.
+	QueueCommand string
+	// DoneCommand, followed by a worker's label, ends its task (acw done).
+	DoneCommand string
+	// SwitchCommand is `wtm switch` when acw found it and the workers in
+	// the code get a stack, empty otherwise: the brief stays
+	// tooling-neutral unless the tool is known to be there.
 	SwitchCommand string
-	// StackedWorkers names the workers that have a stack, empty when none.
-	StackedWorkers string
 	// PRWatch is set when acw's watcher follows the user's open pull
 	// requests and sends the master a line per PR that changed.
 	PRWatch bool
@@ -82,25 +79,30 @@ type MasterData struct {
 
 // Params is what a brief is built from. N is len(Workers).
 type Params struct {
-	RepoPath  string
-	Slug      string // names.Slug(RepoPath), to name workers as the caller started them
-	MaxStacks int
-	Profile   string // stack profile environments start on, "" for the whole stack
-	Notes     string // content of the per-project notes file, "" when none
-	Workers   []Worker
+	RepoPath string
+	Slug     string // names.Slug(RepoPath), to name workers as the caller started them
+	// Stacks is set when the workers in the code get a stack, MaxStacks
+	// then caps how many are open.
+	Stacks           bool
+	MaxStacks        int
+	MinWorkers       int
+	IdleCloseMinutes int
+	Profile          string // stack profile environments start on, "" for the whole stack
+	Notes            string // content of the per-project notes file, "" when none
+	Workers          []Worker
 	// InboxWatch is the master's inbox watch command, "" for none.
 	InboxWatch string
 	// InboxNext is its background read command, "" for none.
 	InboxNext      string
 	SilenceMinutes int
 	StatusCommand  string
-	ClearCommand   string
-	// DispatchCommand is acw dispatch, fully written, "" for none.
-	DispatchCommand string
-	// SwitchCommand and StackedWorkers: see MasterData.
-	SwitchCommand  string
-	StackedWorkers string
-	PRWatch        bool
+	// QueueCommand and DoneCommand are acw queue and acw done, fully
+	// written.
+	QueueCommand string
+	DoneCommand  string
+	// SwitchCommand: see MasterData.
+	SwitchCommand string
+	PRWatch       bool
 }
 
 // Worker is one worker as it was actually started.
@@ -134,9 +136,11 @@ func newMasterData(p Params) MasterData {
 	return MasterData{
 		RepoPath:         p.RepoPath,
 		N:                n,
+		MinWorkers:       p.MinWorkers,
+		IdleCloseMinutes: p.IdleCloseMinutes,
 		WorkerAgent:      workerAgent(p.Slug, p.Workers),
 		WorkerNames:      workerNamesList(p.Slug, n),
-		EnvCapRule:       envCapRule(coders(p.Workers), p.MaxStacks),
+		EnvCapRule:       envCapRule(coders(p.Workers), p.Stacks, p.MaxStacks),
 		StackProfileRule: stackProfileRule(p.Profile),
 		RepoRules:        strings.TrimSpace(p.Notes),
 		PingingWorkers:   pingingWorkers(p.Slug, p.Workers),
@@ -145,10 +149,9 @@ func newMasterData(p Params) MasterData {
 		InboxNext:        p.InboxNext,
 		SilenceMinutes:   p.SilenceMinutes,
 		StatusCommand:    p.StatusCommand,
-		ClearCommand:     p.ClearCommand,
-		DispatchCommand:  p.DispatchCommand,
+		QueueCommand:     p.QueueCommand,
+		DoneCommand:      p.DoneCommand,
 		SwitchCommand:    p.SwitchCommand,
-		StackedWorkers:   p.StackedWorkers,
 		PRWatch:          p.PRWatch,
 	}
 }
@@ -277,29 +280,18 @@ func BuildFromSource(source string, p Params) (string, error) {
 	return strings.TrimRight(b.String(), "\n"), nil
 }
 
-// WorkersReadyMessage is sent to the master once background provisioning
-// finishes.
-func WorkersReadyMessage(slug string, n int) string {
-	var b bytes.Buffer
-	data := struct{ WorkerNames string }{WorkerNames: workerNamesList(slug, n)}
-	if err := workersReadyTemplate.Execute(&b, data); err != nil {
-		panic(fmt.Sprintf("brief: executing workers-ready template: %v", err))
+// envCapRule says how many environments may be up, which acw enforces:
+// it opens a worker in the code only while one is left.
+func envCapRule(n int, stacks bool, maxStacks int) string {
+	if !stacks || n == 0 {
+		return "no worker gets an isolated environment (stack) from acw here: a task that needs one is set up by the worker through the project's own tooling"
 	}
-	return strings.TrimRight(b.String(), "\n")
-}
-
-func envCapRule(n, maxStacks int) string {
-	rule := fmt.Sprintf("there are %d workers in the code but the machine only supports %d isolated environments (stacks) at the same time. ", n, maxStacks)
 	if maxStacks < n {
-		return rule + fmt.Sprintf(
-			"Only the first %d workers have an environment at startup; the others have their worktree but no environment mounted. "+
-				"YOU arbitrate: before a worker without an environment needs one, release the one of a worker that is idle or has "+
-				"just finished (never an active worker), then assign it to the one that needs it. Never the other way round, never more than "+
-				"%d environments mounted at the same time across all workers. This is a stopgap until something better (a real "+
-				"queue): be explicit with me about who is waiting for what if it gets confusing.",
-			maxStacks, maxStacks)
+		return fmt.Sprintf("the machine supports %d isolated environments (stacks) at the same time, for up to %d workers in the code: acw opens a worker in the code "+
+			"only while an environment is left, so a task may wait in the queue for one even under the worker count. Nothing for you to arbitrate: "+
+			"order the queue, and tell me if a task waits too long", maxStacks, n)
 	}
-	return rule + "Here capacity covers all workers, no arbitration needed."
+	return fmt.Sprintf("every worker in the code gets its own isolated environment (stack) when acw opens it, up to %d at the same time: nothing to arbitrate", maxStacks)
 }
 
 // stackProfileRule states the intent, not the command: the brief never

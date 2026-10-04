@@ -66,11 +66,12 @@ func masterArgs(model, exe, inboxWatch string) []string {
 	return append(args, "--allowedTools",
 		"Bash("+shellWord(exe)+" "+inboxWatchUse+":*)",
 		"Bash("+shellWord(exe)+" "+inboxNextUse+":*)",
-		// The three commands the brief hands the master to run at every
-		// status point and before every task.
+		// The commands the brief hands the master: its view of the swarm,
+		// its hold on the queue, the end of a task. Not dispatch nor
+		// clear: acw does both when it hands a task out.
 		"Bash("+shellWord(exe)+" status:*)",
-		"Bash("+shellWord(exe)+" clear:*)",
-		"Bash("+shellWord(exe)+" dispatch:*)")
+		"Bash("+shellWord(exe)+" queue:*)",
+		"Bash("+shellWord(exe)+" done:*)")
 }
 
 // watchInbox prints every line appended to inbox, forever, until the

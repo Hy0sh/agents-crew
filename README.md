@@ -70,8 +70,10 @@ acw [flags]
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `-n, --workers` | `3` | number of worker agents |
-| `--max-stacks` | same as `--workers` | concurrent isolated environments the machine can hold; when lower, the master is told to arbitrate which worker gets one |
+| `-n, --workers` | `3` | most worker agents open at once; acw opens them as tasks are queued — see [Pool and queue](#pool-and-queue) |
+| `--min-workers` | `0` | workers kept open with nothing queued; equal to `--workers`, the swarm is fixed |
+| `--idle-close-minutes` | `10` | how long a free worker above `--min-workers` stays open with nothing queued for it |
+| `--max-stacks` | same as `--workers` | concurrent isolated environments the machine can hold; when lower, acw opens a worker in the code only while one is left |
 | `--master-kind` | `claude` | Herdr agent kind for the master (`claude`, `codex`, `gemini`, `cursor`...) |
 | `--worker-kind` | `claude` | Herdr agent kind for the workers |
 | `--master-model` | `opus` | model for the master agent; **empty means no `--model` is passed** to its CLI, for a kind that has no such flag |
@@ -83,18 +85,49 @@ acw [flags]
 `acw --help` / `acw stop --help` document all of this in the terminal too.
 
 The master is created and briefed synchronously so you can start talking to
-it as soon as the terminal opens. Workers (worktree + environment) are
-provisioned progressively and concurrently in a detached background process:
-each worker's pane/agent appears within seconds of its own `git worktree
-add`, and `wtm adopt` (the slow part, real services starting) runs per
-worker in its own goroutine — so setup never delays opening the terminal,
-and you don't stare at a workspace with only the master pane in it while N
-environments provision one after another. Its log lands in
-`$TMPDIR/acw-workers-<timestamp>.log`. Once every stack is up, acw runs
-`wtm doctor` and adds its port clash sections, if any, to the "workers
-ready" message: wtm skips clashing ports when it allocates them, but not
-against worktrees recorded before it learnt to, nor against other
-projects, and a worker's stack then fails to start.
+it as soon as the terminal opens. No worker is opened at launch: acw's
+watcher, a detached background process, opens them as the master queues
+tasks (see [Pool and queue](#pool-and-queue)). Its log lands in
+`$TMPDIR/acw-watch-<timestamp>.log`.
+
+### Pool and queue
+
+What to do, and in which order, is the master's call; where and when it
+runs is acw's, from fixed rules a model cannot bend:
+
+- The master queues each task, `acw queue add <brief-file>`, and may
+  reorder the queue (`acw queue move <id> <position>`, `add --top` for an
+  urgent one) or take a task out (`acw queue remove <id>`). `acw queue`
+  lists the workers and the queue.
+- acw's watcher hands the tasks out in the queue's order, each to a free
+  worker whose agent is idle: the same steps as `acw dispatch` (branch if
+  asked, confirmed `/clear`, brief). The master hears `task #N → workerN`.
+- A task that no free worker can take opens the lowest worker not open,
+  up to `workers`, and for a worker in the code when the repo has wtm
+  stacks, up to `max-stacks`. Opening is the worktree (named after the
+  moment it opens, so a reopened worker never collides with the branch
+  its first opening left), its pane split next to the others, its agent,
+  then `wtm adopt`; `wtm doctor`'s port clash sections, if any, go into
+  the "opened" message. A failed opening is undone and the master told.
+- A worker set apart in `worker-overrides` only takes the tasks queued for
+  it with `--worker workerN`; the others take everything else. `--worker`
+  is also how a fix after a KO goes back to the worker that has the
+  context.
+- A task ends when the master runs `acw done workerN`, after checking its
+  result: never on the worker's word, nor on a merged PR, since acw cannot
+  tell which task a PR belongs to.
+- A free worker with nothing queued for it is closed after
+  `idle-close-minutes`, unless that would take the pool under
+  `min-workers`: its pane and agent, its stack and worktree. Its task
+  branch stays, as with `acw stop`. A worker whose worktree has changes is
+  never closed: the master is told once. A kind acw cannot reset between
+  tasks (no `/clear` to confirm) is closed as soon as its task is done.
+- A task acw could not hand out (a branch held by another worktree, a
+  failed switch) goes back first in the queue, held with the reason, and
+  is skipped until the master moves or removes it.
+
+`min-workers` set to `workers` opens every worker at launch and never
+closes one: the fixed swarm of acw 0.10.
 
 Each Claude Code worker starts with a `Stop` hook that pings the master every
 time it hands control back — the push notification Herdr doesn't have, so a
@@ -111,7 +144,11 @@ Before pinging, the same hook runs `acw __turn-end` on that status file:
 `state` no longer says blocked (any wording holding `block` or `bloq`,
 since workers write it freely). These were the fields workers got wrong in
 practice (a local time written with a `Z`, a block left set long after the
-answer). Everything else in the file stays the worker's own; a file that
+answer). It also sets `state_since`, the turn end at which the current
+`state` was first seen, from what it keeps in `workerN.since` (the worker
+rewrites its file whole, so the status cannot hold it): workers waiting in
+the same state can be ordered without the master's memory. Everything else
+in the file stays the worker's own; a file that
 is missing or not a JSON object is left alone. It then prints the delta
 the ping carries, and keeps what it saw in `workerN.ping` for the next
 turn.
@@ -177,6 +214,8 @@ only way to actually stop it.
 
 ```sh
 acw status [--repo <dir>]
+acw queue [--repo <dir>] [add <brief-file> [--branch <b>] [--worker workerN] [--top] | move <id> <pos> | remove <id>]
+acw done [--repo <dir>] workerN
 acw clear [--repo <dir>] worker1 [worker2...]
 acw dispatch [--repo <dir>] worker1 <brief-file>
 acw pause
@@ -184,7 +223,8 @@ acw resume
 ```
 
 - `acw status` shows every worker at a glance, from what acw can read
-  without asking anyone: herdr's state, the status file's `state`, how old
+  without asking anyone: herdr's state, the status file's `state` and
+  since when, how old
   its `updated_at`, `last_turn_end` and the worktree's last change are,
   context and 5-hour quota, branch and base, PR, then the unread messages
   of the master's inbox. A status 40 minutes old next to a worktree changed
@@ -197,7 +237,11 @@ acw resume
   not finished a turn yet has nothing to reset: `acw clear` says so and
   returns without sending anything, since a `/clear` there keeps the same
   session and could never be confirmed.
-- `acw dispatch` hands a claude worker its next task in one call: the same
+- `acw queue` and `acw done`: see [Pool and queue](#pool-and-queue). These
+  two and `acw status` are the commands the master may run without a
+  prompt; `acw clear` and `acw dispatch` stay yours.
+- `acw dispatch` hands a free claude worker a task in one call, outside
+  the queue: the worker is busy until `acw done`. The same
   wait and refusals as `acw clear`, the confirmed reset, then the brief
   file's content typed into its prompt. A blank or unreadable brief is
   refused before anything is sent. With `--branch <b>` (a fix or a rebase
@@ -231,22 +275,23 @@ and keep the variables you need:
 | Variable | Content |
 |---|---|
 | `{{.RepoPath}}` | absolute path of the repo acw runs in |
-| `{{.N}}` | number of workers |
+| `{{.N}}` | how many workers acw may open at once (`workers`) |
+| `{{.MinWorkers}}` | how many it keeps open with nothing queued (`min-workers`) |
+| `{{.IdleCloseMinutes}}` | how long a free worker above `min-workers` stays open with nothing queued for it (`idle-close-minutes`) |
 | `{{.WorkerAgent}}` | the workers' Herdr kind (`claude`, `codex`...) when they all share one; otherwise `mixed: ` followed by each worker's kind |
 | `{{.WorkerNames}}` | the workers' Herdr names, comma-separated (`worker1-<slug>, worker2-<slug>`) |
-| `{{.EnvCapRule}}` | the stack capacity rule: how many environments exist, and the arbitration to do when `max-stacks` is below the worker count |
+| `{{.EnvCapRule}}` | the stack capacity rule: how many environments may be up, which acw enforces when it opens a worker in the code |
 | `{{.StackProfileRule}}` | the wtm profile rule, empty when no `profile` is configured |
 | `{{.RepoRules}}` | the `notes` file's content, empty when none is configured |
 | `{{.PingingWorkers}}` | the names of the workers that ping the master on each turn (the `claude` ones, which have the Stop hook), empty when none does |
 | `{{.WorkerOverrides}}` | each worker configured apart in `worker-overrides`: its kind, model and standing instructions in full, and whether the master must copy them into its briefs; empty when none is |
-| `{{.InboxWatch}}` | the command the master must arm a Monitor on to receive pings and "workers ready", empty when the master is not `claude`. A custom brief that mentions neither it nor `{{.InboxNext}}` gets pings typed into the master's input, as before, with a warning at launch |
+| `{{.InboxWatch}}` | the command the master must arm a Monitor on to receive pings and acw's messages, empty when the master is not `claude`. A custom brief that mentions neither it nor `{{.InboxNext}}` gets pings typed into the master's input, as before, with a warning at launch |
 | `{{.InboxNext}}` | the command the master runs in the background to read its next messages, and runs again after each batch; empty when the master is not `claude`. The built-in brief uses this one |
 | `{{.SilenceMinutes}}` | the `silence-minutes` value: how long a working worker may show no activity before acw's watcher tells the master |
 | `{{.StatusCommand}}` | `acw status --repo <repo>`, fully written: every worker at a glance |
-| `{{.ClearCommand}}` | `acw clear --repo <repo>`, fully written, to follow with a worker's label (`worker2`): resets its context and confirms it took |
-| `{{.DispatchCommand}}` | `acw dispatch --repo <repo>`, fully written, to follow with a worker's label and a brief file: reset then brief in one call |
-| `{{.SwitchCommand}}` | `wtm switch` when acw found it (wtm 0.26.0 or later) and some worker has a stack; empty otherwise |
-| `{{.StackedWorkers}}` | the herdr names of the workers that have a wtm stack, empty when none |
+| `{{.QueueCommand}}` | `acw queue --repo <repo>`, fully written: lists the workers and the queue, and with `add`, `move` or `remove` changes it |
+| `{{.DoneCommand}}` | `acw done --repo <repo>`, fully written, to follow with a worker's label (`worker2`): ends its task |
+| `{{.SwitchCommand}}` | `wtm switch` when acw found it (wtm 0.26.0 or later) and the workers in the code get a stack; empty otherwise |
 | `{{.PRWatch}}` | `true` when `pr-watch` is on: the master receives `PR #…` lines for the PRs that changed |
 
 Before `worker-overrides`, a template could test `{{if eq .WorkerAgent
@@ -317,6 +362,8 @@ needs no answers to work, so the file only changes the defaults.
 | Key | Same as | Built-in default |
 |---|---|---|
 | `workers` | `-n, --workers` | `3` |
+| `min-workers` | `--min-workers` | `0` |
+| `idle-close-minutes` | `--idle-close-minutes` | `10` |
 | `max-stacks` | `--max-stacks` | same as `workers` |
 | `master-kind` / `worker-kind` | `--master-kind` / `--worker-kind` | `claude` |
 | `master-model` / `worker-model` | `--master-model` / `--worker-model` | `opus` / `sonnet`; `""` means no `--model`, like the flag |
@@ -337,7 +384,7 @@ when a task needs services outside it, the master has that worker switch
 profiles before it starts, then switches it back. A lighter profile is
 also what lets a higher `max-stacks` fit in memory, so the two keys usually
 move together. acw does not check the name; if wtm doesn't know it, that
-worker's `wtm adopt` fails and says so in the provisioning log.
+worker's `wtm adopt` fails and says so in the watcher's log.
 
 **`notes`** is a markdown file holding the repo's hard rules. Its content
 goes **verbatim** into the master's brief, and into every claude worker's
@@ -499,15 +546,14 @@ refuses to start otherwise. A preset can turn it off for one mode:
 ## How it works
 
 - `cmd/acw` — the CLI: flags merged with the config, each worker's final
-  kind/model/prompt, launching the master, and the detached provisioner
-  (worktrees, panes, agents, environments) it hands a JSON plan to.
+  kind/model/prompt, launching the master, and the detached watcher that
+  runs the pool (worktrees, panes, agents, environments) from `pool.json`
+  and `queue.json` in the status dir, both changed under one file lock.
 - `internal/herdr` — thin wrapper around the `herdr` CLI (JSON in, typed Go out).
 - `internal/wtm` — thin wrapper for giving/removing a worktree's environment,
   used only by this tool's own provisioning step (not by the brief text sent
   to agents — see below).
 - `internal/gitutil` — fetch + default-branch detection + worktree creation/removal.
-- `internal/layout` — pure math for the pane-split ratios that stack N
-  worker panes evenly next to the master pane.
 - `internal/names` — derives herdr-safe, per-directory agent names
   (`master-<slug>`, `worker1-<slug>`...) so multiple swarms can coexist,
   and where a run puts its worktrees, branches and status files: `acw stop`

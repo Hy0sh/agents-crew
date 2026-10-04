@@ -25,7 +25,9 @@ import (
 // nothing to map in one's head. Pointers because absent and "" differ:
 // `"worker-model": ""` means "pass no --model", like the flag.
 type Project struct {
-	Workers     *int    `json:"workers"`
+	Workers *int `json:"workers"`
+	// MinWorkers is how many workers stay open with nothing queued.
+	MinWorkers  *int    `json:"min-workers"`
 	MaxStacks   *int    `json:"max-stacks"`
 	MasterKind  *string `json:"master-kind"`
 	WorkerKind  *string `json:"worker-kind"`
@@ -43,6 +45,9 @@ type Project struct {
 	// SilenceMinutes is how long a working worker may show no activity at
 	// all before acw's watcher tells the master.
 	SilenceMinutes *int `json:"silence-minutes"`
+	// IdleCloseMinutes is how long a free worker stays open, above
+	// min-workers, with nothing queued for it.
+	IdleCloseMinutes *int `json:"idle-close-minutes"`
 	// PRWatch makes acw's watcher follow the user's open pull requests on
 	// the repo and tell the master what changed on them.
 	PRWatch *bool `json:"pr-watch"`
@@ -172,6 +177,7 @@ func (p *Project) Summary() string {
 		}
 	}
 	addInt("workers", p.Workers)
+	addInt("min-workers", p.MinWorkers)
 	addInt("max-stacks", p.MaxStacks)
 	addStr("master-kind", p.MasterKind)
 	addStr("worker-kind", p.WorkerKind)
@@ -183,6 +189,7 @@ func (p *Project) Summary() string {
 	addStr("notes", p.Notes)
 	addStr("master-dir", p.MasterDir)
 	addInt("silence-minutes", p.SilenceMinutes)
+	addInt("idle-close-minutes", p.IdleCloseMinutes)
 	if p.PRWatch != nil {
 		parts = append(parts, fmt.Sprintf("pr-watch=%t", *p.PRWatch))
 	}

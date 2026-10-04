@@ -81,6 +81,35 @@ func TestApplyConfigSilenceMinutes(t *testing.T) {
 	}
 }
 
+func TestCheckCounts(t *testing.T) {
+	for _, c := range []struct {
+		workers, min, idle int
+		ok                 bool
+	}{
+		{3, 0, 10, true},
+		{3, 3, 0, true},
+		{0, 0, 10, false},
+		{-1, 0, 10, false},
+		{3, 4, 10, false},
+		{3, -1, 10, false},
+		{3, 0, -1, false},
+	} {
+		err := checkCounts(&startOptions{workers: c.workers, minWorkers: c.min, idleCloseMinutes: c.idle})
+		if (err == nil) != c.ok {
+			t.Errorf("checkCounts(workers %d, min %d, idle %d) = %v, want ok %t", c.workers, c.min, c.idle, err, c.ok)
+		}
+	}
+}
+
+func TestApplyConfigPoolKeys(t *testing.T) {
+	min, idle := 2, 5
+	opts := &startOptions{idleCloseMinutes: 10}
+	applyConfig(opts, &config.Project{MinWorkers: &min, IdleCloseMinutes: &idle}, func(string) bool { return false })
+	if opts.minWorkers != 2 || opts.idleCloseMinutes != 5 {
+		t.Errorf("minWorkers, idleCloseMinutes = %d, %d; want the config's 2, 5", opts.minWorkers, opts.idleCloseMinutes)
+	}
+}
+
 func TestApplyConfigPRWatch(t *testing.T) {
 	on := true
 	opts := &startOptions{}

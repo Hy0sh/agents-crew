@@ -15,7 +15,7 @@ func params(kind string, n, maxStacks int) Params {
 	for i := range workers {
 		workers[i] = Worker{Kind: kind}
 	}
-	return Params{RepoPath: "/repo", Slug: testSlug, MaxStacks: maxStacks, Workers: workers}
+	return Params{RepoPath: "/repo", Slug: testSlug, Stacks: true, MaxStacks: maxStacks, IdleCloseMinutes: 10, Workers: workers}
 }
 
 // The built-in brief reads the inbox with a background command, which
@@ -37,28 +37,46 @@ func TestBuildTellsTheMasterToReadTheInboxInTheBackground(t *testing.T) {
 	}
 }
 
-func TestBuildHandsTheMasterStatusAndClear(t *testing.T) {
+// The master orders the queue and ends tasks; acw hands them out, so the
+// brief gives it no command that types into a worker.
+func TestBuildHandsTheMasterTheQueue(t *testing.T) {
 	p := params("claude", 2, 2)
 	p.StatusCommand = "/bin/acw status --repo /repo"
-	p.ClearCommand = "/bin/acw clear --repo /repo"
+	p.QueueCommand = "/bin/acw queue --repo /repo"
+	p.DoneCommand = "/bin/acw done --repo /repo"
 	got := Build(p)
-	if !strings.Contains(got, p.StatusCommand) {
-		t.Errorf("brief should give the master %q", p.StatusCommand)
-	}
-	if !strings.Contains(got, p.ClearCommand+" workerN") {
-		t.Errorf("brief should give the master %q for its context resets", p.ClearCommand+" workerN")
-	}
-	// It waits up to 10 minutes: past the Bash tool's default 2.
-	if !strings.Contains(got, "600000") {
-		t.Error("brief should tell the master to give acw clear a 10-minute timeout")
-	}
-	for _, stray := range []string{"unpredictable.;", "to check.;", "above.;"} {
-		if strings.Contains(got, stray) {
-			t.Errorf("brief renders a stray %q in the reset rule", stray)
+	for _, want := range []string{
+		p.StatusCommand,
+		"`" + p.QueueCommand + " add <brief-file>`",
+		"`" + p.QueueCommand + " move <id> <position>`",
+		"--top", "--worker workerN",
+		"`" + p.DoneCommand + " workerN`",
+		"up to 2", "free for 10 min",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("brief missing %q", want)
 		}
 	}
-	if strings.Contains(got, "The other workers are reset") {
-		t.Error("with only claude workers, the brief must not talk of other workers reset by hand")
+	for _, gone := range []string{"dispatch --repo", "clear --repo", "cannot reset"} {
+		if strings.Contains(got, gone) {
+			t.Errorf("brief still says %q", gone)
+		}
+	}
+	p.Workers[1].Kind = "codex"
+	if got := Build(p); !strings.Contains(got, "cannot reset is closed at the end of its task") {
+		t.Error("with a worker acw cannot reset, the brief should say it is closed after each task")
+	}
+}
+
+func TestBuildMinWorkersAtStartup(t *testing.T) {
+	p := params("claude", 3, 3)
+	if got := Build(p); !strings.Contains(got, "No worker is open yet") {
+		t.Error("with no min-workers the brief should say no worker is open yet")
+	}
+	p.MinWorkers = 2
+	got := Build(p)
+	if !strings.Contains(got, "The first 2 workers are opening") || !strings.Contains(got, "keeps 2 open with nothing queued") {
+		t.Error("with min-workers the brief should say they are opening and stay open")
 	}
 }
 
@@ -84,8 +102,8 @@ func TestBuildListsOutsideWorkersAndCountsOnlyCodersForStacks(t *testing.T) {
 	if !strings.Contains(got, "/Users/me/studio") || !strings.Contains(got, "outside the code") {
 		t.Error("brief should list worker1 as outside the code, with its folder")
 	}
-	// 2 coders, 2 environments: no arbitration, even with 3 workers.
-	if strings.Contains(got, "YOU arbitrate") {
+	// 2 coders, 2 environments: none waits for one, even with 3 workers.
+	if !strings.Contains(got, "every worker in the code gets its own isolated environment") {
 		t.Error("the stack rule must count coders only; worker1 needs no environment")
 	}
 }
@@ -102,20 +120,20 @@ func TestBuildNamesAllWorkers(t *testing.T) {
 	}
 }
 
-func TestBuildArbitrationWhenCapped(t *testing.T) {
+// acw enforces the stack cap; the master is only told a task may wait.
+func TestBuildStackCapIsAcws(t *testing.T) {
 	got := Build(params("claude", 5, 3))
-	if !strings.Contains(got, "YOU arbitrate") {
-		t.Errorf("brief should instruct master to arbitrate when maxStacks < n")
+	if !strings.Contains(got, "only while an environment is left") || strings.Contains(got, "YOU arbitrate") {
+		t.Error("capped: acw holds the cap, the master arbitrates nothing")
 	}
-}
-
-func TestBuildNoArbitrationWhenUncapped(t *testing.T) {
-	got := Build(params("claude", 3, 3))
-	if strings.Contains(got, "YOU arbitrate") {
-		t.Errorf("brief should not mention arbitration when maxStacks == n")
+	got = Build(params("claude", 3, 3))
+	if strings.Contains(got, "may wait in the queue") || !strings.Contains(got, "nothing to arbitrate") {
+		t.Error("uncapped: no task waits for an environment")
 	}
-	if !strings.Contains(got, "no arbitration needed") {
-		t.Errorf("brief should state no arbitration needed when maxStacks == n")
+	p := params("claude", 3, 3)
+	p.Stacks = false
+	if got := Build(p); !strings.Contains(got, "no worker gets an isolated environment") {
+		t.Error("without stacks the brief should say acw gives none")
 	}
 }
 
@@ -272,7 +290,7 @@ func TestBuildFromSourceRendersCustomTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildFromSource() error = %v", err)
 	}
-	for _, want := range []string{"/repo", "2 workers", "worker1-testslug, worker2-testslug", "no arbitration needed"} {
+	for _, want := range []string{"/repo", "2 workers", "worker1-testslug, worker2-testslug", "nothing to arbitrate"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("BuildFromSource() = %q, missing %q", got, want)
 		}
@@ -288,13 +306,6 @@ func TestBuildFromSourceRejectsBadSyntax(t *testing.T) {
 func TestBuildFromSourceRejectsUnknownField(t *testing.T) {
 	if _, err := BuildFromSource("{{.NotAField}}", params("claude", 1, 1)); err == nil {
 		t.Fatal("BuildFromSource() referencing an unknown field = nil error, want one")
-	}
-}
-
-func TestWorkersReadyMessageListsAllNames(t *testing.T) {
-	got := WorkersReadyMessage(testSlug, 2)
-	if !strings.Contains(got, "worker1-testslug") || !strings.Contains(got, "worker2-testslug") {
-		t.Errorf("WorkersReadyMessage(testSlug, 2) = %q, missing a worker name", got)
 	}
 }
 
@@ -317,8 +328,8 @@ func TestBuildSaysWhoStampsTheStatus(t *testing.T) {
 	}
 	// blocked_on is only cleared by acw, never filled: the master must keep
 	// asking for it, so the brief names exactly which fields it can drop.
-	if !strings.Contains(hooked, "Do not ask them to maintain `updated_at` or `last_turn_end`") {
-		t.Error("the brief should name the two stamped fields, not a vague \"these fields\" that swallows blocked_on")
+	if !strings.Contains(hooked, "Do not ask them to maintain `updated_at`, `last_turn_end` or `state_since`") {
+		t.Error("the brief should name the three stamped fields, not a vague \"these fields\" that swallows blocked_on")
 	}
 	got := Build(params("codex", 2, 2))
 	if strings.Contains(got, "last_turn_end") {
@@ -346,27 +357,14 @@ func TestBuildRepoRulesAlreadyInClaudeWorkers(t *testing.T) {
 	}
 }
 
-func TestBuildHandsTheMasterDispatch(t *testing.T) {
-	p := params("claude", 2, 2)
-	p.ClearCommand = "/bin/acw clear --repo /repo"
-	p.DispatchCommand = "/bin/acw dispatch --repo /repo"
-	if got := Build(p); !strings.Contains(got, "`/bin/acw dispatch --repo /repo workerN <brief-file>`") {
-		t.Error("brief should hand the master the dispatch command")
-	}
-	if got := Build(params("claude", 2, 2)); strings.Contains(got, "dispatch --repo") {
-		t.Error("no DispatchCommand, no dispatch sentence")
-	}
-}
-
 func TestBuildSwitchCommandOnlyWhenDetected(t *testing.T) {
 	p := params("claude", 2, 2)
 	if got := Build(p); strings.Contains(got, "wtm switch") {
 		t.Error("without SwitchCommand the brief must not name wtm switch")
 	}
 	p.SwitchCommand = "wtm switch"
-	p.StackedWorkers = "worker1-" + testSlug
 	got := Build(p)
-	for _, want := range []string{"`wtm switch <branch> --from origin/<base>`", "never `git switch -c`", "worker1-" + testSlug} {
+	for _, want := range []string{"`wtm switch <branch> --from origin/<base>`", "never `git switch -c`", "for a worker with an environment"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("brief with SwitchCommand is missing %q", want)
 		}

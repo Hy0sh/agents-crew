@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -67,18 +66,6 @@ func TestResolveWorkersOutsideDir(t *testing.T) {
 	opts.overrides = map[string]config.WorkerOverride{"2": {Dir: &inside}}
 	if _, err := resolveWorkers(opts, repo); err == nil || !strings.Contains(err.Error(), "2") {
 		t.Errorf("resolveWorkers() with dir = the repo: %v; want a refusal naming worker 2", err)
-	}
-}
-
-// Environments go to the workers that code, in order: one outside the
-// code must not take a slot a coder needs.
-func TestStackedWorkersSkipsOutsideWorkers(t *testing.T) {
-	workers := []workerSpec{{Dir: "/studio"}, {}, {}}
-	if got := stackedWorkers(workers, 2); !slices.Equal(got, []bool{false, true, true}) {
-		t.Errorf("stackedWorkers() = %v, want [false true true]", got)
-	}
-	if got := stackedWorkers(workers, 1); !slices.Equal(got, []bool{false, true, false}) {
-		t.Errorf("stackedWorkers(max 1) = %v, want [false true false]", got)
 	}
 }
 

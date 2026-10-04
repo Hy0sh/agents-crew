@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -20,9 +19,10 @@ import (
 	"github.com/Hy0sh/agents-crew/internal/wtm"
 )
 
-// runStart creates the master, hands it its brief, backgrounds worker
-// provisioning, then execs into the Herdr TUI so the caller can start
-// talking to the master immediately.
+// runStart creates the master, hands it its brief, writes the pool its
+// watcher opens workers from, then execs into the Herdr TUI so the caller
+// can start talking to the master immediately. No worker is opened here:
+// the watcher opens min-workers at once, the others as tasks are queued.
 func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSpec) error {
 	// Only coders need an environment; a worker outside the code has none.
 	coders := coderCount(workers)
@@ -85,42 +85,31 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		inboxNext = inboxNextCommand(self, inbox)
 	}
 	notes := readNotes(out, repo, opts.notesPath)
-	var stackedLabels []string
 	// A repo wtm doesn't know gets no stack: its adopts all fail, and its
 	// workers must not be told about wtm switch.
-	if wtm.Available() && wtm.Registered(repo) {
-		for i, s := range stackedWorkers(workers, maxStacks) {
-			if s {
-				stackedLabels = append(stackedLabels, fmt.Sprintf("worker%d", i+1))
-			}
-		}
-	}
-	var switchCommand, stackedNames string
-	if len(stackedLabels) > 0 && wtm.SwitchAvailable() {
+	stacks := coders > 0 && wtm.Available() && wtm.Registered(repo)
+	var switchCommand string
+	if stacks && wtm.SwitchAvailable() {
 		switchCommand = "wtm switch"
-		var list []string
-		for _, l := range stackedLabels {
-			i, _ := strconv.Atoi(strings.TrimPrefix(l, "worker"))
-			list = append(list, names.Worker(slug, i))
-		}
-		stackedNames = strings.Join(list, ", ")
 	}
 	masterBrief, err := buildBrief(briefSource(customBrief, extra), brief.Params{
-		RepoPath:        repo,
-		Slug:            slug,
-		MaxStacks:       maxStacks,
-		Profile:         opts.profile,
-		Notes:           notes,
-		Workers:         briefWorkers(workers),
-		InboxWatch:      inboxWatch,
-		InboxNext:       inboxNext,
-		SilenceMinutes:  opts.silenceMinutes,
-		StatusCommand:   shellWord(self) + " status --repo " + shellWord(repo),
-		ClearCommand:    shellWord(self) + " clear --repo " + shellWord(repo),
-		DispatchCommand: shellWord(self) + " dispatch --repo " + shellWord(repo),
-		SwitchCommand:   switchCommand,
-		StackedWorkers:  stackedNames,
-		PRWatch:         prWatchRepo != "",
+		RepoPath:         repo,
+		Slug:             slug,
+		Stacks:           stacks,
+		MaxStacks:        maxStacks,
+		MinWorkers:       opts.minWorkers,
+		IdleCloseMinutes: opts.idleCloseMinutes,
+		Profile:          opts.profile,
+		Notes:            notes,
+		Workers:          briefWorkers(workers),
+		InboxWatch:       inboxWatch,
+		InboxNext:        inboxNext,
+		SilenceMinutes:   opts.silenceMinutes,
+		StatusCommand:    shellWord(self) + " status --repo " + shellWord(repo),
+		QueueCommand:     shellWord(self) + " queue --repo " + shellWord(repo),
+		DoneCommand:      shellWord(self) + " done --repo " + shellWord(repo),
+		SwitchCommand:    switchCommand,
+		PRWatch:          prWatchRepo != "",
 	})
 	if err != nil {
 		return err
@@ -133,7 +122,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		return err
 	}
 	stamp := time.Now().Format("20060102150405")
-	if err := writeRunInfo(repo, runInfo{Profile: opts.profile, Stamp: stamp, MasterName: masterName, Inbox: inbox, Stacked: stackedLabels}); err != nil {
+	if err := writeRunInfo(repo, runInfo{Profile: opts.profile, Stamp: stamp, MasterName: masterName, Inbox: inbox}); err != nil {
 		return err
 	}
 
@@ -167,22 +156,25 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		return err
 	}
 
-	plan := provisionPlan{Repo: repo, MasterPane: masterPane, Stamp: stamp, MaxStacks: maxStacks, Profile: opts.profile, Workers: workers, Inbox: inbox, SwitchAllowed: switchCommand != ""}
-	if err := launchBackgroundProvisioning(plan); err != nil {
-		return fmt.Errorf("starting worker provisioning: %w", err)
+	plan := provisionPlan{Repo: repo, MasterPane: masterPane, Stamp: stamp, Stacks: stacks, MaxStacks: maxStacks, Profile: opts.profile, Workers: workers, Inbox: inbox, SwitchAllowed: switchCommand != ""}
+	pool := poolState{Plan: plan, MinWorkers: opts.minWorkers, IdleCloseMinutes: opts.idleCloseMinutes}
+	if err := writeJSON(names.PoolFile(repo), pool); err != nil {
+		return err
 	}
-	// Not fatal: without it the swarm still runs, the master just hears
-	// less. Said, so the user knows why.
-	watch := watchPlanFor(repo, masterName, inbox, inboxNext, opts.silenceMinutes, workers)
-	watch.Stamp = stamp
-	watch.PRWatchRepo = prWatchRepo
+	// A run that ended without acw stop left its queue behind.
+	if err := writeJSON(names.QueueFile(repo), taskQueue{}); err != nil {
+		return err
+	}
+	// The watcher is what opens the workers: without it there are none.
+	watch := watchPlan{Repo: repo, MasterName: masterName, Inbox: inbox, InboxNext: inboxNext,
+		SilenceMinutes: opts.silenceMinutes, PRWatchRepo: prWatchRepo, Stamp: stamp}
 	if err := launchBackgroundWatch(watch); err != nil {
-		fmt.Fprintf(out, "⚠ acw watcher not started, the master won't hear about blocks or silences: %v\n", err)
+		return fmt.Errorf("starting acw's watcher, which opens the workers: %w", err)
 	}
 
 	success = true
-	fmt.Fprintf(out, "→ master (%s) ready, you can talk to it now. %d worker(s) (%s) provisioning in the background.\n",
-		brief.DescribeAgent(opts.masterKind, opts.masterModel), len(workers), describeWorkers(workers))
+	fmt.Fprintf(out, "→ master (%s) ready, you can talk to it now. Up to %d worker(s) (%s), %d opened at once, the others as tasks are queued.\n",
+		brief.DescribeAgent(opts.masterKind, opts.masterModel), len(workers), describeWorkers(workers), opts.minWorkers)
 
 	// Replace this process with the Herdr TUI, attaching to the workspace just built.
 	return syscall.Exec(mustLookPath("herdr"), []string{"herdr"}, os.Environ())
@@ -198,9 +190,6 @@ type runInfo struct {
 	Stamp      string `json:"stamp"`
 	MasterName string `json:"master_name"`
 	Inbox      string `json:"inbox,omitempty"`
-	// Stacked lists the workers given a wtm stack at launch (worker2...),
-	// for acw dispatch to know whose branch switch goes through wtm.
-	Stacked []string `json:"stacked,omitempty"`
 }
 
 func writeRunInfo(repo string, info runInfo) error {
@@ -283,14 +272,9 @@ func modelArgs(model string) []string {
 	return []string{"--model", model}
 }
 
-// launchBackgroundProvisioning starts a detached copy of this same binary
-// in provisioning mode, so worker setup (worktrees, environments, panes,
-// agents) continues after this process execs into the Herdr TUI.
-func launchBackgroundProvisioning(plan provisionPlan) error {
-	return launchDetached(fmt.Sprintf("acw-workers-%s.log", plan.Stamp), provisionUse, plan)
-}
-
-// launchBackgroundWatch starts acw's watcher (see runWatch) the same way.
+// launchBackgroundWatch starts acw's watcher (see runWatch) as a detached
+// copy of this same binary, so it keeps running, and opening workers,
+// after this process execs into the Herdr TUI.
 func launchBackgroundWatch(plan watchPlan) error {
 	return launchDetached(fmt.Sprintf("acw-watch-%s.log", plan.Stamp), watchUse, plan)
 }
@@ -317,21 +301,6 @@ func launchDetached(logName, use string, plan any) error {
 	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	return cmd.Start()
-}
-
-// watchPlanFor lists the workers the watcher follows, named as
-// provisioning starts them. Only claude workers have the Stop hook.
-func watchPlanFor(repo, masterName, inbox, inboxNext string, silenceMinutes int, workers []workerSpec) watchPlan {
-	plan := watchPlan{Repo: repo, MasterName: masterName, Inbox: inbox, InboxNext: inboxNext, SilenceMinutes: silenceMinutes}
-	slug := names.Slug(repo)
-	for i, w := range workers {
-		plan.Workers = append(plan.Workers, watchedWorker{
-			Name:   names.Worker(slug, i+1),
-			Label:  fmt.Sprintf("worker%d", i+1),
-			Hooked: w.Kind == "claude",
-		})
-	}
-	return plan
 }
 
 // resolvePRWatch is the GitHub repo pr-watch follows, checked before

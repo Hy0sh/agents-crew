@@ -30,6 +30,7 @@ type workerStatus struct {
 	PRURL       string `json:"pr_url"`
 	UpdatedAt   string `json:"updated_at"`
 	LastTurnEnd string `json:"last_turn_end"`
+	StateSince  string `json:"state_since"`
 }
 
 // readWorkerStatus reads the status file once, content and mtime. A
