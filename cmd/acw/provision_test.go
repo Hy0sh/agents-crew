@@ -12,6 +12,29 @@ import (
 
 // Only the clash sections reach the master: the rest of the report (docker
 // usage, build cache, leftover volumes) is the user's business.
+// The master keeps the left of the screen; the workers share one column,
+// the tallest pane halved each time.
+func TestSplitFrom(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		panes     []string
+		heights   map[string]int
+		want, dir string
+		ratio     float64
+	}{
+		{"first worker", nil, nil, "master", "right", 0.6},
+		{"second", []string{"w1"}, map[string]int{"w1": 58}, "w1", "down", 0.5},
+		{"tallest first", []string{"w1", "w2", "w3"}, map[string]int{"w1": 15, "w2": 14, "w3": 29}, "w3", "down", 0.5},
+		{"tie goes to the last", []string{"w1", "w2"}, map[string]int{"w1": 29, "w2": 29}, "w2", "down", 0.5},
+		{"no layout", []string{"w1", "w2"}, nil, "w2", "down", 0.5},
+	} {
+		pane, dir, ratio := splitFrom("master", c.panes, c.heights)
+		if pane != c.want || dir != c.dir || ratio != c.ratio {
+			t.Errorf("%s: splitFrom() = %s %s %v, want %s %s %v", c.name, pane, dir, ratio, c.want, c.dir, c.ratio)
+		}
+	}
+}
+
 func TestPortClashesKeepsOnlyTheClashSections(t *testing.T) {
 	report := "docker   289 MB used\n\n" +
 		"port clashes between worktrees of one project (those two cannot run at the same time):\n" +

@@ -59,6 +59,14 @@ longer left to a model.
 - The "workers ready" message and the provisioning at launch: each opening
   is its own message.
 
+### Fixed
+
+- Workers' stacks come up one `wtm adopt` at a time. wtm checks a new
+  index's ports against the other worktrees' from a registry read before
+  it locks it: adopts run together each missed the other, took
+  neighbouring indices, and with a port stride of 1 two services got the
+  same host port, one stack failing to start.
+
 ## [0.10.0] - 2026-10-02
 
 A worker now gets its task in one call, carries the repo rules in its

@@ -111,6 +111,28 @@ func PaneRename(paneID, name string) error {
 	return err
 }
 
+// PaneHeights returns the height, in rows, of every pane in paneID's tab.
+func PaneHeights(paneID string) (map[string]int, error) {
+	var result struct {
+		Layout struct {
+			Panes []struct {
+				PaneID string `json:"pane_id"`
+				Rect   struct {
+					Height int `json:"height"`
+				} `json:"rect"`
+			} `json:"panes"`
+		} `json:"layout"`
+	}
+	if err := runResult(&result, "pane", "layout", "--pane", paneID); err != nil {
+		return nil, err
+	}
+	heights := map[string]int{}
+	for _, p := range result.Layout.Panes {
+		heights[p.PaneID] = p.Rect.Height
+	}
+	return heights, nil
+}
+
 // PaneClose closes a pane, and the agent running in it.
 func PaneClose(paneID string) error {
 	_, err := run("pane", "close", paneID)
