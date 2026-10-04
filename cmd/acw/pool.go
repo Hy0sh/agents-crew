@@ -147,19 +147,12 @@ func withPool(repo string, fn func(p *poolState, q *taskQueue) (changed bool, er
 // readPool reads both files without the lock: each is replaced by a
 // rename, so a reader sees a whole one. A missing queue is an empty one.
 func readPool(repo string) (poolState, taskQueue, error) {
-	var p poolState
 	var q taskQueue
-	content, err := os.ReadFile(names.PoolFile(repo))
+	p, err := readPoolFile(repo)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return p, q, fmt.Errorf("no acw swarm in %s", repo)
-		}
 		return p, q, err
 	}
-	if err := json.Unmarshal(content, &p); err != nil {
-		return p, q, fmt.Errorf("%s: %w", names.PoolFile(repo), err)
-	}
-	content, err = os.ReadFile(names.QueueFile(repo))
+	content, err := os.ReadFile(names.QueueFile(repo))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return p, q, err
 	}
@@ -169,6 +162,22 @@ func readPool(repo string) (poolState, taskQueue, error) {
 		}
 	}
 	return p, q, nil
+}
+
+// readPoolFile reads pool.json alone, for what does not need the queue.
+func readPoolFile(repo string) (poolState, error) {
+	var p poolState
+	content, err := os.ReadFile(names.PoolFile(repo))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return p, fmt.Errorf("no acw swarm in %s", repo)
+		}
+		return p, err
+	}
+	if err := json.Unmarshal(content, &p); err != nil {
+		return p, fmt.Errorf("%s: %w", names.PoolFile(repo), err)
+	}
+	return p, nil
 }
 
 func writeJSON(path string, v any) error {

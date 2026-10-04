@@ -40,7 +40,9 @@ type watchPlan struct {
 // a stop then a start within one poll recreates it at once, for a new
 // swarm with the same worker names.
 func ownsRun(repo, stamp string) bool {
-	p, _, err := readPool(repo)
+	// pool.json alone: a queue.json the master left unreadable must not
+	// stop the watcher for good.
+	p, err := readPoolFile(repo)
 	return err == nil && p.Plan.Stamp == stamp
 }
 

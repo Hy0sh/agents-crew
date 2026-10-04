@@ -102,6 +102,12 @@ func TestOwnsRun(t *testing.T) {
 	if ownsRun(repo, "20260925090000") {
 		t.Error("owns a status dir stamped by a later run")
 	}
+	if err := os.WriteFile(names.QueueFile(repo), []byte("{broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !ownsRun(repo, "20260925140000") {
+		t.Error("an unreadable queue made the watcher give up its run")
+	}
 }
 
 func TestPingMessageNamesTheWorker(t *testing.T) {
