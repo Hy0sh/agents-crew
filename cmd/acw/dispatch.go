@@ -10,6 +10,7 @@ import (
 
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
+	"github.com/Hy0sh/agents-crew/internal/names"
 	"github.com/Hy0sh/agents-crew/internal/wtm"
 )
 
@@ -104,9 +105,13 @@ func dispatchWorker(repo, arg, text string, br branchRequest, out io.Writer) err
 		ready: func() (clearTarget, error) { return readyToClear(repo, arg, out) },
 		reset: func(t clearTarget) error { return resetContext(t, out) },
 		prompt: func(t clearTarget) error {
+			// A message still waiting was about the previous task.
+			statusDir := names.StatusDir(repo)
+			_ = os.Remove(filepath.Join(statusDir, t.label+".tell"))
 			if err := herdr.AgentPrompt(t.name, text); err != nil {
 				return err
 			}
+			markTold(statusDir, t.label)
 			fmt.Fprintf(out, "%s: dispatched.\n", t.label)
 			return nil
 		},

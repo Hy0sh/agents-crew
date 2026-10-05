@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -18,19 +21,92 @@ func TestStatusDeltaTellsWhatMovedSinceThePreviousPing(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if got := statusDelta(dir, "worker1"); got != "" {
-		t.Errorf("statusDelta(no status) = %q, want nothing", got)
+	at := time.Date(2026, 10, 5, 9, 0, 0, 0, time.UTC)
+	if got, ping := statusDelta(dir, "worker1", at); got != "" || !ping {
+		t.Errorf("statusDelta(no status) = %q, %v; want nothing said, and a ping", got, ping)
 	}
 	for _, step := range []struct{ status, want string }{
 		{`{"state": "in progress", "updated_at": "1"}`, " (state: “in progress”)"},
-		{`{"state": "in progress", "updated_at": "1"}`, " (status unchanged since its previous ping)"},
 		{`{"state": "in progress", "updated_at": "2"}`, " (state unchanged, status rewritten: “in progress”)"},
 		{`{"state": "PR\nopen", "updated_at": "3"}`, " (state: “in progress” → “PR open”)"},
 	} {
 		write(step.status)
-		if got := statusDelta(dir, "worker1"); got != step.want {
-			t.Errorf("statusDelta(%s) = %q, want %q", step.status, got, step.want)
+		if got, ping := statusDelta(dir, "worker1", at); got != step.want || !ping {
+			t.Errorf("statusDelta(%s) = %q, %v; want %q and a ping", step.status, got, ping, step.want)
 		}
+	}
+}
+
+// A turn end with nothing moved stays quiet, unless the master spoke to
+// the worker since, or nothing moved for unchangedEvery: a worker looping
+// or stuck must not go silent for good.
+func TestStatusDeltaKeepsUnchangedTurnsQuiet(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "worker1.json"), []byte(`{"state": "coding", "updated_at": "1"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2026, 10, 5, 9, 0, 0, 0, time.UTC)
+	if _, ping := statusDelta(dir, "worker1", start); !ping {
+		t.Fatal("first turn end: want a ping")
+	}
+	if got, ping := statusDelta(dir, "worker1", start.Add(time.Minute)); ping {
+		t.Errorf("unchanged turn end = %q, want no ping", got)
+	}
+	markTold(dir, "worker1")
+	if got, ping := statusDelta(dir, "worker1", start.Add(2*time.Minute)); !ping || got != " (status unchanged since its previous ping)" {
+		t.Errorf("unchanged turn end after the master spoke = %q, %v; want a ping saying unchanged", got, ping)
+	}
+	if _, ping := statusDelta(dir, "worker1", start.Add(10*time.Minute)); ping {
+		t.Error("the master's word must count once, not for every turn after it")
+	}
+	got, ping := statusDelta(dir, "worker1", start.Add(2*time.Minute+unchangedEvery))
+	if !ping || !strings.Contains(got, "unchanged for 15 min") {
+		t.Errorf("turn end after %v unchanged = %q, %v; want a ping saying so", unchangedEvery, got, ping)
+	}
+	if _, ping := statusDelta(dir, "worker1", start.Add(3*time.Minute+unchangedEvery)); ping {
+		t.Error("the long-unchanged ping must start the count over")
+	}
+}
+
+// A message the master left goes to the worker as the Stop hook's block
+// decision, instead of a ping: the turn goes on with it. The turn end
+// that follows is its answer, and reaches the master.
+func TestTurnEndHandsTheMastersMessageToTheWorker(t *testing.T) {
+	dir := t.TempDir()
+	inbox := filepath.Join(dir, "inbox")
+	if err := os.WriteFile(filepath.Join(dir, "worker1.json"), []byte(`{"state": "coding", "updated_at": "1"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 10, 5, 9, 0, 0, 0, time.UTC)
+	if err := turnEnd(dir, "worker1", inbox, "master-x", at, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Remove(inbox)
+
+	if err := tellWorker(dir, "worker1", "Go for option B."); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := turnEnd(dir, "worker1", inbox, "master-x", at.Add(time.Minute), &out); err != nil {
+		t.Fatal(err)
+	}
+	var decision struct{ Decision, Reason string }
+	if err := json.Unmarshal(out.Bytes(), &decision); err != nil || decision.Decision != "block" || !strings.Contains(decision.Reason, "Message from the master:\nGo for option B.") {
+		t.Errorf("hook output = %q, want a block decision carrying the message", out.String())
+	}
+	if _, err := os.Stat(inbox); err == nil {
+		t.Error("a turn that goes on with the master's message must not ping")
+	}
+
+	out.Reset()
+	if err := turnEnd(dir, "worker1", inbox, "master-x", at.Add(2*time.Minute), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("hook output = %q with no message left, want nothing", out.String())
+	}
+	if content, _ := os.ReadFile(inbox); !strings.HasPrefix(string(content), "worker1 handed control back (status unchanged") {
+		t.Errorf("inbox = %q, want the ping answering the master's message", content)
 	}
 }
 

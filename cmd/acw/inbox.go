@@ -30,6 +30,10 @@ const (
 // gets read.
 var drainSettle = 100 * time.Millisecond
 
+// inboxBatch is how long nextInbox waits after a first message for the
+// ones right behind it.
+var inboxBatch = 2 * time.Second
+
 // inboxWatchCommand is the command the master arms its Monitor on, or ""
 // when pings must keep being typed into it: a master other than claude
 // has no Monitor, and a custom brief that doesn't mention {{.InboxWatch}}
@@ -53,9 +57,10 @@ func inboxNextCommand(exe, inbox string) string {
 
 // masterArgs is what gets forwarded to the master's CLI: its model and,
 // for a claude master, the permission to run the acw commands it is
-// handed: status, queue and done, its view of the swarm, its hold on the
-// queue and the end of a task (not dispatch nor clear: acw does both when
-// it hands a task out); and, when it watches an inbox, the two inbox
+// handed: status, queue, done and tell, its view of the swarm, its hold
+// on the queue, the end of a task and its word to a worker (not dispatch
+// nor clear: acw does both when it hands a task out); and, when it
+// watches an inbox, the two inbox
 // commands: the Monitor one (__inbox-watch, for a custom brief that still
 // arms one) and the background one (__inbox-next). Claude Code asks
 // approval for a Monitor it has no rule for, with no "don't ask again",
@@ -76,7 +81,8 @@ func masterArgs(kind, model, exe, inboxWatch string) []string {
 	return append(args,
 		"Bash("+shellWord(exe)+" status:*)",
 		"Bash("+shellWord(exe)+" queue:*)",
-		"Bash("+shellWord(exe)+" done:*)")
+		"Bash("+shellWord(exe)+" done:*)",
+		"Bash("+shellWord(exe)+" tell:*)")
 }
 
 // watchInbox prints every line appended to inbox, forever, until the
@@ -121,6 +127,12 @@ func nextInbox(inbox string, w io.Writer, interval, quiet time.Duration) error {
 			return err
 		}
 		if got.Len() > 0 {
+			// Messages come in bursts (a turn end, the watcher's word on
+			// it, a PR line): one wake-up for the burst, not one each.
+			time.Sleep(inboxBatch)
+			if err := drainOnce(inbox, &got); err != nil {
+				return err
+			}
 			_, err := w.Write(got.Bytes())
 			return err
 		}

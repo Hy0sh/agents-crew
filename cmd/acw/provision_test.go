@@ -73,7 +73,7 @@ func TestPortClashesKeepsOnlyTheWorkersOwn(t *testing.T) {
 // quoting slip would silently produce a worker that starts fine and never
 // reports anything.
 func TestWorkerSettingsIsValidAndCarriesTheCommands(t *testing.T) {
-	ping := pingCommand("", "master-3f9a1c", "worker2", "")
+	ping := pingCommand("", "master-3f9a1c", "worker2")
 	statusLine := statusLineCommand("/bin/acw", "/repo/.claude/worktrees/.acw-status", "worker2")
 	got, err := workerSettings(ping, statusLine)
 	if err != nil {
@@ -120,7 +120,7 @@ func TestWorkerSettingsIsValidAndCarriesTheCommands(t *testing.T) {
 // Without an inbox (a master that can't watch one), the ping is typed
 // into the master's input as before.
 func TestPingCommandWithoutInboxPromptsTheMaster(t *testing.T) {
-	got := pingCommand("", "master-3f9a1c", "worker2", "")
+	got := pingCommand("", "master-3f9a1c", "worker2")
 	if !strings.HasPrefix(got, "herdr agent prompt master-3f9a1c ") {
 		t.Errorf("pingCommand() = %q, should prompt the master by name", got)
 	}
@@ -139,7 +139,7 @@ func TestPingCommandAppendsOneLineToTheInbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	inbox := filepath.Join(dir, "inbox")
-	got := pingCommand(inbox, "master-3f9a1c", "worker2", "")
+	got := pingCommand(inbox, "master-3f9a1c", "worker2")
 	if strings.Contains(got, "herdr") {
 		t.Errorf("pingCommand() = %q, must not go through herdr when an inbox is set", got)
 	}
@@ -219,12 +219,11 @@ func TestWorkerArgsAllowWtmSwitchOnlyWhenAsked(t *testing.T) {
 }
 
 // fakeAcw is an executable that stands for acw in a hook command: it
-// records the arguments it got, one per line, in args next to itself, and
-// prints a delta whose backtick and $ a quoting slip would run.
+// records the arguments it got, one per line, in args next to itself.
 func fakeAcw(t *testing.T, dir string) string {
 	t.Helper()
 	exe := filepath.Join(dir, "acw")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$(dirname \"$0\")/args\"\nprintf ' (state: “`x` $HOME”)'\n"
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$(dirname \"$0\")/args\"\n"
 	if err := os.WriteFile(exe, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -232,40 +231,28 @@ func fakeAcw(t *testing.T, dir string) string {
 }
 
 // Run through a real shell from a path a quoting slip trips on: the hook
-// is a command line nothing else checks, and a wrong status dir would
-// normalize nothing without a word.
-func TestTurnEndCommandNormalizesThenPingsWithTheDelta(t *testing.T) {
+// is a command line nothing else checks, and a wrong status dir or inbox
+// would leave a worker that never reports, without a word.
+func TestTurnEndCommandPassesItsArguments(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), `it's $HOME`)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	inbox := filepath.Join(dir, "inbox")
-	cmd := pingCommand(inbox, "master-3f9a1c", "worker2", turnEndCommand(fakeAcw(t, dir), dir, "worker2"))
-
-	if out, err := exec.Command("sh", "-c", cmd).CombinedOutput(); err != nil {
-		t.Fatalf("sh -c %q: %v\n%s", cmd, err, out)
-	}
-	args, err := os.ReadFile(filepath.Join(dir, "args"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := turnEndUse + "\n" + dir + "\nworker2\n"; string(args) != want {
-		t.Errorf("acw got args %q, want %q", args, want)
-	}
-	content, _ := os.ReadFile(inbox)
-	if want := "worker2 handed control back (state: “`x` $HOME”). Read"; !strings.HasPrefix(string(content), want) {
-		t.Errorf("inbox = %q, want it to start with %q", content, want)
-	}
-}
-
-// A normalization that fails must never cost the master its ping.
-func TestTurnEndCommandPingsEvenWhenNormalizationFails(t *testing.T) {
-	dir := t.TempDir()
-	inbox := filepath.Join(dir, "inbox")
-	cmd := pingCommand(inbox, "master-3f9a1c", "worker2", turnEndCommand(filepath.Join(dir, "missing-acw"), dir, "worker2"))
-
-	_ = exec.Command("sh", "-c", cmd).Run()
-	if content, _ := os.ReadFile(inbox); !strings.HasPrefix(string(content), "worker2 handed control back. Read") {
-		t.Errorf("inbox = %q, the ping must go out after a failed normalization", content)
+	for _, tc := range []struct{ inbox, want string }{
+		{inbox, inbox},
+		{"", ""}, // a master whose pings are typed into it
+	} {
+		cmd := turnEndCommand(fakeAcw(t, dir), dir, "worker2", tc.inbox, "master-3f9a1c")
+		if out, err := exec.Command("sh", "-c", cmd).CombinedOutput(); err != nil {
+			t.Fatalf("sh -c %q: %v\n%s", cmd, err, out)
+		}
+		args, err := os.ReadFile(filepath.Join(dir, "args"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := turnEndUse + "\n" + dir + "\nworker2\n" + tc.want + "\nmaster-3f9a1c\n"; string(args) != want {
+			t.Errorf("acw got args %q, want %q", args, want)
+		}
 	}
 }

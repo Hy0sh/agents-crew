@@ -6,6 +6,37 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+From a full day of a master driving five workers: most of the friction
+was in how the master talks to a worker, and in what it had to repeat.
+
+### Added
+
+- `acw tell workerN`: a message for a worker, on stdin or as arguments.
+  It goes out at the worker's next turn end, handed over by its Stop hook
+  without typing anything, or typed in by the watcher when the worker is
+  already idle, never over a non-empty input line (the master is told
+  instead). The master may run it without a prompt.
+- Every claude worker gets its role in its system prompt: it reports to
+  the master only, its status file and fields, temporary files in `/tmp`.
+  It survives the reset before each task, so briefs carry the task only.
+
+### Changed
+
+- A turn end with nothing moved in the worker's status no longer pings
+  the master, unless it answers a brief or a message from it, or nothing
+  moved for 15 minutes.
+- `acw __inbox-next` waits 2 seconds after a first message for the ones
+  right behind it: one wake-up per burst.
+- The message about a closed worker names the branch it leaves with
+  commits no remote holds.
+
+### Fixed
+
+- The master's brief told it to run `herdr agent prompt workerN`, which
+  herdr answers with `agent_not_found`: herdr names the workers
+  `workerN-<slug>`. `acw status` now shows that name, and the brief uses
+  it for `herdr agent read` and `acw tell` for messages.
+
 ## [0.11.0] - 2026-10-04
 
 The swarm is now elastic: no worker at launch, a task queue the master

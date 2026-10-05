@@ -172,6 +172,18 @@ func Clean(dir string) bool {
 	return err == nil && len(bytes.TrimSpace(out)) == 0
 }
 
+// Unpushed counts the commits of branch that no remote branch holds: work
+// that only lives in this clone.
+func Unpushed(repo, branch string) (int, error) {
+	out, err := run(repo, "rev-list", "--count", branch, "--not", "--remotes")
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	_, err = fmt.Sscan(out, &n)
+	return n, err
+}
+
 // DeleteBranch force-deletes branch in repo.
 func DeleteBranch(repo, branch string) error {
 	_, err := run(repo, "branch", "-D", branch)

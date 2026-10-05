@@ -61,6 +61,9 @@ func runWatch(plan watchPlan, interval time.Duration) {
 		prs = newPRWatcher(plan.PRWatchRepo)
 	}
 	dirtyTold := map[int]bool{}
+	// tellHeld keeps the master from hearing every poll that a worker's
+	// input line holds its message back.
+	tellHeld := map[string]bool{}
 	// Held until every opening, close and dispatch it started is over:
 	// acw stop waits for it, so none of them runs during its teardown.
 	if lock, err := os.OpenFile(names.WatchLock(plan.Repo), os.O_CREATE|os.O_RDWR, 0o644); err == nil {
@@ -114,6 +117,21 @@ func runWatch(plan watchPlan, interval time.Duration) {
 				v.TurnEnd = info.ModTime()
 			}
 			views = append(views, v)
+			if pw.State == workerBusy && (a.Status == "idle" || a.Status == "done") {
+				blocking, err := tellIdle(statusDir, label, name)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "%s: master's message: %v\n", label, err)
+				}
+				if blocking == "" {
+					delete(tellHeld, label)
+				} else if !tellHeld[label] {
+					tellHeld[label] = true
+					msg := fmt.Sprintf("%s: your message waits, its input line is not empty: “%s”. It goes out once that line is empty (sent or cleared); if that is mine, it's my turn to finish.", label, oneLine(blocking))
+					if err := deliver(plan.Inbox, plan.MasterName, msg); err != nil {
+						fmt.Fprintln(os.Stderr, "message to the master:", err)
+					}
+				}
+			}
 		}
 		w.forget(labels)
 		for _, e := range w.observe(now, views) {

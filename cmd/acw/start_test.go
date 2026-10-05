@@ -89,13 +89,21 @@ func TestWriteSystemPrompts(t *testing.T) {
 	}
 }
 
-func TestWriteSystemPromptsWithNothingToSay(t *testing.T) {
+// With no notes and no prompt, a claude worker still gets its role: the
+// reset before each task would wipe it from a brief.
+func TestWriteSystemPromptsAlwaysCarryTheRole(t *testing.T) {
 	dir := t.TempDir()
-	workers := []workerSpec{{Kind: "claude"}}
+	workers := []workerSpec{{Kind: "claude"}, {Kind: "claude"}}
 	if err := writeSystemPrompts(dir, "  \n", workers); err != nil {
 		t.Fatal(err)
 	}
-	if workers[0].PromptPath != "" {
-		t.Errorf("PromptPath = %q with no notes and no prompt, want none", workers[0].PromptPath)
+	content, err := os.ReadFile(workers[1].PromptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"You are worker2,", filepath.Join(dir, "worker2.json")} {
+		if !strings.Contains(string(content), want) {
+			t.Errorf("worker2 system prompt = %q, want it to contain %q", content, want)
+		}
 	}
 }

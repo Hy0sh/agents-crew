@@ -20,11 +20,13 @@ import (
 // status from one that stopped.
 
 type statusRow struct {
-	Label, Agent, State, Task  string
-	Branch, BaseBranch, PR     string
-	Updated, TurnEnd, Activity time.Time
-	StateSince                 time.Time
-	Context, FiveHour          *float64
+	// Name is its herdr agent name, the one herdr agent read wants: the
+	// label alone answered agent_not_found.
+	Label, Name, Agent, State, Task string
+	Branch, BaseBranch, PR          string
+	Updated, TurnEnd, Activity      time.Time
+	StateSince                      time.Time
+	Context, FiveHour               *float64
 }
 
 // maxWorkers bounds the scan for workers in collectStatus.
@@ -37,8 +39,12 @@ func renderStatus(now time.Time, rows []statusRow, unread int, lastAt time.Time)
 		if r.State != "" && !r.StateSince.IsZero() {
 			state += " since " + age(now, r.StateSince)
 		}
+		label := r.Label
+		if r.Name != "" {
+			label += " (herdr " + r.Name + ")"
+		}
 		fmt.Fprintf(&b, "%s  [%s]  %s · status %s · turn %s · activity %s · ctx %s%% · 5h %s%%",
-			r.Label, orDash(r.Agent), state, age(now, r.Updated), age(now, r.TurnEnd), age(now, r.Activity),
+			label, orDash(r.Agent), state, age(now, r.Updated), age(now, r.TurnEnd), age(now, r.Activity),
 			percent(r.Context), percent(r.FiveHour))
 		if r.Branch != "" {
 			branch := r.Branch
@@ -113,7 +119,7 @@ func scanWorkers(statusDir string, agents []herdr.Agent, slug string) []statusRo
 		}
 		s, mtime := readWorkerStatus(statusPath)
 		row := statusRow{
-			Label: label, Agent: agent.Status, Activity: activity(s, mtime, worktreeActivity(agent.Cwd)),
+			Label: label, Name: agent.Name, Agent: agent.Status, Activity: activity(s, mtime, worktreeActivity(agent.Cwd)),
 			Task: s.Tache, State: s.State, Branch: s.Branch, BaseBranch: s.BaseBranch, PR: s.PRURL,
 		}
 		row.Updated, _ = time.Parse(time.RFC3339, s.UpdatedAt)

@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -90,19 +93,74 @@ func markTurnEnd(statusDir, label string, at time.Time) error {
 	return os.Chtimes(path, at, at)
 }
 
+// turnEnd is what a claude worker's Stop hook runs (see turnEndCommand).
+// A message the master left for the worker (see acw tell) goes first: it
+// is printed as the hook's block decision, Claude Code then hands it to
+// the worker as its next input instead of ending the turn, and nothing
+// was typed into a pane the user or a popup may hold. Otherwise the turn
+// did end: acw stamps it, fixes the status file, and pings the master
+// when there is something to say (see statusDelta).
+func turnEnd(statusDir, label, inbox, masterName string, now time.Time, out io.Writer) error {
+	var held bytes.Buffer
+	if err := drainOnce(filepath.Join(statusDir, label+".tell"), &held); err != nil {
+		fmt.Fprintln(os.Stderr, "master's message:", err)
+	}
+	if held.Len() > 0 {
+		markTold(statusDir, label)
+		return json.NewEncoder(out).Encode(map[string]string{"decision": "block", "reason": masterMessage(held.String())})
+	}
+	if err := markTurnEnd(statusDir, label, now); err != nil {
+		fmt.Fprintln(os.Stderr, "turn end mark:", err)
+	}
+	err := normalizeStatus(filepath.Join(statusDir, label+".json"), now)
+	if delta, ping := statusDelta(statusDir, label, now); ping {
+		if derr := deliver(inbox, masterName, label+pingHead+delta+pingTail); err == nil {
+			err = derr
+		}
+	}
+	return err
+}
+
+// masterMessage is how a message from the master reaches a worker; its
+// system prompt tells it what the prefix means (see workerRole).
+func masterMessage(text string) string {
+	return "Message from the master:\n" + strings.TrimSpace(text)
+}
+
+// markTold records that the master spoke to the worker since its last
+// ping (a message, a new brief): the end of the turn that follows is its
+// answer, and goes to the master even with nothing moved in the status.
+func markTold(statusDir, label string) {
+	if err := os.WriteFile(filepath.Join(statusDir, label+".told"), nil, 0o644); err != nil {
+		fmt.Fprintln(os.Stderr, "told mark:", err)
+	}
+}
+
+// unchangedEvery is how long the end of turns with nothing moved stay
+// quiet: past it, one ping says so, for a worker looping or stuck.
+const unchangedEvery = 15 * time.Minute
+
 // statusDelta says what moved in a worker's status file since its last
-// ping, for the ping to carry: most pings were for turns the master had
-// itself triggered, and each cost it a read of the file to find nothing
-// new. It keeps what it saw in workerN.ping for the next turn. "" when
-// there is no status to read, the ping then says nothing about it.
-func statusDelta(statusDir, label string) string {
+// ping, for the ping to carry, and whether to ping at all. Most pings
+// were for nothing new, and each cost the master a wake-up: a turn end
+// with nothing moved stays quiet, unless the master spoke to the worker
+// since (see markTold) or nothing moved for unchangedEvery. It keeps what
+// it saw in workerN.ping for the next turn. With no status to read, the
+// ping goes out and says nothing about it.
+func statusDelta(statusDir, label string, at time.Time) (delta string, ping bool) {
+	toldPath := filepath.Join(statusDir, label+".told")
+	told := os.Remove(toldPath) == nil
 	content, err := os.ReadFile(filepath.Join(statusDir, label+".json"))
 	var status map[string]any
 	if err != nil || json.Unmarshal(content, &status) != nil || status == nil {
-		return ""
+		return "", true
 	}
-	type seen struct{ State, UpdatedAt string }
-	now := seen{State: oneLine(status["state"]), UpdatedAt: oneLine(status["updated_at"])}
+	type seen struct {
+		State, UpdatedAt string
+		// Pinged is when a ping last went out.
+		Pinged time.Time
+	}
+	now := seen{State: oneLine(status["state"]), UpdatedAt: oneLine(status["updated_at"]), Pinged: at}
 
 	seenPath := filepath.Join(statusDir, label+".ping")
 	var before *seen
@@ -112,19 +170,28 @@ func statusDelta(statusDir, label string) string {
 			before = &s
 		}
 	}
-	if out, err := json.Marshal(now); err == nil {
-		_ = writeAtomic(seenPath, out, 0o644)
-	}
+	defer func() {
+		if !ping {
+			now.Pinged = before.Pinged
+		}
+		if out, err := json.Marshal(now); err == nil {
+			_ = writeAtomic(seenPath, out, 0o644)
+		}
+	}()
 
 	switch {
 	case before == nil:
-		return " (state: “" + now.State + "”)"
+		return " (state: “" + now.State + "”)", true
 	case before.State != now.State:
-		return " (state: “" + before.State + "” → “" + now.State + "”)"
+		return " (state: “" + before.State + "” → “" + now.State + "”)", true
 	case before.UpdatedAt != now.UpdatedAt:
-		return " (state unchanged, status rewritten: “" + now.State + "”)"
+		return " (state unchanged, status rewritten: “" + now.State + "”)", true
+	case told:
+		return " (status unchanged since its previous ping)", true
+	case at.Sub(before.Pinged) >= unchangedEvery:
+		return fmt.Sprintf(" (status unchanged for %d min although it keeps ending turns: check it is not looping or stuck)", int(at.Sub(before.Pinged).Minutes())), true
 	}
-	return " (status unchanged since its previous ping)"
+	return "", false
 }
 
 // oneLine is a status field as the ping can carry it: the inbox is read

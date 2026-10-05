@@ -390,6 +390,21 @@ func main() {
 	}
 	doneRepo = repoFlag(done)
 
+	var tellRepo func() (string, error)
+	tell := &cobra.Command{
+		Use:   "tell workerN [message...]",
+		Short: "Leave a worker a message, read from stdin without one: it gets it at the end of its turn, or at once when idle",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repo, err := tellRepo()
+			if err != nil {
+				return err
+			}
+			return tellByHand(repo, args[0], args[1:], cmd.InOrStdin(), cmd.OutOrStdout())
+		},
+	}
+	tellRepo = repoFlag(tell)
+
 	pause := &cobra.Command{
 		Use:   "pause",
 		Short: "Stop the workers' stacks for a break; worktrees, agents and workspace stay",
@@ -454,22 +469,15 @@ func main() {
 
 	// Internal: what a claude worker's Stop hook runs (see turnEndCommand).
 	turnEnd := &cobra.Command{
-		Use:    turnEndUse + " <status-dir> <worker>",
+		Use:    turnEndUse + " <status-dir> <worker> <inbox> <master>",
 		Hidden: true,
-		Args:   cobra.ExactArgs(2),
+		Args:   cobra.ExactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			now := time.Now()
-			if err := markTurnEnd(args[0], args[1], now); err != nil {
-				fmt.Fprintln(os.Stderr, "turn end mark:", err)
-			}
-			err := normalizeStatus(filepath.Join(args[0], args[1]+".json"), now)
-			// Printed for the hook to put into the ping (see turnEndCommand).
-			fmt.Fprint(cmd.OutOrStdout(), statusDelta(args[0], args[1]))
-			return err
+			return turnEnd(args[0], args[1], args[2], args[3], time.Now(), cmd.OutOrStdout())
 		},
 	}
 
-	root.AddCommand(stop, status, queue, done, clearCmd, dispatch, pause, resume, watch, inboxWatch, inboxNext, turnEnd, statusLine)
+	root.AddCommand(stop, status, queue, done, tell, clearCmd, dispatch, pause, resume, watch, inboxWatch, inboxNext, turnEnd, statusLine)
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)

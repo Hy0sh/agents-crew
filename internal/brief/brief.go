@@ -68,6 +68,9 @@ type MasterData struct {
 	QueueCommand string
 	// DoneCommand, followed by a worker's label, ends its task (acw done).
 	DoneCommand string
+	// TellCommand, followed by a worker's label, leaves it a message read
+	// from stdin (acw tell).
+	TellCommand string
 	// SwitchCommand is `wtm switch` when acw found it and the workers in
 	// the code get a stack, empty otherwise: the brief stays
 	// tooling-neutral unless the tool is known to be there.
@@ -100,6 +103,7 @@ type Params struct {
 	// written.
 	QueueCommand string
 	DoneCommand  string
+	TellCommand  string
 	// SwitchCommand: see MasterData.
 	SwitchCommand string
 	PRWatch       bool
@@ -151,6 +155,7 @@ func newMasterData(p Params) MasterData {
 		StatusCommand:    p.StatusCommand,
 		QueueCommand:     p.QueueCommand,
 		DoneCommand:      p.DoneCommand,
+		TellCommand:      p.TellCommand,
 		SwitchCommand:    p.SwitchCommand,
 		PRWatch:          p.PRWatch,
 	}
