@@ -6,6 +6,8 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-05
+
 From a full day of a master driving five workers: most of the friction
 was in how the master talks to a worker, and in what it had to repeat.
 
@@ -601,7 +603,8 @@ project: 7 PRs, 3 merged. Each entry names what actually went wrong.
   anything, with a clear message and install instructions if not; `wtm` is
   checked too but stays optional.
 
-[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/Hy0sh/agents-crew/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/Hy0sh/agents-crew/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/Hy0sh/agents-crew/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/Hy0sh/agents-crew/compare/v0.8.0...v0.9.0
