@@ -223,3 +223,10 @@ func AgentRead(name string, lines int) (string, error) {
 	out, err := run("agent", "read", name, "--source", "recent-unwrapped", "--lines", fmt.Sprint(lines))
 	return string(out), err
 }
+
+// AgentScreen is the agent's visible screen with its ANSI styling: what
+// tells an input's dimmed placeholder from text typed into it.
+func AgentScreen(name string) (string, error) {
+	out, err := run("agent", "read", name, "--source", "visible", "--format", "ansi")
+	return string(out), err
+}

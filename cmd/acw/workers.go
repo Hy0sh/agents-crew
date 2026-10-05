@@ -90,10 +90,21 @@ func briefWorkers(workers []workerSpec) []brief.Worker {
 	return out
 }
 
-// systemPrompt is a claude worker's system prompt: the repo's notes, then
-// its own standing instructions. "" when it has neither.
-func systemPrompt(notes, prompt string) string {
-	var parts []string
+// workerRole is what every claude worker knows of its place in the
+// setup, in its system prompt: a master used to copy it into every brief,
+// because the reset before each task wiped it, and the copies drifted.
+func workerRole(label, statusFile string) string {
+	return fmt.Sprintf(`You are %[1]s, a worker of an acw setup. A master session hands you your tasks and relays the user's decisions: you report to the master only, through your status file and the end of your turn, never by expecting the user to read your pane. A message that starts with "Message from the master" comes from it. Your context is reset before each task: this prompt survives the reset, the task's brief brings the rest.
+
+Your status file is %[2]s, a JSON object. Write it after every significant step (taking the task, milestone reached, blocked on an arbitration, PR opened) with at least: tache, state, summary, base_branch, ports, branch, decision, pr_url, proof_path, blocked_on. Put the value itself in the field, and leave it empty as long as it does not exist: "approach chosen" without naming the choice, or "PR opened" without its link, is worse than empty. decision lists, before you write any code, the files you will create or modify. base_branch is the branch your PR is based on. blocked_on says what you wait for, while state says you are blocked. Leave updated_at, last_turn_end and state_since out: acw writes them at the end of each turn. If you delegate to a subagent or touch a shared code area, say so there plainly. If you hand control back while a subagent you started still runs, set state to waiting_subagent and say in summary what you wait for.
+
+Temporary files go in /tmp, outside the repo, and you never run rm -rf in your worktree: a recursive deletion triggers an approval prompt nobody may be there to answer.`, label, statusFile)
+}
+
+// systemPrompt is a claude worker's system prompt: its role, the repo's
+// notes, then its own standing instructions.
+func systemPrompt(role, notes, prompt string) string {
+	parts := []string{role}
 	if s := strings.TrimSpace(notes); s != "" {
 		parts = append(parts, s)
 	}
@@ -105,20 +116,18 @@ func systemPrompt(notes, prompt string) string {
 
 // writeSystemPrompts gives each claude worker one system prompt file in
 // statusDir and points its PromptPath at it. A system prompt survives
-// /clear: the repo rules no longer have to travel in every brief, where
-// they drifted from one brief to the next. Other kinds have no system
-// prompt acw can set and are left as configured.
+// /clear: its role and the repo rules no longer have to travel in every
+// brief, where they drifted from one brief to the next. Other kinds have
+// no system prompt acw can set and are left as configured.
 func writeSystemPrompts(statusDir, notes string, workers []workerSpec) error {
 	for i := range workers {
 		w := &workers[i]
 		if w.Kind != "claude" {
 			continue
 		}
-		content := systemPrompt(notes, w.Prompt)
-		if content == "" {
-			continue
-		}
-		path := filepath.Join(statusDir, fmt.Sprintf("worker%d.system.md", i+1))
+		label := fmt.Sprintf("worker%d", i+1)
+		content := systemPrompt(workerRole(label, filepath.Join(statusDir, label+".json")), notes, w.Prompt)
+		path := filepath.Join(statusDir, label+".system.md")
 		if err := os.WriteFile(path, []byte(content+"\n"), 0o644); err != nil {
 			return err
 		}

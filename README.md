@@ -126,7 +126,8 @@ runs is acw's, from fixed rules a model cannot bend:
 - A free worker with nothing queued for it is closed after
   `idle-close-minutes`, unless that would take the pool under
   `min-workers`: its pane and agent, its stack and worktree. Its task
-  branch stays, as with `acw stop`. A worker whose worktree has changes is
+  branch stays, as with `acw stop`; when it holds commits no remote has,
+  the close message names it and counts them. A worker whose worktree has changes is
   never closed: the master is told once. A kind acw cannot reset between
   tasks (no `/clear` to confirm) is closed as soon as its task is done.
 - A task acw could not hand out (a branch held by another worktree, a
@@ -136,16 +137,26 @@ runs is acw's, from fixed rules a model cannot bend:
 `min-workers` set to `workers` opens every worker at launch and never
 closes one: the fixed swarm of acw 0.10.
 
-Each Claude Code worker starts with a `Stop` hook that pings the master every
-time it hands control back — the push notification Herdr doesn't have, so a
-finished PR can't sit unnoticed until someone thinks to look. The ping says
-which worker moved and what moved in its status file since its previous
-ping: `state` before and after, or "status unchanged". Most pings in real
-use ended turns the master had triggered itself, and each cost it a read of
-the file to find nothing new. Workers of any other kind
+Each Claude Code worker starts with a `Stop` hook, `acw __turn-end`, that
+pings the master when it hands control back — the push notification Herdr
+doesn't have, so a finished PR can't sit unnoticed until someone thinks to
+look. The ping says which worker moved and what moved in its status file
+since its previous ping: `state` before and after, or that it was
+rewritten. A turn end with nothing moved sends nothing: in a day of real
+use, about a hundred pings woke the master to read "status unchanged".
+Two exceptions: the turn end that answers a brief or an `acw tell` pings
+with "status unchanged", since the master waits for that answer; and a
+worker whose status has not moved for 15 minutes of turn ends pings once,
+saying so, for a worker looping or stuck. Workers of any other kind
 have no hooks and keep the previous behaviour, where the master polls.
 
-Before pinging, the same hook runs `acw __turn-end` on that status file:
+Each claude worker also gets its role in its system prompt, which
+survives the reset before each task: it reports to the master only, what
+"Message from the master" means, its status file's path and fields, and
+`/tmp` for temporary files with no `rm -rf`. A master used to copy that
+into every brief, about twenty lines each time, and the copies drifted.
+
+Before pinging, the hook fixes up that status file:
 `updated_at` becomes the file's real modification time in UTC,
 `last_turn_end` the time the turn ended, and `blocked_on` is cleared once
 `state` no longer says blocked (any wording holding `block` or `bloq`,
@@ -156,26 +167,40 @@ answer). It also sets `state_since`, the turn end at which the current
 rewrites its file whole, so the status cannot hold it): workers waiting in
 the same state can be ordered without the master's memory. Everything else
 in the file stays the worker's own; a file that
-is missing or not a JSON object is left alone. It then prints the delta
-the ping carries, and keeps what it saw in `workerN.ping` for the next
-turn.
+is missing or not a JSON object is left alone. It keeps what it saw in
+`workerN.ping` for the next turn.
+
+`acw tell workerN` is how the master speaks to a worker in the middle of
+a task, the message on stdin (a quoted heredoc) or as arguments. It used
+to type into the worker's pane with `herdr agent prompt`, which a worker
+on an approval popup could not take, and which mixed with what you might
+be typing there. The message waits in `workerN.tell`. At the worker's next
+turn end, the hook hands it over as its block decision: Claude Code gives
+it to the worker as its next input, and nothing is typed. A worker that is
+already idle gets it from the watcher, typed in, unless its input line
+holds something (your text, a choice on screen; read from the pane's ANSI
+rendering, where Claude Code's empty-input placeholder is dimmed): then the
+master is told once, and the message waits for the line to be empty. A new
+task drops the messages still waiting for the previous one.
 
 With a `claude` master, the ping is not typed into the master's input:
 typed text merged with whatever you were writing to the master at that
 moment. The hook appends a line to an inbox in the status directory, and
 the master's first action is to run `acw __inbox-next` on it as a
-background command: it waits for the next lines, prints them and exits,
-and its end starts a turn without touching your draft. The master runs it
+background command: it waits for the next lines, gives the ones right
+behind them 2 seconds to arrive, prints them all and exits, and its end
+starts a turn without touching your draft. The master runs it
 again after each batch. Claude Code kills a background command at its
 timeout (30 minutes by default), so after 25 minutes with no message it
 exits on its own, printing "nothing new", and the master runs it again
 like after any batch. Lines written while the master
 works wait in the inbox. If the master forgets to run it again, acw types
 a reminder into its input after 5 minutes of unread messages. acw starts
-a claude master allowed to run `acw status`, `acw queue` and `acw done`,
-plus its two inbox commands when it reads an inbox
+a claude master allowed to run `acw status`, `acw queue`, `acw done` and
+`acw tell`, plus its two inbox commands when it reads an inbox
 (`--allowedTools "Bash(<acw> __inbox-watch:*)" "Bash(<acw> __inbox-next:*)"
-"Bash(<acw> status:*)" "Bash(<acw> queue:*)" "Bash(<acw> done:*)"`), and
+"Bash(<acw> status:*)" "Bash(<acw> queue:*)" "Bash(<acw> done:*)"
+"Bash(<acw> tell:*)"`), and
 nothing broader. A master of another kind has no background commands
 and still gets messages typed in.
 
@@ -230,6 +255,7 @@ only way to actually stop it.
 acw status [--repo <dir>]
 acw queue [--repo <dir>] [add <brief-file> [--branch <b>] [--worker workerN] [--top] | move <id> <pos> | remove <id>]
 acw done [--repo <dir>] workerN [task-id]
+acw tell [--repo <dir>] workerN [message...]
 acw clear [--repo <dir>] worker1 [worker2...]
 acw dispatch [--repo <dir>] worker1 <brief-file>
 acw pause
@@ -237,7 +263,8 @@ acw resume
 ```
 
 - `acw status` shows every worker at a glance, from what acw can read
-  without asking anyone: herdr's state, the status file's `state` and
+  without asking anyone: its herdr agent name (`worker1-<slug>`, the one
+  `herdr agent read` wants), herdr's state, the status file's `state` and
   since when, how old
   its `updated_at`, `last_turn_end` and the worktree's last change are,
   context and 5-hour quota, branch and base, PR, then the unread messages
@@ -251,9 +278,9 @@ acw resume
   not finished a turn yet has nothing to reset: `acw clear` says so and
   returns without sending anything, since a `/clear` there keeps the same
   session and could never be confirmed.
-- `acw queue` and `acw done`: see [Pool and queue](#pool-and-queue). These
-  two and `acw status` are the commands the master may run without a
-  prompt; `acw clear` and `acw dispatch` stay yours.
+- `acw queue` and `acw done`: see [Pool and queue](#pool-and-queue).
+  `acw tell`: see above. These three and `acw status` are the commands the
+  master may run without a prompt; `acw clear` and `acw dispatch` stay yours.
 - `acw dispatch` hands a free claude worker a task in one call, outside
   the queue: the worker is busy until `acw done`. The same
   wait and refusals as `acw clear`, the confirmed reset, then the brief
@@ -310,6 +337,7 @@ and keep the variables you need:
 | `{{.StatusCommand}}` | `acw status --repo <repo>`, fully written: every worker at a glance |
 | `{{.QueueCommand}}` | `acw queue --repo <repo>`, fully written: lists the workers and the queue, and with `add`, `move` or `remove` changes it |
 | `{{.DoneCommand}}` | `acw done --repo <repo>`, fully written, to follow with a worker's label (`worker2`): ends its task |
+| `{{.TellCommand}}` | `acw tell --repo <repo>`, fully written, to follow with a worker's label and the message on stdin: leaves it a message |
 | `{{.SwitchCommand}}` | `wtm switch` when acw found it (wtm 0.26.0 or later) and the workers in the code get a stack; empty otherwise |
 | `{{.PRWatch}}` | `true` when `pr-watch` is on: the master receives `PR #…` lines for the PRs that changed |
 

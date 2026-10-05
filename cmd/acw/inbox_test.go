@@ -92,6 +92,28 @@ func TestNextInboxWaitsForALine(t *testing.T) {
 	}
 }
 
+// A message right behind the first one comes out with it: one wake-up
+// for the burst.
+func TestNextInboxBatchesABurst(t *testing.T) {
+	inboxBatch = 200 * time.Millisecond
+	t.Cleanup(func() { inboxBatch = 0 })
+	inbox := filepath.Join(t.TempDir(), "inbox")
+	if err := appendLine(inbox, "worker1 handed control back"); err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		_ = appendLine(inbox, "PR #12 (worker1): CI turned red")
+	}()
+	var out bytes.Buffer
+	if err := nextInbox(inbox, &out, 10*time.Millisecond, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "worker1 handed control back\nPR #12 (worker1): CI turned red\n" {
+		t.Errorf("nextInbox() = %q, want both messages of the burst", out.String())
+	}
+}
+
 // A quiet swarm ends the wait before Claude Code's background timeout
 // kills the command, and says so for the master to re-run it.
 func TestNextInboxGivesUpWhenQuiet(t *testing.T) {
@@ -152,7 +174,7 @@ func TestMasterArgsAllowOnlyTheInboxWatch(t *testing.T) {
 	if !strings.HasPrefix(watch, strings.TrimSuffix(strings.TrimPrefix(got[i+1], "Bash("), ":*)")) {
 		t.Errorf("rule %q does not cover the watch command %q", got[i+1], watch)
 	}
-	for j, want := range []string{"Bash(/bin/acw status:*)", "Bash(/bin/acw queue:*)", "Bash(/bin/acw done:*)"} {
+	for j, want := range []string{"Bash(/bin/acw status:*)", "Bash(/bin/acw queue:*)", "Bash(/bin/acw done:*)", "Bash(/bin/acw tell:*)"} {
 		if i+3+j >= len(got) || got[i+3+j] != want {
 			t.Errorf("masterArgs() = %v, want the rule %s for the commands the brief hands the master", got, want)
 		}
@@ -177,7 +199,7 @@ func TestMasterArgsAllowOnlyTheInboxWatch(t *testing.T) {
 	// status, queue and done: without the rules every acw queue add would
 	// stop on an approval.
 	got = masterArgs("claude", "opus", "/bin/acw", "")
-	want := []string{"--model", "opus", "--allowedTools", "Bash(/bin/acw status:*)", "Bash(/bin/acw queue:*)", "Bash(/bin/acw done:*)"}
+	want := []string{"--model", "opus", "--allowedTools", "Bash(/bin/acw status:*)", "Bash(/bin/acw queue:*)", "Bash(/bin/acw done:*)", "Bash(/bin/acw tell:*)"}
 	if !slices.Equal(got, want) {
 		t.Errorf("masterArgs(claude, no inbox) = %v, want %v", got, want)
 	}
@@ -204,5 +226,6 @@ func TestMain(m *testing.M) {
 	// in tests whose appends have all returned. The one that appends
 	// concurrently sets it back itself.
 	drainSettle = 0
+	inboxBatch = 0
 	os.Exit(m.Run())
 }

@@ -152,3 +152,26 @@ func TestSwitchAndHasBranch(t *testing.T) {
 		t.Errorf("after Switch(existing): on %q, want %q", got, base)
 	}
 }
+
+// A WIP commit left on a closed worker's branch is what the master must
+// hear about; once pushed, there is nothing left to say.
+func TestUnpushed(t *testing.T) {
+	remote := gitInit(t)
+	dir := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.email=a@b", "-c", "user.name=a"}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("clone", "-q", remote, ".")
+	git("switch", "-q", "-c", "feat/x")
+	git("commit", "-q", "--allow-empty", "-m", "wip")
+	if n, err := Unpushed(dir, "feat/x"); err != nil || n != 1 {
+		t.Fatalf("Unpushed() = %d, %v; want 1", n, err)
+	}
+	git("push", "-q", "origin", "feat/x")
+	if n, err := Unpushed(dir, "feat/x"); err != nil || n != 0 {
+		t.Errorf("Unpushed() after push = %d, %v; want 0", n, err)
+	}
+}

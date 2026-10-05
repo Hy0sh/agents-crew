@@ -72,16 +72,16 @@ func openWorker(repo string, index int) {
 	}
 
 	// The hook calls this same binary back; without its path the worker
-	// still pings, it only loses the status normalization.
-	delta, statusLine := "", ""
+	// still pings, it only loses the status normalization, the quiet turn
+	// ends and the master's messages at the end of a turn.
+	hook, statusLine := pingCommand(plan.Inbox, masterName, label), ""
 	if self, err := os.Executable(); err == nil {
 		statusDir := names.StatusDir(repo)
-		delta = turnEndCommand(self, statusDir, label)
+		hook = turnEndCommand(self, statusDir, label, plan.Inbox, masterName)
 		statusLine = statusLineCommand(self, statusDir, label)
 	} else {
 		fmt.Fprintln(os.Stderr, "acw's path not found, statuses won't be normalized:", err)
 	}
-	hook := pingCommand(plan.Inbox, masterName, label, delta)
 	if err := herdr.AgentStart(name, w.Kind, pane, workerArgs(w, label, hook, statusLine, plan.SwitchAllowed && pw.Stacked)...); err != nil {
 		fail("herdr agent start", explainStart(err, cwd), pane)
 		return
@@ -234,8 +234,11 @@ func closeWorker(repo string, w poolWorker, why string) {
 		}
 	}
 	if w.Worktree != "" {
+		branch, _ := gitutil.CurrentBranch(w.Worktree)
 		if kept := teardown.Worktree(repo, w.Worktree); kept != "" {
 			why += fmt.Sprintf(". Its worktree %s is KEPT: %s. Tell me", w.Worktree, kept)
+		} else {
+			why += leftBranch(repo, branch)
 		}
 	}
 	files, _ := filepath.Glob(filepath.Join(names.StatusDir(repo), w.label()+".*"))
@@ -249,6 +252,21 @@ func closeWorker(repo string, w poolWorker, why string) {
 		return true, nil
 	})
 	tell(plan.Plan, w.label()+" closed: "+why+".")
+}
+
+// leftBranch is what the close message says about the task branch a
+// closed worker leaves behind: nothing once every commit on it is pushed,
+// otherwise its name and how many commits only live here. A task dropped
+// halfway left a WIP commit nobody heard of.
+func leftBranch(repo, branch string) string {
+	if branch == "" || !gitutil.HasBranch(repo, branch) {
+		return ""
+	}
+	n, err := gitutil.Unpushed(repo, branch)
+	if err != nil || n == 0 {
+		return ""
+	}
+	return fmt.Sprintf(". Its branch %s stays, with %d commit(s) never pushed: tell me whether to push or delete it", branch, n)
 }
 
 // tell sends the master a line about the pool.
@@ -354,20 +372,16 @@ func workerArgs(w workerSpec, label, hook, statusLine string, allowSwitch bool) 
 	return append(args, "--settings", hooks)
 }
 
-// pingCommand is the shell command a worker's Stop hook runs: one line
-// appended to the master's inbox, or, when there is none (see
-// inboxWatchCommand), the same text typed into the master's input. delta
-// is a shell word whose value goes after "handed control back" (see
-// turnEndCommand), "" for none.
-func pingCommand(inbox, masterName, label, delta string) string {
-	if delta == "" {
-		delta = "''"
-	}
-	parts := shellWord(label+pingHead) + " " + delta + " " + shellWord(pingTail)
+// pingCommand is a worker's Stop hook when acw cannot call itself back
+// (see turnEndCommand): one line appended to the master's inbox, or, when
+// there is none (see inboxWatchCommand), the same text typed into the
+// master's input.
+func pingCommand(inbox, masterName, label string) string {
+	msg := shellWord(pingMessage(label))
 	if inbox != "" {
-		return "printf '%s%s%s\\n' " + parts + " >> " + shellWord(inbox)
+		return "printf '%s\\n' " + msg + " >> " + shellWord(inbox)
 	}
-	return "herdr agent prompt " + shellWord(masterName) + ` "$(printf '%s%s%s' ` + parts + `)"`
+	return "herdr agent prompt " + shellWord(masterName) + " " + msg
 }
 
 const (
@@ -383,13 +397,16 @@ func pingMessage(label string) string {
 	return label + pingHead + pingTail
 }
 
-// turnEndCommand is the delta word of a claude worker's Stop hook: it
-// normalizes the status file first, so the master reads a fixed file when
-// the ping wakes it, and prints what moved in it. A substitution and not
-// a command before the ping: a failed normalization prints nothing, and
-// the ping still goes out.
-func turnEndCommand(exe, statusDir, label string) string {
-	return `"$(` + shellWord(exe) + " " + turnEndUse + " " + shellWord(statusDir) + " " + shellWord(label) + `)"`
+// turnEndCommand is a claude worker's Stop hook: acw itself, which hands
+// the worker the master's waiting messages or pings the master (see
+// turnEnd). inbox is "" for a master whose pings are typed into it.
+func turnEndCommand(exe, statusDir, label, inbox, masterName string) string {
+	if inbox == "" {
+		inbox = "''"
+	} else {
+		inbox = shellWord(inbox)
+	}
+	return shellWord(exe) + " " + turnEndUse + " " + shellWord(statusDir) + " " + shellWord(label) + " " + inbox + " " + shellWord(masterName)
 }
 
 // workerSettings is the --settings JSON of a claude worker: its Stop hook
