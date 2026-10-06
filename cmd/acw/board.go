@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -117,4 +119,50 @@ func boardCommand() *cobra.Command {
 	decision.Flags().StringVar(&why, "why", "", "the reason, in one line")
 	cmd.AddCommand(decision)
 	return cmd
+}
+
+// boardWorker is a worker's row: herdr's blocked first (it waits on
+// someone), then, while it has a task, the state it gives itself, else
+// the pool's. A free worker has no subject.
+func boardWorker(repo string, pw poolWorker, agentStatus string, s workerStatus, now time.Time) board.Worker {
+	w := board.Worker{Repo: repo, Worker: pw.label(), State: pw.State, Since: pw.Since, UpdatedAt: now}
+	if pw.State == workerBusy {
+		w.Subject, w.Branch, w.PRURL, w.Summary = s.Tache, s.Branch, s.PRURL, s.Summary
+		if s.State != "" {
+			w.State = s.State
+		}
+	}
+	if agentStatus == "blocked" {
+		w.State = "blocked"
+	}
+	return w
+}
+
+// changedWorkers returns the rows of cur that differ from last, UpdatedAt
+// aside, and keeps last up to date: the base is written on a move only.
+func changedWorkers(last map[string]board.Worker, cur []board.Worker) []board.Worker {
+	var out []board.Worker
+	for _, w := range cur {
+		prev, seen := last[w.Worker]
+		prev.UpdatedAt = w.UpdatedAt
+		if !seen || prev != w {
+			out = append(out, w)
+		}
+		last[w.Worker] = w
+	}
+	return out
+}
+
+var pullURL = regexp.MustCompile(`/pull/(\d+)$`)
+
+// prFromURL is a PR row from a worker's pr_url, for a swarm without the
+// PR watch: number and link only.
+func prFromURL(repo, url, worker string, now time.Time) (board.PR, bool) {
+	url = normalizePRURL(url)
+	m := pullURL.FindStringSubmatch(url)
+	if m == nil || !strings.HasPrefix(url, "https://") {
+		return board.PR{}, false
+	}
+	n, _ := strconv.Atoi(m[1])
+	return board.PR{Repo: repo, Number: n, URL: url, Worker: worker, Status: "open", UpdatedAt: now}, true
 }

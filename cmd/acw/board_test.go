@@ -47,3 +47,51 @@ func TestDecisionWorkerIsChecked(t *testing.T) {
 		t.Errorf("--worker bob = %v, want a refusal", err)
 	}
 }
+
+// blocked from herdr wins, then the worker's own state while busy, then
+// the pool's.
+func TestBoardWorkerState(t *testing.T) {
+	now := time.Now()
+	pw := poolWorker{Index: 1, State: workerBusy, Since: now}
+	s := workerStatus{Tache: "SHOP-142 stacked discounts", State: "coding", Summary: "front next", Branch: "feat/x", PRURL: "https://github.com/o/r/pull/418"}
+	if got := boardWorker("/r", pw, "blocked", s, now); got.State != "blocked" || got.Subject != s.Tache || got.Summary != "front next" {
+		t.Errorf("blocked = %+v", got)
+	}
+	if got := boardWorker("/r", pw, "working", s, now); got.State != "coding" {
+		t.Errorf("busy = %q, want the worker's state", got.State)
+	}
+	pw.State = workerFree
+	if got := boardWorker("/r", pw, "idle", s, now); got.State != "free" || got.Subject != "" {
+		t.Errorf("free = %+v, want no subject", got)
+	}
+}
+
+// Only what moved is written again; UpdatedAt alone is not a move.
+func TestChangedWorkers(t *testing.T) {
+	last := map[string]board.Worker{}
+	w := board.Worker{Worker: "worker1", State: "coding", UpdatedAt: time.Unix(1, 0)}
+	if got := changedWorkers(last, []board.Worker{w}); len(got) != 1 {
+		t.Fatalf("first = %d", len(got))
+	}
+	w.UpdatedAt = time.Unix(2, 0)
+	if got := changedWorkers(last, []board.Worker{w}); len(got) != 0 {
+		t.Errorf("same state = %d, want 0", len(got))
+	}
+	w.State = "blocked"
+	if got := changedWorkers(last, []board.Worker{w}); len(got) != 1 {
+		t.Errorf("new state = %d, want 1", len(got))
+	}
+}
+
+func TestPRFromURL(t *testing.T) {
+	now := time.Now()
+	p, ok := prFromURL("/r", "https://github.com/o/r/pull/418/", "worker1", now)
+	if !ok || p.Number != 418 || p.URL != "https://github.com/o/r/pull/418" || p.Worker != "worker1" {
+		t.Errorf("= %+v, %v", p, ok)
+	}
+	for _, bad := range []string{"", "pending", "https://github.com/o/r/issues/3", "https://github.com/o/r/pull/x"} {
+		if _, ok := prFromURL("/r", bad, "worker1", now); ok {
+			t.Errorf("%q gave a PR", bad)
+		}
+	}
+}

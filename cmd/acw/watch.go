@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Hy0sh/agents-crew/internal/board"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
 )
@@ -72,6 +73,8 @@ func runWatch(plan watchPlan, interval time.Duration) {
 		}
 	}
 	defer inflight.Wait()
+	boardLast := map[string]board.Worker{}
+	var prsWritten time.Time
 	for {
 		if !ownsRun(plan.Repo, plan.Stamp) {
 			return
@@ -132,6 +135,36 @@ func runWatch(plan watchPlan, interval time.Duration) {
 					}
 				}
 			}
+		}
+		// The board: each worker's row when it moved, and without the PR
+		// watch, the PRs its status names.
+		var rows []board.Worker
+		var prRows []board.PR
+		for _, pw := range pool.Workers {
+			a, _ := herdr.FindAgent(agents, names.Worker(slug, pw.Index))
+			s, _ := readWorkerStatus(filepath.Join(statusDir, pw.label()+".json"))
+			rows = append(rows, boardWorker(plan.Repo, pw, a.Status, s, now))
+			if p, ok := prFromURL(plan.Repo, s.PRURL, pw.label(), now); ok && prs == nil {
+				prRows = append(prRows, p)
+			}
+		}
+		if moved := changedWorkers(boardLast, rows); len(moved) > 0 || len(prRows) > 0 && now.Sub(prsWritten) >= prWatchEvery {
+			record("workers", func(b *board.DB) error {
+				for _, w := range moved {
+					if err := b.UpsertWorker(w); err != nil {
+						return err
+					}
+				}
+				if now.Sub(prsWritten) >= prWatchEvery {
+					for _, p := range prRows {
+						if err := b.UpsertPR(p); err != nil {
+							return err
+						}
+					}
+					prsWritten = now
+				}
+				return nil
+			})
 		}
 		w.forget(labels)
 		for _, e := range w.observe(now, views) {

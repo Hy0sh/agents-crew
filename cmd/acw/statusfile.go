@@ -25,6 +25,7 @@ func writeAtomic(path string, content []byte, perm fs.FileMode) error {
 type workerStatus struct {
 	Tache       string `json:"tache"`
 	State       string `json:"state"`
+	Summary     string `json:"summary"`
 	Branch      string `json:"branch"`
 	BaseBranch  string `json:"base_branch"`
 	PRURL       string `json:"pr_url"`
