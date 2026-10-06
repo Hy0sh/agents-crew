@@ -477,7 +477,7 @@ func main() {
 		},
 	}
 
-	root.AddCommand(stop, status, queue, done, projectCommand(), tell, clearCmd, dispatch, pause, resume, watch, inboxWatch, inboxNext, turnEnd, statusLine)
+	root.AddCommand(stop, status, queue, done, projectCommand(), boardCommand(), tell, clearCmd, dispatch, pause, resume, watch, inboxWatch, inboxNext, turnEnd, statusLine)
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)

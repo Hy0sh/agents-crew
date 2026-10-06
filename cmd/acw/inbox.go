@@ -82,7 +82,8 @@ func masterArgs(kind, model, exe, inboxWatch string) []string {
 		"Bash("+shellWord(exe)+" status:*)",
 		"Bash("+shellWord(exe)+" queue:*)",
 		"Bash("+shellWord(exe)+" done:*)",
-		"Bash("+shellWord(exe)+" tell:*)")
+		"Bash("+shellWord(exe)+" tell:*)",
+		"Bash("+shellWord(exe)+" board decision:*)")
 }
 
 // watchInbox prints every line appended to inbox, forever, until the

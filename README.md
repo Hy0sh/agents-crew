@@ -338,6 +338,7 @@ and keep the variables you need:
 | `{{.QueueCommand}}` | `acw queue --repo <repo>`, fully written: lists the workers and the queue, and with `add`, `move` or `remove` changes it |
 | `{{.DoneCommand}}` | `acw done --repo <repo>`, fully written, to follow with a worker's label (`worker2`): ends its task |
 | `{{.TellCommand}}` | `acw tell --repo <repo>`, fully written, to follow with a worker's label and the message on stdin: leaves it a message |
+| `{{.DecisionCommand}}` | `acw board decision --repo <repo>`, fully written, to follow with the decision on stdin: records it on the board |
 | `{{.SwitchCommand}}` | `wtm switch` when acw found it (wtm 0.26.0 or later) and the workers in the code get a stack; empty otherwise |
 | `{{.PRWatch}}` | `true` when `pr-watch` is on: the master receives `PR #…` lines for the PRs that changed |
 
