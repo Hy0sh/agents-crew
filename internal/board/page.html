@@ -159,7 +159,7 @@ function fill(id, items, build, empty, limit) {
   return shown.length;
 }
 function options(select, values, current, label = v => v) {
-  if ([...select.options].map(o => o.value).join() !== values.join()) select.replaceChildren(...values.map(v => { const o = el("option", null, label(v)); o.value = v; return o; }));
+  if (JSON.stringify([...select.options].map(o => o.value)) !== JSON.stringify(values)) select.replaceChildren(...values.map(v => { const o = el("option", null, label(v)); o.value = v; return o; }));
   select.value = values.includes(current) ? current : values[0] || "";
   return select.value;
 }
