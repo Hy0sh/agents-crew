@@ -6,6 +6,11 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-06
+
+A page to see what the swarms did, and a command to stop hand-editing the
+config.
+
 ### Added
 
 - `acw board`: a local read-only page of the swarms' workers, followed
@@ -623,7 +628,8 @@ project: 7 PRs, 3 merged. Each entry names what actually went wrong.
   anything, with a clear message and install instructions if not; `wtm` is
   checked too but stays optional.
 
-[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/Hy0sh/agents-crew/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/Hy0sh/agents-crew/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/Hy0sh/agents-crew/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/Hy0sh/agents-crew/compare/v0.9.0...v0.10.0
