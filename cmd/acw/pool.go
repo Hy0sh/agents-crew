@@ -260,8 +260,9 @@ func queueRemove(repo string, id int, out io.Writer) error {
 // task, when not 0, is the task the caller means to end: a second done
 // for a task already over could otherwise free a worker the watcher has
 // just handed the next one, which would then get a third brief on top.
-func markDone(repo string, index, task int, now time.Time) (string, error) {
+func markDone(repo string, index, task int, now time.Time) (string, int, error) {
 	var msg string
+	var finished int
 	err := withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
 		w := p.worker(index)
 		if w == nil {
@@ -275,10 +276,11 @@ func markDone(repo string, index, task int, now time.Time) (string, error) {
 			return false, fmt.Errorf("%s is on task #%d, not #%d: nothing changed", w.label(), w.Task, task)
 		}
 		msg = fmt.Sprintf("%s is free (task #%d done).", w.label(), w.Task)
+		finished = w.Task
 		w.State, w.Task, w.Since = workerFree, 0, now
 		return true, nil
 	})
-	return msg, err
+	return msg, finished, err
 }
 
 // pollWorkers reads what schedule needs about each free worker: whether

@@ -20,7 +20,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/Hy0sh/agents-crew/internal/board"
 	"github.com/Hy0sh/agents-crew/internal/config"
+	"github.com/Hy0sh/agents-crew/internal/names"
 	"github.com/Hy0sh/agents-crew/internal/preflight"
 	"github.com/Hy0sh/agents-crew/internal/teardown"
 	"github.com/Hy0sh/agents-crew/internal/version"
@@ -380,9 +382,17 @@ func main() {
 					return fmt.Errorf("%q is not a task id", args[1])
 				}
 			}
-			msg, err := markDone(repo, index, task, time.Now())
+			msg, finished, err := markDone(repo, index, task, time.Now())
 			if err != nil {
 				return err
+			}
+			if finished != 0 {
+				label := fmt.Sprintf("worker%d", index)
+				s, _ := readWorkerStatus(filepath.Join(names.StatusDir(repo), label+".json"))
+				record("done", func(b *board.DB) error {
+					return b.AddHandled(board.Handled{Repo: repo, At: time.Now(), Worker: label, Task: finished,
+						Subject: s.Tache, Summary: s.Summary, PRURL: s.PRURL, Outcome: s.State})
+				})
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), msg)
 			return nil
