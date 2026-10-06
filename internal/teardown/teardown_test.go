@@ -184,6 +184,57 @@ func TestStopWatcherWaitsForTheWatcher(t *testing.T) {
 	}
 }
 
+// A master gone without acw stop (Herdr crashed, its pane closed by hand)
+// took the watcher with it: acw stop still releases the workers it left,
+// their worktrees and the workspace they run in.
+func TestStopWithoutAMasterReleasesWhatItsRunLeft(t *testing.T) {
+	t.Chdir(t.TempDir())
+	repo, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	git(t, repo, "init", "-q")
+	git(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
+	wt := names.WorkerWorktree(repo, 1, "20261002")
+	git(t, repo, "worktree", "add", "-q", "-b", names.WorkerBranch(1, "20261002"), wt)
+	if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeWtm(t, "exit 0")
+	calls := fakeHerdr(t, `{"result":{"agents":[`+
+		`{"name":"worker1","workspace_id":"elsewhere"},`+
+		`{"name":"`+names.Worker(names.Slug(repo), 1)+`","workspace_id":"ws-7"}]}}`)
+
+	if err := Run(); err != nil {
+		t.Fatal(err)
+	}
+
+	if exists(wt) {
+		t.Error("the worker's worktree is still there")
+	}
+	if exists(names.StatusDir(repo)) {
+		t.Error("the status directory is still there")
+	}
+	if log, _ := os.ReadFile(calls); !strings.Contains(string(log), "workspace close ws-7 --group") {
+		t.Errorf("herdr calls = %q, want the workers' workspace closed, not another directory's", log)
+	}
+}
+
+// fakeHerdr puts first on PATH a herdr that logs its arguments and answers
+// agent list with agents; it returns the log.
+func fakeHerdr(t *testing.T, agents string) string {
+	t.Helper()
+	bin := t.TempDir()
+	calls := filepath.Join(bin, "calls")
+	body := "#!/bin/sh\necho \"$@\" >> '" + calls + "'\n" +
+		"[ \"$1 $2\" = 'agent list' ] && echo '" + agents + "'\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return calls
+}
+
 func workerWorktree(t *testing.T) (repo, wt string) {
 	t.Helper()
 	repo = t.TempDir()

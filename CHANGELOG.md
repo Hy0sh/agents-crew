@@ -6,6 +6,13 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Fixed
+
+- `acw stop` with the master gone (Herdr crashed, its pane closed by hand)
+  said there was nothing to stop and left the workers, their worktrees and
+  their stacks running. It now releases them, and closes the workers'
+  workspace when Herdr still lists them.
+
 ## [0.13.0] - 2026-10-06
 
 A page to see what the swarms did, and a command to stop hand-editing the
