@@ -174,11 +174,25 @@ func runWatch(plan watchPlan, interval time.Duration) {
 		}
 		if prs != nil && now.Sub(prs.last) >= prWatchEvery {
 			prs.last = now
-			for _, line := range prs.poll(prOwners(statusDir, labels)) {
+			owners := prOwners(statusDir, labels)
+			for _, line := range prs.poll(owners) {
 				if err := deliver(plan.Inbox, plan.MasterName, line); err != nil {
 					fmt.Fprintln(os.Stderr, "message to the master:", err)
 				}
 			}
+			record("prs", func(b *board.DB) error {
+				for _, pr := range prs.prev {
+					if err := b.UpsertPR(boardPR(plan.Repo, pr, owners[normalizePRURL(pr.URL)], "", now)); err != nil {
+						return err
+					}
+				}
+				for _, c := range prs.closed {
+					if err := b.UpsertPR(boardPR(plan.Repo, c.PR, owners[normalizePRURL(c.PR.URL)], c.Fate, now)); err != nil {
+						return err
+					}
+				}
+				return nil
+			})
 		}
 		pool.Held = heldStacks(plan.Repo, pool)
 		runPool(plan.Repo, pool, queue, pollWorkers(pool, agents, statusDir, now), now, dirtyTold)

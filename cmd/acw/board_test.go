@@ -95,3 +95,19 @@ func TestPRFromURL(t *testing.T) {
 		}
 	}
 }
+
+func TestBoardPR(t *testing.T) {
+	now := time.Now()
+	pr := prState{Number: 421, URL: "u", Title: "t", Base: "main", Mergeable: "CONFLICTING", CI: "green", LastReview: "APPROVED by alice", OpenThreads: 2}
+	got := boardPR("/r", pr, "worker2", "", now)
+	if got.Status != "conflicting" || got.CI != "green" || got.Review != "APPROVED by alice · 2 threads open" || got.Worker != "worker2" {
+		t.Errorf("= %+v", got)
+	}
+	if got := boardPR("/r", pr, "", "merged", now); got.Status != "merged" {
+		t.Errorf("fate = %q, want merged", got.Status)
+	}
+	pr.Mergeable, pr.OpenThreads, pr.LastReview = "MERGEABLE", 0, ""
+	if got := boardPR("/r", pr, "", "", now); got.Status != "open" || got.Review != "" {
+		t.Errorf("plain = %+v", got)
+	}
+}

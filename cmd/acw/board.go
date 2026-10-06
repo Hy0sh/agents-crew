@@ -166,3 +166,24 @@ func prFromURL(repo, url, worker string, now time.Time) (board.PR, bool) {
 	n, _ := strconv.Atoi(m[1])
 	return board.PR{Repo: repo, Number: n, URL: url, Worker: worker, Status: "open", UpdatedAt: now}, true
 }
+
+// boardPR is a followed PR's row; fate, when set, is what became of a PR
+// gone from the search (merged, closed...).
+func boardPR(repo string, pr prState, worker, fate string, now time.Time) board.PR {
+	status := "open"
+	if pr.Mergeable == "CONFLICTING" {
+		status = "conflicting"
+	}
+	if fate != "" {
+		status = fate
+	}
+	var review []string
+	if pr.LastReview != "" {
+		review = append(review, pr.LastReview)
+	}
+	if pr.OpenThreads > 0 {
+		review = append(review, fmt.Sprintf("%d threads open", pr.OpenThreads))
+	}
+	return board.PR{Repo: repo, Number: pr.Number, URL: pr.URL, Title: pr.Title, Worker: worker, Base: pr.Base,
+		Status: status, CI: pr.CI, Review: strings.Join(review, " · "), UpdatedAt: now}
+}
