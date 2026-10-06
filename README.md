@@ -601,6 +601,26 @@ It needs `gh`, logged in to github.com, and an `origin` on GitHub: acw
 refuses to start otherwise. A preset can turn it off for one mode:
 `"presets": {"test-campaign": {"pr-watch": false}}`.
 
+## Board
+
+`acw board` opens a local page of what your swarms did, on `127.0.0.1`
+(a free port, or `--port`), until Ctrl-C. It is read-only: nothing on it
+reaches an agent.
+
+- **Workers**: each one's state, subject, branch, PR and summary, as acw's
+  watcher sees them.
+- **Pull requests followed**: from the PR watch when it runs (title, base,
+  CI, reviews), otherwise from the PRs the workers' status files name.
+- **Decisions**: what the master records with `acw board decision`, the
+  8 latest of the day first.
+- **Handled**: each task `acw done` ended, with its outcome.
+
+A repo picker and a day picker read the history: a past day shows its
+decisions and handled tasks. Everything lives in one SQLite base,
+`~/.local/state/acw/board.db` (`$XDG_STATE_HOME/acw/board.db` if set),
+written whether the page is open or not, and never purged. A write that
+fails never stops the swarm.
+
 ## How it works
 
 - `cmd/acw` — the CLI: flags merged with the config, each worker's final

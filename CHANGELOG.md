@@ -8,6 +8,10 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ### Added
 
+- `acw board`: a local read-only page of the swarms' workers, followed
+  pull requests, decisions and handled tasks, per repo and per day, from
+  a SQLite base acw fills as it goes. The master records decisions with
+  `acw board decision`.
 - `acw project create` / `acw project edit`: write a repo's config entry
   from flags, or one question per key without any. Files given to `brief`,
   `brief-extra` and `notes` are copied next to the config.
