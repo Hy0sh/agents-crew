@@ -45,6 +45,21 @@ func TestUpsertAndDeleteWorker(t *testing.T) {
 }
 
 // Workers and PRs are the current state: a past day doesn't show them.
+func TestUpsertPRKeepsWorker(t *testing.T) {
+	b := open(t)
+	check := func(worker, status, wantWorker, wantStatus string) {
+		t.Helper()
+		b.UpsertPR(PR{Repo: "/r", Number: 418, Worker: worker, Status: status, UpdatedAt: noon})
+		d, _ := b.Board("/r", noon, noon)
+		if len(d.PRs) != 1 || d.PRs[0].Worker != wantWorker || d.PRs[0].Status != wantStatus {
+			t.Errorf("after (%q, %q): %+v", worker, status, d.PRs)
+		}
+	}
+	check("worker1", "open", "worker1", "open")
+	check("", "merged", "worker1", "merged")
+	check("worker2", "merged", "worker2", "merged")
+}
+
 func TestPastDayIsNotLive(t *testing.T) {
 	b := open(t)
 	b.UpsertWorker(Worker{Repo: "/r", Worker: "worker1", UpdatedAt: noon})

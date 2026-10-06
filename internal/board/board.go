@@ -128,7 +128,11 @@ func (b *DB) DeleteWorker(repo, worker string) error {
 }
 
 func (b *DB) UpsertPR(p PR) error {
-	_, err := b.sql.Exec(`INSERT OR REPLACE INTO prs VALUES (?,?,?,?,?,?,?,?,?,?)`,
+	// The worker is kept when the new row has none: once its worker moves on, nothing names the owner any more.
+	_, err := b.sql.Exec(`INSERT INTO prs VALUES (?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT (repo, number) DO UPDATE SET url=excluded.url, title=excluded.title,
+		worker=CASE WHEN excluded.worker <> '' THEN excluded.worker ELSE prs.worker END,
+		base=excluded.base, status=excluded.status, ci=excluded.ci, review=excluded.review, updated_at=excluded.updated_at`,
 		p.Repo, p.Number, p.URL, p.Title, p.Worker, p.Base, p.Status, p.CI, p.Review, p.UpdatedAt.Unix())
 	return err
 }
