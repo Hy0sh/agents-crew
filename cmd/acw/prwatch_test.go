@@ -34,7 +34,7 @@ func TestGithubRepo(t *testing.T) {
 const searchFixture = `{"data": {
   "viewer": {"login": "me"},
   "search": {"nodes": [
-    {"number": 12, "url": "https://github.com/some-org/some-repo/pull/12", "mergeable": "CONFLICTING",
+    {"number": 12, "url": "https://github.com/some-org/some-repo/pull/12", "title": "Export orders as CSV", "baseRefName": "main", "mergeable": "CONFLICTING",
      "reviews": {"nodes": [{"state": "CHANGES_REQUESTED", "author": {"login": "alice"}},
                            {"state": "APPROVED", "author": {"login": "bob"}},
                            {"state": "COMMENTED", "author": {"login": "me"}}]},
@@ -53,10 +53,13 @@ func TestParsePRSearch(t *testing.T) {
 	}
 	// The viewer's own review (a reply to a thread is one) is not counted:
 	// it must not wake the master.
-	want12 := prState{Number: 12, URL: "https://github.com/some-org/some-repo/pull/12", Mergeable: "CONFLICTING", CI: "red",
+	want12 := prState{Number: 12, URL: "https://github.com/some-org/some-repo/pull/12", Title: "Export orders as CSV", Base: "main", Mergeable: "CONFLICTING", CI: "red",
 		Reviews: 2, LastReview: "APPROVED by bob", OpenThreads: 2, HeadOID: "abc", Committer: "me"}
 	if prs[0] != want12 {
 		t.Errorf("PR 12 = %+v, want %+v", prs[0], want12)
+	}
+	if prs[0].Title != "Export orders as CSV" || prs[0].Base != "main" {
+		t.Errorf("title/base = %q, %q", prs[0].Title, prs[0].Base)
 	}
 	// No checks at all stays running; a committer with no linked account
 	// is named by the commit.

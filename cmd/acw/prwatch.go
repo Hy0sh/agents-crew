@@ -40,6 +40,8 @@ func githubRepo(remote string) (string, error) {
 type prState struct {
 	Number    int
 	URL       string
+	Title     string
+	Base      string
 	Mergeable string // MERGEABLE, CONFLICTING, or UNKNOWN while GitHub computes it
 	CI        string // red, green or running
 	// LastFinal is the last red or green seen, kept across running, so
@@ -59,7 +61,7 @@ const prSearchQuery = `query($q: String!) {
   search(query: $q, type: ISSUE, first: 50) {
     nodes {
       ... on PullRequest {
-        number url mergeable
+        number url title baseRefName mergeable
         reviews(last: 100) { nodes { state author { login } } }
         reviewThreads(first: 100) { nodes { isResolved } }
         commits(last: 1) { nodes { commit { oid committer { name user { login } } statusCheckRollup { state } } } }
@@ -77,10 +79,12 @@ type prSearchResponse struct {
 		Viewer struct{ Login string }
 		Search struct {
 			Nodes []struct {
-				Number    int
-				URL       string
-				Mergeable string
-				Reviews   struct {
+				Number      int
+				URL         string
+				Title       string
+				BaseRefName string
+				Mergeable   string
+				Reviews     struct {
 					Nodes []struct {
 						State  string
 						Author struct{ Login string }
@@ -115,7 +119,7 @@ func parsePRSearch(data []byte) (viewer string, prs []prState, err error) {
 		if n.Number == 0 {
 			continue
 		}
-		pr := prState{Number: n.Number, URL: n.URL, Mergeable: n.Mergeable, CI: "running"}
+		pr := prState{Number: n.Number, URL: n.URL, Title: n.Title, Base: n.BaseRefName, Mergeable: n.Mergeable, CI: "running"}
 		// The viewer's own reviews are left out: replying to a thread
 		// submits one, and it must not wake the master.
 		for _, rv := range n.Reviews.Nodes {
@@ -300,6 +304,14 @@ type prWatcher struct {
 	prev     map[int]prState // nil until a poll succeeds
 	failures int
 	last     time.Time // when runWatch last polled
+	// closed is what the last poll learned of PRs gone from the search:
+	// merged, closed, back to draft. For the board.
+	closed []prFate
+}
+
+type prFate struct {
+	PR   prState
+	Fate string
 }
 
 // newPRWatcher follows repo, "owner/name", through gh.
@@ -359,6 +371,7 @@ func (p *prWatcher) poll(owners map[string]string) []string {
 		return nil
 	}
 	p.failures = 0
+	p.closed = nil
 
 	next, changes, gone := diffPRs(p.prev, cur, viewer)
 	var lines []string
@@ -378,6 +391,7 @@ func (p *prWatcher) poll(owners map[string]string) []string {
 			next[n] = old
 			continue
 		}
+		p.closed = append(p.closed, prFate{old, fate})
 		lines = append(lines, prLine(old, owners[normalizePRURL(old.URL)], []string{fate}))
 	}
 	p.prev = next

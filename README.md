@@ -338,6 +338,7 @@ and keep the variables you need:
 | `{{.QueueCommand}}` | `acw queue --repo <repo>`, fully written: lists the workers and the queue, and with `add`, `move` or `remove` changes it |
 | `{{.DoneCommand}}` | `acw done --repo <repo>`, fully written, to follow with a worker's label (`worker2`): ends its task |
 | `{{.TellCommand}}` | `acw tell --repo <repo>`, fully written, to follow with a worker's label and the message on stdin: leaves it a message |
+| `{{.DecisionCommand}}` | `acw board decision --repo <repo>`, fully written, to follow with the decision on stdin: records it on the board |
 | `{{.SwitchCommand}}` | `wtm switch` when acw found it (wtm 0.26.0 or later) and the workers in the code get a stack; empty otherwise |
 | `{{.PRWatch}}` | `true` when `pr-watch` is on: the master receives `PR #…` lines for the PRs that changed |
 
@@ -599,6 +600,26 @@ the watch is failing.
 It needs `gh`, logged in to github.com, and an `origin` on GitHub: acw
 refuses to start otherwise. A preset can turn it off for one mode:
 `"presets": {"test-campaign": {"pr-watch": false}}`.
+
+## Board
+
+`acw board` opens a local page of what your swarms did, on `127.0.0.1`
+(a free port, or `--port`), until Ctrl-C. It is read-only: nothing on it
+reaches an agent.
+
+- **Workers**: each one's state, subject, branch, PR and summary, as acw's
+  watcher sees them.
+- **Pull requests followed**: from the PR watch when it runs (title, base,
+  CI, reviews), otherwise from the PRs the workers' status files name.
+- **Decisions**: what the master records with `acw board decision`, the
+  8 latest of the day first.
+- **Handled**: each task `acw done` ended, with its outcome.
+
+A repo picker and a day picker read the history: a past day shows its
+decisions and handled tasks. Everything lives in one SQLite base,
+`~/.local/state/acw/board.db` (`$XDG_STATE_HOME/acw/board.db` if set),
+written whether the page is open or not, and never purged. A write that
+fails never stops the swarm.
 
 ## How it works
 

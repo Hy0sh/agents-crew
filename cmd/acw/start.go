@@ -109,6 +109,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		QueueCommand:     shellWord(self) + " queue --repo " + shellWord(repo),
 		DoneCommand:      shellWord(self) + " done --repo " + shellWord(repo),
 		TellCommand:      shellWord(self) + " tell --repo " + shellWord(repo),
+		DecisionCommand:  shellWord(self) + " board decision --repo " + shellWord(repo),
 		SwitchCommand:    switchCommand,
 		PRWatch:          prWatchRepo != "",
 	})

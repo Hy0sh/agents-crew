@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Hy0sh/agents-crew/internal/board"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
 )
@@ -72,6 +73,8 @@ func runWatch(plan watchPlan, interval time.Duration) {
 		}
 	}
 	defer inflight.Wait()
+	boardLast := map[string]board.Worker{}
+	var prsWritten time.Time
 	for {
 		if !ownsRun(plan.Repo, plan.Stamp) {
 			return
@@ -133,6 +136,55 @@ func runWatch(plan watchPlan, interval time.Duration) {
 				}
 			}
 		}
+		// The board: each worker's row when it moved, and without the PR
+		// watch, the PRs its status names.
+		var rows []board.Worker
+		var prRows []board.PR
+		for _, pw := range pool.Workers {
+			a, _ := herdr.FindAgent(agents, names.Worker(slug, pw.Index))
+			s, _ := readWorkerStatus(filepath.Join(statusDir, pw.label()+".json"))
+			rows = append(rows, boardWorker(plan.Repo, pw, a.Status, s, now))
+			if p, ok := prFromURL(plan.Repo, s.PRURL, pw.label(), now); ok && prs == nil {
+				prRows = append(prRows, p)
+			}
+		}
+		moved := changedWorkers(boardLast, rows)
+		gone := prunedWorkers(boardLast, labels)
+		if len(moved) > 0 || len(gone) > 0 || len(prRows) > 0 && now.Sub(prsWritten) >= prWatchEvery {
+			ok := record("workers", func(b *board.DB) error {
+				for _, w := range moved {
+					if err := b.UpsertWorker(w); err != nil {
+						return err
+					}
+				}
+				if len(gone) > 0 {
+					if err := b.KeepWorkers(plan.Repo, labels); err != nil {
+						return err
+					}
+				}
+				if now.Sub(prsWritten) >= prWatchEvery {
+					for _, p := range prRows {
+						if err := b.UpsertPR(p); err != nil {
+							return err
+						}
+					}
+					prsWritten = now
+				}
+				return nil
+			})
+			// A failed write is retried on the next poll.
+			// The pruned ones leave boardLast once the base forgot them.
+			for _, w := range moved {
+				if !ok {
+					delete(boardLast, w.Worker)
+				}
+			}
+			for _, g := range gone {
+				if ok {
+					delete(boardLast, g)
+				}
+			}
+		}
 		w.forget(labels)
 		for _, e := range w.observe(now, views) {
 			if err := deliver(plan.Inbox, plan.MasterName, eventMessage(statusDir, agentNames[e.Label], e)); err != nil {
@@ -141,11 +193,25 @@ func runWatch(plan watchPlan, interval time.Duration) {
 		}
 		if prs != nil && now.Sub(prs.last) >= prWatchEvery {
 			prs.last = now
-			for _, line := range prs.poll(prOwners(statusDir, labels)) {
+			owners := prOwners(statusDir, labels)
+			for _, line := range prs.poll(owners) {
 				if err := deliver(plan.Inbox, plan.MasterName, line); err != nil {
 					fmt.Fprintln(os.Stderr, "message to the master:", err)
 				}
 			}
+			record("prs", func(b *board.DB) error {
+				for _, pr := range prs.prev {
+					if err := b.UpsertPR(boardPR(plan.Repo, pr, owners[normalizePRURL(pr.URL)], "", now)); err != nil {
+						return err
+					}
+				}
+				for _, c := range prs.closed {
+					if err := b.UpsertPR(boardPR(plan.Repo, c.PR, owners[normalizePRURL(c.PR.URL)], c.Fate, now)); err != nil {
+						return err
+					}
+				}
+				return nil
+			})
 		}
 		pool.Held = heldStacks(plan.Repo, pool)
 		runPool(plan.Repo, pool, queue, pollWorkers(pool, agents, statusDir, now), now, dirtyTold)

@@ -174,7 +174,7 @@ func TestMasterArgsAllowOnlyTheInboxWatch(t *testing.T) {
 	if !strings.HasPrefix(watch, strings.TrimSuffix(strings.TrimPrefix(got[i+1], "Bash("), ":*)")) {
 		t.Errorf("rule %q does not cover the watch command %q", got[i+1], watch)
 	}
-	for j, want := range []string{"Bash(/bin/acw status:*)", "Bash(/bin/acw queue:*)", "Bash(/bin/acw done:*)", "Bash(/bin/acw tell:*)"} {
+	for j, want := range []string{"Bash(/bin/acw status:*)", "Bash(/bin/acw queue:*)", "Bash(/bin/acw done:*)", "Bash(/bin/acw tell:*)", "Bash(/bin/acw board decision:*)"} {
 		if i+3+j >= len(got) || got[i+3+j] != want {
 			t.Errorf("masterArgs() = %v, want the rule %s for the commands the brief hands the master", got, want)
 		}
@@ -199,7 +199,7 @@ func TestMasterArgsAllowOnlyTheInboxWatch(t *testing.T) {
 	// status, queue and done: without the rules every acw queue add would
 	// stop on an approval.
 	got = masterArgs("claude", "opus", "/bin/acw", "")
-	want := []string{"--model", "opus", "--allowedTools", "Bash(/bin/acw status:*)", "Bash(/bin/acw queue:*)", "Bash(/bin/acw done:*)", "Bash(/bin/acw tell:*)"}
+	want := []string{"--model", "opus", "--allowedTools", "Bash(/bin/acw status:*)", "Bash(/bin/acw queue:*)", "Bash(/bin/acw done:*)", "Bash(/bin/acw tell:*)", "Bash(/bin/acw board decision:*)"}
 	if !slices.Equal(got, want) {
 		t.Errorf("masterArgs(claude, no inbox) = %v, want %v", got, want)
 	}
@@ -227,5 +227,13 @@ func TestMain(m *testing.M) {
 	// concurrently sets it back itself.
 	drainSettle = 0
 	inboxBatch = 0
-	os.Exit(m.Run())
+	// No test writes into the user's real board.
+	state, err := os.MkdirTemp("", "acw-state-")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("XDG_STATE_HOME", state)
+	code := m.Run()
+	os.RemoveAll(state)
+	os.Exit(code)
 }

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Hy0sh/agents-crew/internal/board"
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
@@ -251,6 +252,7 @@ func closeWorker(repo string, w poolWorker, why string) {
 		p.remove(w.Index)
 		return true, nil
 	})
+	record("close", func(b *board.DB) error { return b.DeleteWorker(repo, w.label()) })
 	tell(plan.Plan, w.label()+" closed: "+why+".")
 }
 
