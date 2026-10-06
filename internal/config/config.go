@@ -23,53 +23,54 @@ import (
 
 // Project is one repo's entry. Keys are the flag names, so there is
 // nothing to map in one's head. Pointers because absent and "" differ:
-// `"worker-model": ""` means "pass no --model", like the flag.
+// `"worker-model": ""` means "pass no --model", like the flag. omitempty
+// so that Edit writes back only the keys set: it drops nil, keeps "".
 type Project struct {
-	Workers *int `json:"workers"`
+	Workers *int `json:"workers,omitempty"`
 	// MinWorkers is how many workers stay open with nothing queued.
-	MinWorkers  *int    `json:"min-workers"`
-	MaxStacks   *int    `json:"max-stacks"`
-	MasterKind  *string `json:"master-kind"`
-	WorkerKind  *string `json:"worker-kind"`
-	MasterModel *string `json:"master-model"`
-	WorkerModel *string `json:"worker-model"`
-	Brief       *string `json:"brief"`
+	MinWorkers  *int    `json:"min-workers,omitempty"`
+	MaxStacks   *int    `json:"max-stacks,omitempty"`
+	MasterKind  *string `json:"master-kind,omitempty"`
+	WorkerKind  *string `json:"worker-kind,omitempty"`
+	MasterModel *string `json:"master-model,omitempty"`
+	WorkerModel *string `json:"worker-model,omitempty"`
+	Brief       *string `json:"brief,omitempty"`
 	// BriefExtra is a template appended to the brief, built-in or custom:
 	// a mode such as a test campaign, without forking the whole brief.
-	BriefExtra *string `json:"brief-extra"`
-	Profile    *string `json:"profile"`
-	Notes      *string `json:"notes"`
+	BriefExtra *string `json:"brief-extra,omitempty"`
+	Profile    *string `json:"profile,omitempty"`
+	Notes      *string `json:"notes,omitempty"`
 	// MasterDir is where the master starts instead of the repo, e.g. a
 	// folder whose .claude it needs. Checked by the caller.
-	MasterDir *string `json:"master-dir"`
+	MasterDir *string `json:"master-dir,omitempty"`
 	// SilenceMinutes is how long a working worker may show no activity at
 	// all before acw's watcher tells the master.
-	SilenceMinutes *int `json:"silence-minutes"`
+	SilenceMinutes *int `json:"silence-minutes,omitempty"`
 	// IdleCloseMinutes is how long a free worker stays open, above
 	// min-workers, with nothing queued for it.
-	IdleCloseMinutes *int `json:"idle-close-minutes"`
+	IdleCloseMinutes *int `json:"idle-close-minutes,omitempty"`
 	// PRWatch makes acw's watcher follow the user's open pull requests on
 	// the repo and tell the master what changed on them.
-	PRWatch *bool `json:"pr-watch"`
+	PRWatch *bool `json:"pr-watch,omitempty"`
 	// WorkerOverrides is keyed by worker index, 1 to workers, as a
 	// string because JSON keys are. The range is checked by the caller,
 	// once the flags have had their say on the worker count.
-	WorkerOverrides map[string]WorkerOverride `json:"worker-overrides"`
+	WorkerOverrides map[string]WorkerOverride `json:"worker-overrides,omitempty"`
 	// Presets are named variants of the entry, picked with --preset: same
 	// keys, laid over it by WithPreset. A preset holding presets of its own
 	// is refused by Load.
-	Presets map[string]Project `json:"presets"`
+	Presets map[string]Project `json:"presets,omitempty"`
 }
 
 // WorkerOverride replaces worker-kind / worker-model for one worker and
 // gives it standing instructions. Same absent-vs-"" rule as Project.
 type WorkerOverride struct {
-	Kind   *string `json:"kind"`
-	Model  *string `json:"model"`
-	Prompt *string `json:"prompt"`
+	Kind   *string `json:"kind,omitempty"`
+	Model  *string `json:"model,omitempty"`
+	Prompt *string `json:"prompt,omitempty"`
 	// Dir makes the worker one outside the code: it starts there, with no
 	// worktree, environment or branch. Checked by the caller.
-	Dir *string `json:"dir"`
+	Dir *string `json:"dir,omitempty"`
 }
 
 type file struct {
@@ -91,26 +92,12 @@ func Path() string {
 // an error: a typo silently ignored is the worst outcome for a config.
 func Load(repo string) (*Project, error) {
 	path := Path()
-	content, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
+	f, err := readFile()
 	if err != nil {
 		return nil, err
 	}
-
-	dec := json.NewDecoder(bytes.NewReader(content))
-	dec.DisallowUnknownFields()
-	var f file
-	if err := dec.Decode(&f); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-
-	repo = filepath.Clean(repo)
-	for key, p := range f.Projects {
-		if filepath.Clean(expandHome(key)) != repo {
-			continue
-		}
+	if key := f.keyOf(repo); key != "" {
+		p := f.Projects[key]
 		expandPaths(p)
 		for name, preset := range p.Presets {
 			if len(preset.Presets) > 0 {
@@ -121,6 +108,99 @@ func Load(repo string) (*Project, error) {
 		return &p, nil
 	}
 	return nil, nil
+}
+
+// readFile reads the config as written, ~ unexpanded: an empty file when
+// there is none. Invalid JSON or an unknown key is an error.
+func readFile() (file, error) {
+	path := Path()
+	var f file
+	content, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return f, nil
+	}
+	if err != nil {
+		return f, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(content))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&f); err != nil {
+		return f, fmt.Errorf("%s: %w", path, err)
+	}
+	return f, nil
+}
+
+// keyOf is the key of repo's entry, as written ("~/..." or not), "" when
+// it has none.
+func (f file) keyOf(repo string) string {
+	repo = filepath.Clean(repo)
+	for key := range f.Projects {
+		if filepath.Clean(expandHome(key)) == repo {
+			return key
+		}
+	}
+	return ""
+}
+
+// Edit applies change to repo's entry and writes the config back, with
+// every other entry as it was. create says whether the entry must not
+// exist yet (acw project create) or must (acw project edit). The file is
+// replaced in one rename: an interrupted write never leaves half a config.
+func Edit(repo string, create bool, change func(*Project) error) error {
+	f, err := readFile()
+	if err != nil {
+		return err
+	}
+	key := f.keyOf(repo)
+	switch {
+	case create && key != "":
+		return fmt.Errorf("%s already has an entry in %s: acw project edit changes it", repo, Path())
+	case !create && key == "":
+		return fmt.Errorf("%s has no entry in %s: acw project create makes one", repo, Path())
+	case create:
+		key = filepath.Clean(repo)
+		if f.Projects == nil {
+			f.Projects = map[string]Project{}
+		}
+	}
+	p := f.Projects[key]
+	if err := change(&p); err != nil {
+		return err
+	}
+	f.Projects[key] = p
+
+	content, err := json.MarshalIndent(f, "", "  ")
+	if err != nil {
+		return err
+	}
+	path := Path()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".config-*.json")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(append(content, '\n')); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
+}
+
+// FilesDir is where acw project keeps the copies of repo's files (notes,
+// brief, brief-extra), next to the config: the directory's name, so it is
+// recognizable, and the repo's hash, so two repos named alike don't
+// share it.
+func FilesDir(repo, slug string) string {
+	return filepath.Join(filepath.Dir(Path()), filepath.Base(repo)+"-"+slug)
 }
 
 // expandPaths expands ~ in p's file paths. p is a copy, but its fields

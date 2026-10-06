@@ -236,3 +236,44 @@ func TestPRWatchPresetOverridesTheEntry(t *testing.T) {
 		t.Errorf("WithPreset(test-campaign).PRWatch = %v, %v; want false", got.PRWatch, err)
 	}
 }
+
+// Edit rewrites only the repo's entry: another one, its ~ key and its
+// presets come back as written, and an unset key is not written as null.
+func TestEditKeepsOtherEntries(t *testing.T) {
+	writeConfig(t, `{"projects": {"~/other": {"workers": 2, "presets": {"p": {"worker-model": ""}}}, "/repo": {"notes": "~/n.md"}}}`)
+	err := Edit("/repo", false, func(p *Project) error {
+		four := 4
+		p.Workers = &four
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, _ := os.ReadFile(Path())
+	got := string(content)
+	for _, want := range []string{`"~/other"`, `"worker-model": ""`, `"notes": "~/n.md"`, `"workers": 4`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("config lacks %s:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "null") {
+		t.Errorf("unset keys written as null:\n%s", got)
+	}
+}
+
+func TestEditCreateAndEditRefusals(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	noop := func(*Project) error { return nil }
+	if err := Edit("/repo", false, noop); err == nil {
+		t.Error("edit with no entry should fail")
+	}
+	if err := Edit("/repo", true, noop); err != nil {
+		t.Fatalf("create with no file: %v", err)
+	}
+	if p, err := Load("/repo"); p == nil || err != nil {
+		t.Errorf("Load after create = %v, %v; want an empty entry", p, err)
+	}
+	if err := Edit("/repo", true, noop); err == nil {
+		t.Error("create over an entry should fail")
+	}
+}

@@ -6,6 +6,22 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `acw project create` / `acw project edit`: write a repo's config entry
+  from flags, or one question per key without any. Files given to `brief`,
+  `brief-extra` and `notes` are copied next to the config.
+
+### Changed
+
+- The master's brief says that a text after `❯` in a worker's pane may be
+  only a greyed suggestion: `acw tell` already tells it apart, so the
+  master tells anyway instead of asking.
+- A worker's system prompt says that a pull request stacked on another one
+  stays on that base until it is merged.
+- A worker name acw does not know says that the worker and what follows
+  are separate arguments (`"worker1 14"` from a shell loop).
+
 ## [0.12.0] - 2026-10-05
 
 From a full day of a master driving five workers: most of the friction

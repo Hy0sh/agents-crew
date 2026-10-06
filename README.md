@@ -406,6 +406,16 @@ needs no answers to work, so the file only changes the defaults.
   `config: ~/.config/acw/config.json → workers=4, profile="light"`, so you
   can always tell where a value came from.
 
+`acw project create [dir]` makes the entry and `acw project edit [dir]`
+changes it (default: the current directory). Each key has its flag, and only
+the flags given are written (`acw project edit --workers 5 --pr-watch`);
+with none, every key is asked in turn, Enter keeping the value shown, `-`
+removing the key. A file given to `brief`, `brief-extra` or `notes` is
+copied into `~/.config/acw/<repo>-<hash>/` and the entry points at the copy,
+so the config no longer depends on where the file was. `presets` and
+`worker-overrides` are edited in the JSON. Both commands write the file
+back whole: other entries keep their values, not their formatting.
+
 | Key | Same as | Built-in default |
 |---|---|---|
 | `workers` | `-n, --workers` | `3` |

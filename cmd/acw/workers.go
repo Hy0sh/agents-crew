@@ -98,7 +98,9 @@ func workerRole(label, statusFile string) string {
 
 Your status file is %[2]s, a JSON object. Write it after every significant step (taking the task, milestone reached, blocked on an arbitration, PR opened) with at least: tache, state, summary, base_branch, ports, branch, decision, pr_url, proof_path, blocked_on. Put the value itself in the field, and leave it empty as long as it does not exist: "approach chosen" without naming the choice, or "PR opened" without its link, is worse than empty. decision lists, before you write any code, the files you will create or modify. base_branch is the branch your PR is based on. blocked_on says what you wait for, while state says you are blocked. Leave updated_at, last_turn_end and state_since out: acw writes them at the end of each turn. If you delegate to a subagent or touch a shared code area, say so there plainly. If you hand control back while a subagent you started still runs, set state to waiting_subagent and say in summary what you wait for.
 
-Temporary files go in /tmp, outside the repo, and you never run rm -rf in your worktree: a recursive deletion triggers an approval prompt nobody may be there to answer.`, label, statusFile)
+Temporary files go in /tmp, outside the repo, and you never run rm -rf in your worktree: a recursive deletion triggers an approval prompt nobody may be there to answer.
+
+A pull request stacked on another one stays based on that branch until it is merged: retargeted to the default branch earlier, its diff takes in every commit of the PR below.`, label, statusFile)
 }
 
 // systemPrompt is a claude worker's system prompt: its role, the repo's

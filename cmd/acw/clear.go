@@ -37,7 +37,7 @@ func clearLabel(arg, slug string) (string, int, error) {
 	if index, ok := names.WorkerIndex(arg, slug); ok {
 		return fmt.Sprintf("worker%d", index), index, nil
 	}
-	return "", 0, fmt.Errorf("%q is not a worker of this swarm (worker1, or its herdr name worker1-%s)", arg, slug)
+	return "", 0, fmt.Errorf("%q is not a worker of this swarm (worker1, or its herdr name worker1-%s); the worker and what follows are separate arguments", arg, slug)
 }
 
 // clearRefusal is why a worker must not be sent /clear, "" when it can.
