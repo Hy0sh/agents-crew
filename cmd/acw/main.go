@@ -298,7 +298,14 @@ func main() {
 			if err := preflight.CheckStop(); err != nil {
 				return err
 			}
-			return teardown.Run()
+			if err := teardown.Run(); err != nil {
+				return err
+			}
+			// teardown works on the current directory.
+			if cwd, err := os.Getwd(); err == nil {
+				record("stop", func(b *board.DB) error { return b.KeepWorkers(cwd, nil) })
+			}
+			return nil
 		},
 	}
 

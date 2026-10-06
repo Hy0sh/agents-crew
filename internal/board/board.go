@@ -127,6 +127,18 @@ func (b *DB) DeleteWorker(repo, worker string) error {
 	return err
 }
 
+// KeepWorkers deletes repo's worker rows but those of keep: what is left
+// of a swarm once it stopped or shrank.
+func (b *DB) KeepWorkers(repo string, keep []string) error {
+	q, args := `DELETE FROM workers WHERE repo = ?`, []any{repo}
+	for _, w := range keep {
+		q += ` AND worker != ?`
+		args = append(args, w)
+	}
+	_, err := b.sql.Exec(q, args...)
+	return err
+}
+
 func (b *DB) UpsertPR(p PR) error {
 	// The worker is kept when the new row has none: once its worker moves on, nothing names the owner any more.
 	_, err := b.sql.Exec(`INSERT INTO prs VALUES (?,?,?,?,?,?,?,?,?,?)
@@ -229,12 +241,13 @@ func (b *DB) Board(repo string, day, now time.Time) (Day, error) {
 // with its days, latest first.
 func (b *DB) Repos() ([]RepoDays, error) {
 	rows, err := b.sql.Query(`
-SELECT repo, day FROM (
-  SELECT repo, date(at, 'unixepoch', 'localtime') AS day FROM handled
-  UNION SELECT repo, date(at, 'unixepoch', 'localtime') FROM decisions
-  UNION SELECT repo, date(updated_at, 'unixepoch', 'localtime') FROM workers
-  UNION SELECT repo, date(updated_at, 'unixepoch', 'localtime') FROM prs)
-ORDER BY day DESC, repo`)
+SELECT repo, date(t, 'unixepoch', 'localtime') AS day FROM (
+  SELECT repo, at AS t FROM handled
+  UNION ALL SELECT repo, at FROM decisions
+  UNION ALL SELECT repo, updated_at FROM workers
+  UNION ALL SELECT repo, updated_at FROM prs)
+GROUP BY repo, date(t, 'unixepoch', 'localtime')
+ORDER BY max(max(t)) OVER (PARTITION BY repo) DESC, repo, max(t) DESC`)
 	if err != nil {
 		return nil, err
 	}

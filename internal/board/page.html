@@ -32,6 +32,7 @@ h1 small { font: 400 15px var(--f-data); color: var(--muted); margin-left: 8px; 
 .stamp .live { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); margin-right: 6px; }
 .strip { display: flex; flex-wrap: wrap; gap: 10px; }
 .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; display: grid; min-width: 150px; flex: 1 1 150px; }
+.tile[hidden] { display: none; }
 .tile b { font: 600 1.5rem/1.1 var(--f-data); font-variant-numeric: tabular-nums; }
 .tile span { font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .filters { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
@@ -72,9 +73,9 @@ h2 .count { font-family: var(--f-data); color: var(--accent); }
     <div class="stamp" id="stamp">Loading…</div>
   </header>
   <div class="strip">
-    <div class="tile"><b id="n-busy">–</b><span>Workers busy</span></div>
-    <div class="tile"><b id="n-prs">–</b><span>PRs followed</span></div>
-    <div class="tile"><b id="n-today">–</b><span>Handled today</span></div>
+    <div class="tile live-only"><b id="n-busy">–</b><span>Workers busy</span></div>
+    <div class="tile live-only"><b id="n-prs">–</b><span>PRs followed</span></div>
+    <div class="tile"><b id="n-today">–</b><span id="l-today">Handled today</span></div>
     <div class="tile"><b id="n-decisions">–</b><span>Decisions</span></div>
   </div>
   <div class="filters" role="search">
@@ -172,6 +173,7 @@ function render() {
   const matching = fill("decisions", board.decisions, decision, "No decision recorded.", state.shown);
   $("more").hidden = matching <= state.shown;
   fill("today", board.handled, handled, "Nothing handled on this day.");
+  $("l-today").textContent = state.day ? "Handled" : "Handled today";
   $("n-busy").textContent = `${board.workers.filter(w => w.state !== "free").length} / ${board.workers.length}`;
   $("n-prs").textContent = board.prs.length;
   $("n-today").textContent = board.handled.length;
@@ -184,11 +186,11 @@ async function load() {
     repos = await (await fetch("/api/repos")).json();
     state.repo = options($("repo"), repos.map(r => r.repo), state.repo, r => r.split("/").pop());
     const days = repos.find(r => r.repo === state.repo)?.days || [];
-    const withToday = days.includes(today()) ? days : [today(), ...days];
-    state.day = options($("day"), withToday, state.day || today(), d => d === today() ? "Today" : d);
+    // "" is today, followed: a page left open past midnight moves on.
+    state.day = options($("day"), ["", ...days.filter(d => d !== today())], state.day, d => d || "Today");
     $("repo-name").textContent = state.repo ? state.repo.split("/").pop() : "acw board";
     $("repo-sub").textContent = state.repo ? "acw · " + state.repo : "";
-    const q = new URLSearchParams({ repo: state.repo, day: state.day });
+    const q = new URLSearchParams({ repo: state.repo, day: state.day || today() });
     board = await (await fetch("/api/board?" + q)).json();
     render();
   } catch (e) {
@@ -196,8 +198,8 @@ async function load() {
   }
 }
 const on = (id, ev, f) => $(id).addEventListener(ev, f);
-on("repo", "change", e => { state.repo = e.target.value; state.day = today(); state.shown = 8; store.set("repo", state.repo); store.set("day", ""); load(); });
-on("day", "change", e => { state.day = e.target.value; state.shown = 8; store.set("day", state.day === today() ? "" : state.day); load(); });
+on("repo", "change", e => { state.repo = e.target.value; state.day = ""; state.shown = 8; store.set("repo", state.repo); store.set("day", ""); load(); });
+on("day", "change", e => { state.day = e.target.value; state.shown = 8; store.set("day", state.day); load(); });
 on("q", "input", e => { state.q = e.target.value; store.set("q", state.q); render(); });
 on("w", "change", e => { state.w = e.target.value; store.set("w", state.w); render(); });
 on("more", "click", () => { state.shown += 8; render(); });

@@ -148,10 +148,17 @@ func runWatch(plan watchPlan, interval time.Duration) {
 				prRows = append(prRows, p)
 			}
 		}
-		if moved := changedWorkers(boardLast, rows); len(moved) > 0 || len(prRows) > 0 && now.Sub(prsWritten) >= prWatchEvery {
-			record("workers", func(b *board.DB) error {
+		moved := changedWorkers(boardLast, rows)
+		gone := prunedWorkers(boardLast, labels)
+		if len(moved) > 0 || len(gone) > 0 || len(prRows) > 0 && now.Sub(prsWritten) >= prWatchEvery {
+			ok := record("workers", func(b *board.DB) error {
 				for _, w := range moved {
 					if err := b.UpsertWorker(w); err != nil {
+						return err
+					}
+				}
+				if len(gone) > 0 {
+					if err := b.KeepWorkers(plan.Repo, labels); err != nil {
 						return err
 					}
 				}
@@ -165,6 +172,18 @@ func runWatch(plan watchPlan, interval time.Duration) {
 				}
 				return nil
 			})
+			// A failed write is retried on the next poll.
+			// The pruned ones leave boardLast once the base forgot them.
+			for _, w := range moved {
+				if !ok {
+					delete(boardLast, w.Worker)
+				}
+			}
+			for _, g := range gone {
+				if ok {
+					delete(boardLast, g)
+				}
+			}
 		}
 		w.forget(labels)
 		for _, e := range w.observe(now, views) {

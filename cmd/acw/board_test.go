@@ -83,6 +83,16 @@ func TestChangedWorkers(t *testing.T) {
 	}
 }
 
+func TestPrunedWorkers(t *testing.T) {
+	last := map[string]board.Worker{"worker1": {}, "worker2": {}}
+	if got := prunedWorkers(last, []string{"worker1", "worker2"}); len(got) != 0 {
+		t.Errorf("same set = %v", got)
+	}
+	if got := prunedWorkers(last, []string{"worker1"}); len(got) != 1 || got[0] != "worker2" {
+		t.Errorf("closed = %v", got)
+	}
+}
+
 func TestPRFromURL(t *testing.T) {
 	now := time.Now()
 	p, ok := prFromURL("/r", "https://github.com/o/r/pull/418/", "worker1", now)

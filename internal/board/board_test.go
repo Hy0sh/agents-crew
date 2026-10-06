@@ -107,6 +107,36 @@ func TestRepos(t *testing.T) {
 	}
 }
 
+// The repo active latest comes first, even when another is alphabetically
+// first on the same day.
+func TestReposOrderedByLatestActivity(t *testing.T) {
+	b := open(t)
+	b.AddHandled(Handled{Repo: "/a", At: noon})
+	b.AddHandled(Handled{Repo: "/b", At: noon.Add(time.Hour)})
+	got, err := b.Repos()
+	if err != nil || len(got) != 2 || got[0].Repo != "/b" {
+		t.Errorf("Repos() = %+v, %v", got, err)
+	}
+}
+
+func TestKeepWorkers(t *testing.T) {
+	b := open(t)
+	for _, w := range []Worker{{Repo: "/r", Worker: "worker1"}, {Repo: "/r", Worker: "worker2"}, {Repo: "/o", Worker: "worker1"}} {
+		b.UpsertWorker(w)
+	}
+	b.KeepWorkers("/r", []string{"worker2"})
+	if d, _ := b.Board("/r", noon, time.Now()); len(d.Workers) != 1 || d.Workers[0].Worker != "worker2" {
+		t.Errorf("kept = %+v", d.Workers)
+	}
+	b.KeepWorkers("/r", nil)
+	if d, _ := b.Board("/r", noon, time.Now()); len(d.Workers) != 0 {
+		t.Errorf("nil keep left %+v", d.Workers)
+	}
+	if d, _ := b.Board("/o", noon, time.Now()); len(d.Workers) != 1 {
+		t.Errorf("other repo = %+v", d.Workers)
+	}
+}
+
 func TestConcurrentWrites(t *testing.T) {
 	path := t.TempDir() + "/board.db"
 	var wg sync.WaitGroup

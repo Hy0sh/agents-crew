@@ -21,7 +21,8 @@ import (
 
 // record writes to the board, best effort: a base that can't be written
 // is one line on stderr, never a reason for the swarm to stop.
-func record(what string, write func(*board.DB) error) {
+// It reports whether the write went through.
+func record(what string, write func(*board.DB) error) bool {
 	b, err := board.Open(board.Path())
 	if err == nil {
 		err = write(b)
@@ -30,6 +31,21 @@ func record(what string, write func(*board.DB) error) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "board (%s): %v\n", what, err)
 	}
+	return err == nil
+}
+
+// prunedWorkers lists the workers of last that are not in labels any more.
+func prunedWorkers(last map[string]board.Worker, labels []string) (gone []string) {
+	open := map[string]bool{}
+	for _, l := range labels {
+		open[l] = true
+	}
+	for w := range last {
+		if !open[w] {
+			gone = append(gone, w)
+		}
+	}
+	return gone
 }
 
 // addDecision records a decision for repo, its text from args or, without
