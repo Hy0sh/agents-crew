@@ -6,6 +6,12 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `acw status` says when the watcher is no longer running. A dead watcher
+  dispatched nothing more and opened no worker, with no sign anywhere: the
+  master went on waiting.
+
 ## [0.13.1] - 2026-10-07
 
 ### Fixed

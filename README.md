@@ -272,7 +272,9 @@ acw resume
   its `updated_at`, `last_turn_end` and the worktree's last change are,
   context and 5-hour quota, branch and base, PR, then the unread messages
   of the master's inbox. A status 40 minutes old next to a worktree changed
-  2 minutes ago is a worker coding without updating its status.
+  2 minutes ago is a worker coding without updating its status. A first
+  line says when acw's watcher is no longer running: nothing in the queue
+  is dispatched any more, and no worker opens or closes.
 - `acw clear` resets a claude worker's context before a new task: it waits
   for the worker to be idle, refuses one that is blocked (the reset would
   queue behind the prompt), sends `/clear`, and returns once the worker's
