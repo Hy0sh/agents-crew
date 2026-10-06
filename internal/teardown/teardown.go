@@ -37,13 +37,25 @@ func Run() error {
 	// By name, not by the master's pane cwd: with master-dir it runs
 	// elsewhere, and the name already carries this directory's hash.
 	repo := cwd
-	master, ok := herdr.FindAgent(agents, names.Master(names.Slug(repo)))
-	if !ok {
-		fmt.Println("No acw master running for this directory.")
-		return nil
+	slug := names.Slug(repo)
+	statusDir := names.StatusDir(repo)
+	var workspaceID string
+	if master, ok := herdr.FindAgent(agents, names.Master(slug)); ok {
+		workspaceID = master.WorkspaceID
+		fmt.Printf("Stopping the swarm of %s (workspace %s).\n", repo, workspaceID)
+	} else {
+		// A Herdr crash or a master closed by hand ends the watcher with no
+		// teardown: the workers, their worktrees and stacks are still this
+		// command's to release.
+		if worker, ok := anyWorker(agents, slug); ok {
+			workspaceID = worker.WorkspaceID
+		}
+		if _, err := os.Stat(statusDir); err != nil && workspaceID == "" && len(WorkerWorktrees(repo)) == 0 {
+			fmt.Println("No acw master running for this directory.")
+			return nil
+		}
+		fmt.Println("No acw master running for this directory: releasing what its last run left.")
 	}
-	workspaceID := master.WorkspaceID
-	fmt.Printf("Stopping the swarm of %s (workspace %s).\n", repo, workspaceID)
 
 	// Discovered by scanning .claude/worktrees/ for the workerN-* naming
 	// convention, not by asking Herdr which agents are named "workerN":
@@ -54,20 +66,32 @@ func Run() error {
 	stopWatcher(repo)
 	cleanupWorkerWorktrees(repo)
 
-	fmt.Print("Closing the Herdr workspace and its agents... ")
-	if err := herdr.WorkspaceClose(workspaceID, true); err != nil {
-		fmt.Println("failed.")
-		return fmt.Errorf("herdr workspace close: %w", err)
+	if workspaceID != "" {
+		fmt.Print("Closing the Herdr workspace and its agents... ")
+		if err := herdr.WorkspaceClose(workspaceID, true); err != nil {
+			fmt.Println("failed.")
+			return fmt.Errorf("herdr workspace close: %w", err)
+		}
+		fmt.Println("done.")
 	}
-	fmt.Println("done.")
 
-	statusDir := names.StatusDir(repo)
 	if err := os.RemoveAll(statusDir); err != nil {
 		fmt.Fprintf(os.Stderr, "removing %s: %v\n", statusDir, err)
 	}
 
 	fmt.Println("Swarm stopped.")
 	return nil
+}
+
+// anyWorker finds a worker of the run by its full agent name: a bare
+// worker2 label could be another directory's.
+func anyWorker(agents []herdr.Agent, slug string) (herdr.Agent, bool) {
+	for _, a := range agents {
+		if i, ok := names.WorkerIndex(a.Name, slug); ok && a.Name == names.Worker(slug, i) {
+			return a, true
+		}
+	}
+	return herdr.Agent{}, false
 }
 
 // cleanupWorkerWorktrees is the slow half of a teardown: each worker's

@@ -246,7 +246,10 @@ under (the worktree changed branch without `wtm switch`) is kept, with the
 repair said: removed, it would leave that stack running with nothing to
 find it by. A worker closed by the pool does the same and tells the
 master; `acw pause` and `acw resume` keep nothing and fail on that
-worktree, with the same repair.
+worktree, with the same repair. A master gone without `acw stop` (Herdr
+crashed, its pane closed by hand) takes the watcher with it; `acw stop`
+then still releases the workers, worktrees and status directory its run
+left.
 **Closing the terminal does nothing** — Herdr is a persistent server that
 outlives it, and so do any environments workers started. `acw stop` is the
 only way to actually stop it.
