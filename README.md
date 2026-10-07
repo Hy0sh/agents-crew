@@ -427,6 +427,8 @@ acw project edit --workers 5 --pr-watch     # later: change two keys
 acw project edit                            # or go through every key, one question each
 ```
 
+https://github.com/user-attachments/assets/e3bac7fd-445d-46b1-b4a0-219743d12541
+
 - `create` and `edit` are the same command: the entry is made when the
   repo has none, changed when it has one. Both take the repo as an
   optional argument, the current directory by default.
