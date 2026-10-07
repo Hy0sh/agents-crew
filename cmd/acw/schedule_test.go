@@ -160,6 +160,14 @@ func TestScheduleMinWorkers(t *testing.T) {
 		t.Errorf("schedule() = %+v, want %+v", got, want)
 	}
 
+	// max-stacks short of min-workers: the floor is not met, and said so.
+	p = testPool(3, 2)
+	p.MinWorkers, p.Held = 3, 1
+	want = []poolAction{{Kind: actOpen, Worker: 1, Stacked: true}, {Kind: actStacksFull}}
+	if got := schedule(p, taskQueue{}, nil, t0); !slices.Equal(got, want) {
+		t.Errorf("schedule() = %+v, want %+v", got, want)
+	}
+
 	old := t0.Add(-time.Hour)
 	p = testPool(3, 3, free(1, old), free(2, old), free(3, old))
 	p.MinWorkers = 2

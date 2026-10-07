@@ -36,7 +36,8 @@ const (
 	actAssign actionKind = iota
 	actOpen
 	actClose
-	actDirty // free long enough to close, but its worktree has changes
+	actDirty      // free long enough to close, but its worktree has changes
+	actStacksFull // min-workers not met: max-stacks is reached
 )
 
 type poolAction struct {
@@ -143,6 +144,9 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 			openWorker(i)
 			up++
 		}
+	}
+	if up < p.MinWorkers && p.Plan.Stacks && stacks >= p.Plan.MaxStacks {
+		actions = append(actions, poolAction{Kind: actStacksFull})
 	}
 
 	idle := time.Duration(p.IdleCloseMinutes) * time.Minute

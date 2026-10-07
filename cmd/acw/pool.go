@@ -18,6 +18,7 @@ import (
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
 	"github.com/Hy0sh/agents-crew/internal/teardown"
+	"github.com/Hy0sh/agents-crew/internal/wtm"
 )
 
 // The elastic pool: acw starts no worker, the master queues tasks, and
@@ -70,14 +71,29 @@ type poolState struct {
 }
 
 // heldStacks counts the worker worktrees of repo that acw got a stack and
-// that no open worker holds: each is a stack that may still run.
+// that no open worker holds: each is a stack that may still run, unless
+// wtm lists it with none (a wtm remove run by hand), and the mark goes.
 func heldStacks(repo string, p poolState) int {
 	n := 0
+	var gone map[string]bool // asked of wtm once, and only if needed
 	for _, dir := range teardown.WorkerWorktrees(repo) {
 		open := slices.ContainsFunc(p.Workers, func(w poolWorker) bool { return realPath(w.Worktree) == realPath(dir) })
-		if !open && teardown.Stacked(dir) {
-			n++
+		if open || !teardown.Stacked(dir) {
+			continue
 		}
+		if gone == nil {
+			gone = map[string]bool{}
+			if paths, err := wtm.Adoptable(repo); err == nil {
+				gone = paths
+			}
+		}
+		if gone[realPath(dir)] {
+			if err := teardown.Unmark(dir); err != nil {
+				fmt.Fprintln(os.Stderr, "forgetting a removed stack:", err)
+			}
+			continue
+		}
+		n++
 	}
 	return n
 }
@@ -312,9 +328,14 @@ func pollWorkers(p poolState, agents []herdr.Agent, statusDir string, now time.T
 // the lock, checked again there, then the slow part of each action runs
 // in its own goroutine (a dispatch waits for a reset, an opening for a
 // stack). dirtyTold keeps the master from hearing about the same dirty
-// worktree every poll.
-func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, now time.Time, dirtyTold map[int]bool) {
+// worktree every poll, stacksTold about the same short floor.
+func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, now time.Time, dirtyTold map[int]bool, stacksTold *bool) {
 	actions := schedule(p, q, polls, now)
+	full := slices.ContainsFunc(actions, func(a poolAction) bool { return a.Kind == actStacksFull })
+	if full && !*stacksTold {
+		tell(p.Plan, stacksFullMessage(p))
+	}
+	*stacksTold = full
 	for index := range dirtyTold {
 		if w := p.worker(index); w == nil || w.State != workerFree {
 			delete(dirtyTold, index)
@@ -366,6 +387,8 @@ func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, no
 					tell(p.Plan, fmt.Sprintf("%s has been free for a while but its worktree has changes: acw keeps it open. Have them committed or dropped; it closes once its worktree is clean.", w.label()))
 				}
 				continue
+			case actStacksFull:
+				continue
 			}
 			changed = true
 		}
@@ -388,6 +411,15 @@ func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, no
 		}
 		background(func() { closeWorker(repo, w, why) })
 	}
+}
+
+// stacksFullMessage tells the master why fewer than min-workers are open.
+func stacksFullMessage(p poolState) string {
+	msg := fmt.Sprintf("acw keeps fewer than min-workers (%d) open: max-stacks (%d) is reached", p.MinWorkers, p.Plan.MaxStacks)
+	if p.Held == 0 {
+		return msg + ". Tell me: max-stacks is below min-workers."
+	}
+	return msg + fmt.Sprintf(", %d of them by worktrees no open worker holds (left by an earlier run). Tell me: `wtm list` in %s shows them, and `wtm remove <branch>` frees the ones no longer needed.", p.Held, p.Plan.Repo)
 }
 
 // inflight counts what the pool runs in the background: the watcher

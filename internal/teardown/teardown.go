@@ -173,6 +173,16 @@ func MarkStacked(dir string) error {
 	return os.WriteFile(filepath.Join(gitDir, stackedMark), nil, 0o644)
 }
 
+// Unmark forgets that the worktree at dir got a wtm stack: its stack went
+// without acw.
+func Unmark(dir string) error {
+	gitDir, err := gitutil.GitDir(dir)
+	if err != nil {
+		return err
+	}
+	return os.Remove(filepath.Join(gitDir, stackedMark))
+}
+
 // Stacked reports whether acw got the worktree at dir a wtm stack.
 func Stacked(dir string) bool {
 	gitDir, err := gitutil.GitDir(dir)

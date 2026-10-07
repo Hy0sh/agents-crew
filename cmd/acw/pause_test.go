@@ -114,3 +114,38 @@ func TestPauseWithoutASwarmRefuses(t *testing.T) {
 		t.Errorf("pauseStacks(no swarm) = %v, want a refusal naming it", err)
 	}
 }
+
+// A kept worktree's stack takes room until wtm lists the worktree with
+// none (a wtm remove by hand): then it stops counting, for good.
+func TestHeldStacksForgetsAStackWtmNoLongerHas(t *testing.T) {
+	repo, calls := fakeSwarm(t, "")
+	dir := names.WorkerWorktree(repo, 1, "20260925140000")
+	if err := teardown.MarkStacked(dir); err != nil {
+		t.Fatal(err)
+	}
+	list := func(status string) {
+		t.Helper()
+		script := "#!/bin/sh\necho \"$@\" >> " + shellWord(calls) + "\necho '5  agents/worker1  -  " + status + "  " + realPath(dir) + "'\n"
+		if err := os.WriteFile(filepath.Join(filepath.Dir(calls), "wtm"), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	list("down")
+	if n := heldStacks(repo, poolState{}); n != 1 {
+		t.Errorf("heldStacks(stack still listed) = %d, want 1", n)
+	}
+	list("adoptable")
+	if n := heldStacks(repo, poolState{}); n != 0 {
+		t.Errorf("heldStacks(stack gone) = %d, want 0", n)
+	}
+	if teardown.Stacked(dir) {
+		t.Error("the mark of a stack gone is still there")
+	}
+	_ = os.Remove(calls)
+	if n := heldStacks(repo, poolState{}); n != 0 {
+		t.Errorf("heldStacks(after) = %d, want 0", n)
+	}
+	if got, _ := os.ReadFile(calls); len(got) != 0 {
+		t.Errorf("wtm calls = %q, want none once no worktree is marked", got)
+	}
+}

@@ -124,6 +124,28 @@ func StrandedHint(dir, branch string) string {
 	return hint
 }
 
+// Adoptable returns the worktrees of the project at repo that wtm lists
+// with no stack, their paths resolved.
+func Adoptable(repo string) (map[string]bool, error) {
+	var out bytes.Buffer
+	if err := runTo(repo, &out, "list"); err != nil {
+		return nil, err
+	}
+	return adoptablePaths(out.String()), nil
+}
+
+// adoptablePaths reads `wtm list`, whose last two columns wtm keeps as
+// status and path.
+func adoptablePaths(list string) map[string]bool {
+	paths := map[string]bool{}
+	for _, line := range strings.Split(list, "\n") {
+		if f := strings.Fields(line); len(f) >= 2 && f[len(f)-2] == "adoptable" {
+			paths[resolve(f[len(f)-1])] = true
+		}
+	}
+	return paths
+}
+
 // Registered reports whether dir is a project in wtm's registry: an
 // unregistered repo's adopts all fail, so its workers have no stack.
 func Registered(dir string) bool {

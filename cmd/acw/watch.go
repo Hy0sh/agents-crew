@@ -62,6 +62,7 @@ func runWatch(plan watchPlan, interval time.Duration) {
 		prs = newPRWatcher(plan.PRWatchRepo)
 	}
 	dirtyTold := map[int]bool{}
+	stacksTold := false
 	// tellHeld keeps the master from hearing every poll that a worker's
 	// input line holds its message back.
 	tellHeld := map[string]bool{}
@@ -214,7 +215,7 @@ func runWatch(plan watchPlan, interval time.Duration) {
 			})
 		}
 		pool.Held = heldStacks(plan.Repo, pool)
-		runPool(plan.Repo, pool, queue, pollWorkers(pool, agents, statusDir, now), now, dirtyTold)
+		runPool(plan.Repo, pool, queue, pollWorkers(pool, agents, statusDir, now), now, dirtyTold, &stacksTold)
 		if plan.Inbox != "" {
 			info, err := os.Stat(plan.Inbox)
 			if w.remindInbox(now, err == nil && info.Size() > 0) {

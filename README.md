@@ -104,7 +104,10 @@ runs is acw's, from fixed rules a model cannot bend:
   asked, confirmed `/clear`, brief). The master hears `task #N → workerN`.
 - A task that no free worker can take opens the lowest worker not open,
   up to `workers`, and for a worker in the code when the repo has wtm
-  stacks, up to `max-stacks`. Opening is the worktree (named after the
+  stacks, up to `max-stacks`. A stack still kept with an earlier run's
+  worktree counts until `wtm list` shows that worktree without one. When
+  `max-stacks` keeps the pool under `min-workers`, the master is told
+  once. Opening is the worktree (named after the
   moment it opens, so a reopened worker never collides with the branch
   its first opening left), its pane, its agent, then `wtm adopt`;
   `wtm doctor`'s port clash sections, if any, go into the "opened"
