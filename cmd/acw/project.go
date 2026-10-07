@@ -174,18 +174,18 @@ func projectCommand() *cobra.Command {
 		Use:   "project",
 		Short: "Create or change the per-project config entry of a repo",
 	}
-	project.AddCommand(projectWriteCommand(true), projectWriteCommand(false))
+	project.AddCommand(projectWriteCommand())
 	return project
 }
 
-func projectWriteCommand(create bool) *cobra.Command {
-	use, short := "edit [dir]", "Change a repo's config entry: only the flags given, or every key one question at a time without any"
-	if create {
-		use, short = "create [dir]", "Make a repo's config entry: from the flags given, or one question at a time without any"
-	}
+// projectWriteCommand answers to create and edit alike: which one applies
+// is acw's business, not the user's.
+func projectWriteCommand() *cobra.Command {
+	short := "Make or change a repo's config entry: only the flags given, or every key one question at a time without any"
 	cmd := &cobra.Command{
-		Use:   use,
-		Short: short,
+		Use:     "edit [dir]",
+		Aliases: []string{"create"},
+		Short:   short,
 		Long: short + `.
 
 dir is the repo (default: the current directory). Files given to brief,
@@ -199,7 +199,7 @@ are edited in the JSON.`,
 				return err
 			}
 			filesDir := config.FilesDir(repo, names.Slug(repo))
-			err = config.Edit(repo, create, func(p *config.Project) error {
+			err = config.Edit(repo, func(p *config.Project) error {
 				given := false
 				for _, k := range projectKeys {
 					if !cmd.Flags().Changed(k.name) {

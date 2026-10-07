@@ -142,22 +142,16 @@ func (f file) keyOf(repo string) string {
 	return ""
 }
 
-// Edit applies change to repo's entry and writes the config back, with
-// every other entry as it was. create says whether the entry must not
-// exist yet (acw project create) or must (acw project edit). The file is
+// Edit applies change to repo's entry, made first when there is none, and
+// writes the config back, with every other entry as it was. The file is
 // replaced in one rename: an interrupted write never leaves half a config.
-func Edit(repo string, create bool, change func(*Project) error) error {
+func Edit(repo string, change func(*Project) error) error {
 	f, err := readFile()
 	if err != nil {
 		return err
 	}
 	key := f.keyOf(repo)
-	switch {
-	case create && key != "":
-		return fmt.Errorf("%s already has an entry in %s: acw project edit changes it", repo, Path())
-	case !create && key == "":
-		return fmt.Errorf("%s has no entry in %s: acw project create makes one", repo, Path())
-	case create:
+	if key == "" {
 		key = filepath.Clean(repo)
 		if f.Projects == nil {
 			f.Projects = map[string]Project{}
