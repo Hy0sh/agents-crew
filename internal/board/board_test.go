@@ -124,15 +124,16 @@ func TestKeepWorkers(t *testing.T) {
 	for _, w := range []Worker{{Repo: "/r", Worker: "worker1"}, {Repo: "/r", Worker: "worker2"}, {Repo: "/o", Worker: "worker1"}} {
 		b.UpsertWorker(w)
 	}
+	// Workers show on today's board only: noon is made today.
 	b.KeepWorkers("/r", []string{"worker2"})
-	if d, _ := b.Board("/r", noon, time.Now()); len(d.Workers) != 1 || d.Workers[0].Worker != "worker2" {
+	if d, _ := b.Board("/r", noon, noon); len(d.Workers) != 1 || d.Workers[0].Worker != "worker2" {
 		t.Errorf("kept = %+v", d.Workers)
 	}
 	b.KeepWorkers("/r", nil)
-	if d, _ := b.Board("/r", noon, time.Now()); len(d.Workers) != 0 {
+	if d, _ := b.Board("/r", noon, noon); len(d.Workers) != 0 {
 		t.Errorf("nil keep left %+v", d.Workers)
 	}
-	if d, _ := b.Board("/o", noon, time.Now()); len(d.Workers) != 1 {
+	if d, _ := b.Board("/o", noon, noon); len(d.Workers) != 1 {
 		t.Errorf("other repo = %+v", d.Workers)
 	}
 }

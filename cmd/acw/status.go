@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Hy0sh/agents-crew/internal/herdr"
@@ -32,8 +33,13 @@ type statusRow struct {
 // maxWorkers bounds the scan for workers in collectStatus.
 const maxWorkers = 64
 
-func renderStatus(now time.Time, rows []statusRow, unread int, lastAt time.Time) string {
+func renderStatus(now time.Time, rows []statusRow, unread int, lastAt time.Time, watcher bool) string {
 	var b strings.Builder
+	if !watcher {
+		// Dead, it dispatches nothing more and opens no worker, with no other sign.
+		b.WriteString("watcher: not running, the queue is no longer dispatched " +
+			"(its log: acw-watch-*.log in " + os.TempDir() + "); acw stop then acw starts a new swarm\n")
+	}
 	for _, r := range rows {
 		state := orDash(r.State)
 		if r.State != "" && !r.StateSince.IsZero() {
@@ -102,6 +108,17 @@ func collectStatus(repo string) (rows []statusRow, unread int, lastAt time.Time,
 		}
 	}
 	return rows, unread, lastAt, nil
+}
+
+// watcherRunning reports whether the watcher holds its lock, which it
+// keeps for as long as it runs.
+func watcherRunning(repo string) bool {
+	lock, err := os.Open(names.WatchLock(repo))
+	if err != nil {
+		return false
+	}
+	defer lock.Close()
+	return syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil
 }
 
 // scanWorkers reads every worker index that has an agent or a status

@@ -5,10 +5,12 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/Hy0sh/agents-crew/internal/herdr"
+	"github.com/Hy0sh/agents-crew/internal/names"
 )
 
 func TestRenderStatusShowsAgesUsageAndTheInbox(t *testing.T) {
@@ -24,7 +26,10 @@ func TestRenderStatusShowsAgesUsageAndTheInbox(t *testing.T) {
 		},
 		{Label: "worker2", Agent: "idle"},
 	}
-	got := renderStatus(now, rows, 2, now.Add(-7*time.Minute))
+	got := renderStatus(now, rows, 2, now.Add(-7*time.Minute), true)
+	if strings.Contains(got, "watcher") {
+		t.Errorf("a running watcher is not worth a line:\n%s", got)
+	}
 	for _, want := range []string{
 		"worker1 (herdr worker1-3f9a1c)", "working", "in_progress since 25 min ago", "some task",
 		"status 40 min ago", "turn 3 min ago", "activity 2 min ago",
@@ -64,7 +69,35 @@ func TestScanWorkersSkipsGaps(t *testing.T) {
 }
 
 func TestRenderStatusEmptyInbox(t *testing.T) {
-	if got := renderStatus(time.Now(), nil, 0, time.Time{}); !strings.Contains(got, "inbox: empty") {
+	if got := renderStatus(time.Now(), nil, 0, time.Time{}, true); !strings.Contains(got, "inbox: empty") {
 		t.Errorf("renderStatus() = %q", got)
+	}
+}
+
+// A watcher that died dispatches nothing more, and nothing else says so.
+func TestStatusSaysWhenTheWatcherIsGone(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if watcherRunning(repo) {
+		t.Error("no watcher ever ran, yet it reads as running")
+	}
+	lock, err := os.OpenFile(names.WatchLock(repo), os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	if !watcherRunning(repo) {
+		t.Error("the watcher holds its lock, yet it reads as gone")
+	}
+	lock.Close()
+	if watcherRunning(repo) {
+		t.Error("the watcher let go of its lock, yet it reads as running")
+	}
+	if got := renderStatus(time.Now(), nil, 0, time.Time{}, false); !strings.Contains(got, "watcher: not running") {
+		t.Errorf("renderStatus() = %q, want the dead watcher named", got)
 	}
 }

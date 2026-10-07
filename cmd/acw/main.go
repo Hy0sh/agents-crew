@@ -323,7 +323,7 @@ func main() {
 			if err != nil {
 				return err
 			}
-			fmt.Fprint(cmd.OutOrStdout(), renderStatus(time.Now(), rows, unread, lastAt))
+			fmt.Fprint(cmd.OutOrStdout(), renderStatus(time.Now(), rows, unread, lastAt, watcherRunning(repo)))
 			return nil
 		},
 	}
