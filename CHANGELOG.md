@@ -6,6 +6,8 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-07
+
 ### Added
 
 - `acw status` says when the watcher is no longer running. A dead watcher
@@ -643,7 +645,8 @@ project: 7 PRs, 3 merged. Each entry names what actually went wrong.
   anything, with a clear message and install instructions if not; `wtm` is
   checked too but stays optional.
 
-[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.13.1...HEAD
+[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/Hy0sh/agents-crew/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/Hy0sh/agents-crew/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/Hy0sh/agents-crew/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/Hy0sh/agents-crew/compare/v0.11.0...v0.12.0
