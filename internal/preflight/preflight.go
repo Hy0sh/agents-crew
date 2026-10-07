@@ -74,17 +74,12 @@ func CheckStop() error {
 	return check(herdrDep)
 }
 
-// CheckPRWatch verifies gh is installed and logged in to github.com, for
-// pr-watch: a watch that cannot reach GitHub would stay silent, and the
-// master would take that silence for "nothing changed".
+// CheckPRWatch verifies gh is installed, for pr-watch: a watch that cannot
+// reach GitHub would stay silent, and the master would take that silence
+// for "nothing changed". Whether gh is logged in to the repo's host is
+// gh's own answer when acw asks it for the repo.
 func CheckPRWatch() error {
-	if err := check(ghDep); err != nil {
-		return err
-	}
-	if out, err := exec.Command("gh", "auth", "status", "--hostname", "github.com").CombinedOutput(); err != nil {
-		return fmt.Errorf("pr-watch: gh is not logged in to github.com (gh auth login): %s", strings.TrimSpace(string(out)))
-	}
-	return nil
+	return check(ghDep)
 }
 
 func check(deps ...dependency) error {

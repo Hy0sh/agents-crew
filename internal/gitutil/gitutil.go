@@ -36,11 +36,6 @@ func Fetch(repo string) error {
 	return err
 }
 
-// OriginURL is the URL of repo's origin remote.
-func OriginURL(repo string) (string, error) {
-	return run(repo, "remote", "get-url", "origin")
-}
-
 // WorktreeBranches maps each worktree of repo to the branch checked out
 // there, "" for a detached HEAD.
 func WorktreeBranches(repo string) (map[string]string, error) {

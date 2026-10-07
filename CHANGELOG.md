@@ -17,6 +17,13 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ### Fixed
 
+- `pr-watch` refused a repo whose `origin` is on a GitHub Enterprise host
+  with "origin is not a GitHub remote", even with `gh` logged in there:
+  acw read the remote itself and only knew github.com. It now asks `gh
+  repo view` for the repo, so any host gh is logged in to works, and a
+  refusal gives gh's reason, with `gh auth login --hostname` to run or how
+  to turn `pr-watch` off. With an `upstream` remote, the repo followed is
+  the upstream one, as gh picks it (`gh repo set-default` changes it).
 - A worktree an earlier run left behind took a place in `max-stacks`
   after its stack had been removed outside acw (`wtm remove` run by hand):
   a swarm then opened fewer workers than `min-workers`, and the master took

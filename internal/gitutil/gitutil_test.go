@@ -109,16 +109,6 @@ func TestLastActivityLeavesTheIndexAlone(t *testing.T) {
 	}
 }
 
-func TestOriginURL(t *testing.T) {
-	dir := gitInit(t)
-	if out, err := exec.Command("git", "-C", dir, "remote", "add", "origin", "git@github.com:some-org/some-repo.git").CombinedOutput(); err != nil {
-		t.Fatalf("git remote add: %v\n%s", err, out)
-	}
-	if got, err := OriginURL(dir); err != nil || got != "git@github.com:some-org/some-repo.git" {
-		t.Errorf("OriginURL() = %q, %v", got, err)
-	}
-}
-
 func TestParseWorktreeBranches(t *testing.T) {
 	porcelain := "worktree /repo\nHEAD abc\nbranch refs/heads/main\n\n" +
 		"worktree /repo/.claude/worktrees/worker1-1\nHEAD def\nbranch refs/heads/feat/x\n\n" +

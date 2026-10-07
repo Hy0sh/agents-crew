@@ -12,21 +12,20 @@ import (
 	"time"
 )
 
-func TestGithubRepo(t *testing.T) {
-	for remote, want := range map[string]string{
-		"git@github.com:some-org/some-repo.git":       "some-org/some-repo",
-		"git@github.com:some-org/some-repo":           "some-org/some-repo",
-		"https://github.com/some-org/some-repo":       "some-org/some-repo",
-		"https://github.com/some-org/some-repo.git/":  "some-org/some-repo",
-		"ssh://git@github.com/some-org/some-repo.git": "some-org/some-repo",
+// gh resolves the repo (remotes, hosts it knows); acw only takes the host
+// from the URL it answers, GitHub Enterprise included.
+func TestParseGHRepo(t *testing.T) {
+	for data, want := range map[string]string{
+		`{"url": "https://github.com/some-org/some-repo"}`:      "github.com/some-org/some-repo",
+		`{"url": "https://some-co.ghe.com/SOME-ORG/some-repo"}`: "some-co.ghe.com/SOME-ORG/some-repo",
 	} {
-		if got, err := githubRepo(remote); err != nil || got != want {
-			t.Errorf("githubRepo(%q) = %q, %v; want %q", remote, got, err, want)
+		if got, err := parseGHRepo([]byte(data)); err != nil || got != want {
+			t.Errorf("parseGHRepo(%s) = %q, %v; want %q", data, got, err, want)
 		}
 	}
-	for _, remote := range []string{"git@gitlab.com:some-org/some-repo.git", "https://github.com/some-org", ""} {
-		if got, err := githubRepo(remote); err == nil {
-			t.Errorf("githubRepo(%q) = %q; want an error", remote, got)
+	for _, data := range []string{`{"url": "https://github.com/some-org"}`, `{}`, ``} {
+		if got, err := parseGHRepo([]byte(data)); err == nil {
+			t.Errorf("parseGHRepo(%s) = %q; want an error", data, got)
 		}
 	}
 }
