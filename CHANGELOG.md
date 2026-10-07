@@ -6,6 +6,16 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Fixed
+
+- A worktree an earlier run left behind took a place in `max-stacks`
+  after its stack had been removed outside acw (`wtm remove` run by hand):
+  a swarm then opened fewer workers than `min-workers`, and the master took
+  the missing ones for still opening. Such a worktree now stops counting
+  once `wtm list` shows it without a stack.
+- When `max-stacks` keeps the pool under `min-workers`, the master is told
+  once, with the stacks held outside the pool and how to find them.
+
 ## [0.14.0] - 2026-10-07
 
 ### Added

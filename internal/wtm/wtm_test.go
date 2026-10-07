@@ -71,3 +71,19 @@ func TestListedProjectComparesResolvedPaths(t *testing.T) {
 		}
 	}
 }
+
+// A worktree wtm lists as adoptable has no stack; any other status (up,
+// down, or - when docker did not answer) is one with a stack, and so is a
+// worktree that changed branch outside wtm, listed under its stack's.
+func TestAdoptablePaths(t *testing.T) {
+	list := "INDEX  BRANCH                       COMPOSE PROJECT          STATUS     PATH\n" +
+		"-      feat/one                     -                        adoptable  /r/.claude/worktrees/worker1-a\n" +
+		"5      agents/worker2-b             r-wt-5-agents-worker2-b  up         /r/.claude/worktrees/worker2-b\n" +
+		"6      agents/worker3-c (now on x)  r-wt-6-agents-worker3-c  down       /r/.claude/worktrees/worker3-c\n" +
+		"7      agents/worker4-d             r-wt-7-agents-worker4-d  -          /r/.claude/worktrees/worker4-d\n" +
+		"1 left to adopt: `wtm adopt <branch>` gives one a stack where it stands\n"
+	got := adoptablePaths(list)
+	if len(got) != 1 || !got["/r/.claude/worktrees/worker1-a"] {
+		t.Errorf("adoptablePaths() = %v, want only worker1-a", got)
+	}
+}
