@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,7 +13,6 @@ import (
 	"time"
 
 	"github.com/Hy0sh/agents-crew/internal/brief"
-	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
 	"github.com/Hy0sh/agents-crew/internal/preflight"
@@ -284,17 +284,21 @@ func launchDetached(logName, use string, plan any) error {
 	return cmd.Start()
 }
 
-// resolvePRWatch is the GitHub repo pr-watch follows, checked before
-// anything is started: gh logged in, origin on GitHub.
+// resolvePRWatch is the GitHub repo pr-watch follows, "host/owner/name",
+// as gh resolves it, checked before anything is started.
 func resolvePRWatch(repo string) (string, error) {
 	if err := preflight.CheckPRWatch(); err != nil {
 		return "", err
 	}
-	remote, err := gitutil.OriginURL(repo)
+	cmd := exec.Command("gh", "repo", "view", "--json", "url")
+	cmd.Dir = repo
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("pr-watch: %w", err)
+		return "", fmt.Errorf("pr-watch: gh finds no GitHub repo here: %s\nLog gh in to the repo's host (gh auth login --hostname <host>), or turn pr-watch off for this repo (acw project edit --pr-watch=false)", strings.TrimSpace(stderr.String()))
 	}
-	gh, err := githubRepo(remote)
+	gh, err := parseGHRepo(out)
 	if err != nil {
 		return "", fmt.Errorf("pr-watch: %w", err)
 	}

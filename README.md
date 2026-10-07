@@ -678,8 +678,11 @@ The worker named is the one whose status file holds the PR's `pr_url`.
 After 3 failed polls in a row the master is told once that the watch is
 failing.
 
-It needs `gh`, logged in to github.com, and an `origin` on GitHub: acw
-refuses to start otherwise. A preset can turn it off for one mode:
+The repo followed is the one `gh repo view` names from the remotes: with
+an `upstream` remote (a fork), that is the upstream repo, where your PRs
+are opened; `gh repo set-default` changes it. It needs `gh` logged in to
+that repo's host, github.com or a GitHub Enterprise one (`gh auth login
+--hostname <host>`): acw refuses to start otherwise, with gh's reason. A preset can turn it off for one mode:
 `"presets": {"test-campaign": {"pr-watch": false}}`.
 
 ## Custom brief template

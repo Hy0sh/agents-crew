@@ -28,7 +28,7 @@ type watchPlan struct {
 	// in the reminder when it forgets to.
 	InboxNext      string `json:"inbox_next,omitempty"`
 	SilenceMinutes int    `json:"silence_minutes"`
-	// PRWatchRepo is the GitHub "owner/name" whose open PRs the watcher
+	// PRWatchRepo is the GitHub "host/owner/name" whose open PRs the watcher
 	// follows (see prWatcher), "" when pr-watch is off.
 	PRWatchRepo string `json:"pr_watch_repo,omitempty"`
 	// Stamp is the run's, also written in the status dir: a watcher whose

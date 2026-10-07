@@ -5,10 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -25,15 +25,23 @@ import (
 // limit.
 const prWatchEvery = 2 * time.Minute
 
-var githubRemote = regexp.MustCompile(`^(?:git@github\.com:|ssh://git@github\.com/|https://github\.com/)([^/]+)/([^/]+?)(?:\.git)?/?$`)
-
-// githubRepo is "owner/name" for a GitHub remote URL.
-func githubRepo(remote string) (string, error) {
-	m := githubRemote.FindStringSubmatch(strings.TrimSpace(remote))
-	if m == nil {
-		return "", fmt.Errorf("origin is not a GitHub remote: %q", remote)
+// parseGHRepo is "host/owner/name" from `gh repo view --json url`. gh
+// picked the repo from the remotes and the hosts it is logged in to, so
+// a GitHub Enterprise host works like github.com.
+func parseGHRepo(data []byte) (string, error) {
+	var repo struct{ URL string }
+	if err := json.Unmarshal(data, &repo); err != nil {
+		return "", err
 	}
-	return m[1] + "/" + m[2], nil
+	u, err := url.Parse(repo.URL)
+	if err != nil {
+		return "", err
+	}
+	path := strings.Trim(u.Path, "/")
+	if u.Host == "" || strings.Count(path, "/") != 1 {
+		return "", fmt.Errorf("gh answered no repo URL: %q", repo.URL)
+	}
+	return u.Host + "/" + path, nil
 }
 
 // prState is one pull request as one poll sees it.
@@ -314,16 +322,17 @@ type prFate struct {
 	Fate string
 }
 
-// newPRWatcher follows repo, "owner/name", through gh.
+// newPRWatcher follows repo, "host/owner/name", through gh.
 func newPRWatcher(repo string) *prWatcher {
+	host, repo, _ := strings.Cut(repo, "/")
 	owner, name, _ := strings.Cut(repo, "/")
 	return &prWatcher{
 		fetch: func() ([]byte, error) {
-			return gh("api", "graphql", "-f", "query="+prSearchQuery,
+			return gh("api", "graphql", "--hostname", host, "-f", "query="+prSearchQuery,
 				"-f", "q=repo:"+repo+" is:pr is:open author:@me draft:false")
 		},
 		fate: func(number int) (string, error) {
-			data, err := gh("api", "graphql", "-f", "query="+prFateQuery,
+			data, err := gh("api", "graphql", "--hostname", host, "-f", "query="+prFateQuery,
 				"-f", "owner="+owner, "-f", "name="+name, "-F", fmt.Sprintf("number=%d", number))
 			if err != nil {
 				return "", err
