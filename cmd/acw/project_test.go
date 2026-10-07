@@ -17,7 +17,7 @@ func TestProjectCreateFromFlags(t *testing.T) {
 	repo, src := t.TempDir(), filepath.Join(t.TempDir(), "rules.md")
 	os.WriteFile(src, []byte("no docker"), 0o644)
 
-	cmd := projectWriteCommand(true)
+	cmd := projectWriteCommand()
 	cmd.SetArgs([]string{repo, "--workers", "4", "--worker-model", "", "--pr-watch", "--notes", src})
 	cmd.SetOut(&bytes.Buffer{})
 	if err := cmd.Execute(); err != nil {

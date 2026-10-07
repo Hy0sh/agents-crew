@@ -241,7 +241,7 @@ func TestPRWatchPresetOverridesTheEntry(t *testing.T) {
 // presets come back as written, and an unset key is not written as null.
 func TestEditKeepsOtherEntries(t *testing.T) {
 	writeConfig(t, `{"projects": {"~/other": {"workers": 2, "presets": {"p": {"worker-model": ""}}}, "/repo": {"notes": "~/n.md"}}}`)
-	err := Edit("/repo", false, func(p *Project) error {
+	err := Edit("/repo", func(p *Project) error {
 		four := 4
 		p.Workers = &four
 		return nil
@@ -261,19 +261,20 @@ func TestEditKeepsOtherEntries(t *testing.T) {
 	}
 }
 
-func TestEditCreateAndEditRefusals(t *testing.T) {
+// Edit makes the entry when there is none and changes it when there is
+// one: the user needn't know which.
+func TestEditCreatesOrChanges(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	noop := func(*Project) error { return nil }
-	if err := Edit("/repo", false, noop); err == nil {
-		t.Error("edit with no entry should fail")
+	set := func(n int) func(*Project) error {
+		return func(p *Project) error { p.Workers = &n; return nil }
 	}
-	if err := Edit("/repo", true, noop); err != nil {
-		t.Fatalf("create with no file: %v", err)
+	if err := Edit("/repo", set(2)); err != nil {
+		t.Fatalf("Edit with no file: %v", err)
 	}
-	if p, err := Load("/repo"); p == nil || err != nil {
-		t.Errorf("Load after create = %v, %v; want an empty entry", p, err)
+	if err := Edit("/repo", set(5)); err != nil {
+		t.Fatalf("Edit over an entry: %v", err)
 	}
-	if err := Edit("/repo", true, noop); err == nil {
-		t.Error("create over an entry should fail")
+	if p, err := Load("/repo"); err != nil || p == nil || *p.Workers != 5 {
+		t.Errorf("Load = %v, %v; want workers=5", p, err)
 	}
 }

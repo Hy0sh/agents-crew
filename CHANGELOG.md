@@ -6,6 +6,15 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Changed
+
+- `acw project create` and `acw project edit` are now one command, which
+  makes the entry when the repo has none and changes it when it has one.
+  `create` on a repo with an entry used to fail and send you to `edit`,
+  which meant knowing what the config already held.
+- The README is reorganised: a quick start, one section per command, how
+  the swarm runs, then the config. Nothing in it changed meaning.
+
 ### Fixed
 
 - A worktree an earlier run left behind took a place in `max-stacks`
