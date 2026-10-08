@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -493,9 +494,16 @@ func background(f func()) {
 // task back first in the queue, held with the reason, for the master to
 // move once it is fixed.
 func assignTask(repo string, plan provisionPlan, w poolWorker, t queuedTask) {
-	err := dispatchWorker(repo, w.label(), t.Brief, branchRequest{Branch: t.Branch, Base: t.Base}, os.Stderr)
+	var steps bytes.Buffer
+	err := dispatchWorker(repo, w.label(), t.Brief, branchRequest{Branch: t.Branch, Base: t.Base}, io.MultiWriter(os.Stderr, &steps))
 	if err == nil {
-		tell(plan, fmt.Sprintf("task #%d → %s: %s", t.ID, w.label(), firstLine(t.Brief)))
+		msg := fmt.Sprintf("task #%d → %s: %s", t.ID, w.label(), firstLine(t.Brief))
+		// What the branch step found (caught up with origin, local commits)
+		// is for the master, not only the watcher's log.
+		if note := branchNote(steps.String(), w.label()); note != "" {
+			msg += " (" + note + ")"
+		}
+		tell(plan, msg)
 		return
 	}
 	t.Error = err.Error()
@@ -507,6 +515,17 @@ func assignTask(repo string, plan provisionPlan, w poolWorker, t queuedTask) {
 		return true, nil
 	})
 	tell(plan, fmt.Sprintf("task #%d could not be given to %s, held first in the queue: %v. Fix the cause, then acw queue move %d 1 (or remove it).", t.ID, w.label(), err, t.ID))
+}
+
+// branchNote is the line switchWorkerBranch wrote for label, without the
+// label, "" without one.
+func branchNote(steps, label string) string {
+	for _, line := range strings.Split(steps, "\n") {
+		if note, ok := strings.CutPrefix(line, label+": on "); ok {
+			return "on " + strings.TrimSuffix(note, ".")
+		}
+	}
+	return ""
 }
 
 // renderQueue is acw queue's listing: the workers, then the tasks in the

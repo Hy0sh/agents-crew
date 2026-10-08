@@ -231,6 +231,17 @@ func TestPoolCommandsOutsideASwarm(t *testing.T) {
 	}
 }
 
+// What the branch step found goes with the task's line to the master.
+func TestBranchNote(t *testing.T) {
+	steps := "worker3: context reset.\nworker3: on feat/x, brought up to origin/feat/x (6 commits it lacked).\n"
+	if got := branchNote(steps, "worker3"); got != "on feat/x, brought up to origin/feat/x (6 commits it lacked)" {
+		t.Errorf("= %q", got)
+	}
+	if got := branchNote("worker3: context reset.\n", "worker3"); got != "" {
+		t.Errorf("no branch step = %q", got)
+	}
+}
+
 func TestRenderQueue(t *testing.T) {
 	p := testPool(3, 3, poolWorker{Index: 1, State: workerBusy, Task: 2, Since: t0.Add(-5 * time.Minute)})
 	q := tasks(queuedTask{ID: 3, Brief: "Fix the export\nmore", Worker: 1, AddedAt: t0, Error: "branch held"})

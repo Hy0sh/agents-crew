@@ -22,7 +22,7 @@ func TestRenderStatusShowsAgesUsageAndTheInbox(t *testing.T) {
 			Label: "worker1", Name: "worker1-3f9a1c", Agent: "working", State: "in_progress", StateSince: now.Add(-25 * time.Minute), Task: "some task",
 			Branch: "feat/x", BaseBranch: "feat/w", PR: "https://example.test/pr/1",
 			Updated: now.Add(-40 * time.Minute), TurnEnd: now.Add(-3 * time.Minute), Activity: now.Add(-2 * time.Minute),
-			Context: &ctx, FiveHour: &quota,
+			Context: &ctx, FiveHour: &quota, Busy: "1 shell, 3 monitors",
 		},
 		{Label: "worker2", Agent: "idle"},
 	}
@@ -31,7 +31,7 @@ func TestRenderStatusShowsAgesUsageAndTheInbox(t *testing.T) {
 		t.Errorf("a running watcher is not worth a line:\n%s", got)
 	}
 	for _, want := range []string{
-		"worker1 (herdr worker1-3f9a1c)", "working", "in_progress since 25 min ago", "some task",
+		"worker1 (herdr worker1-3f9a1c)", "working", "in_progress since 25 min ago, waiting on 1 shell, 3 monitors", "some task",
 		"status 40 min ago", "turn 3 min ago", "activity 2 min ago",
 		"ctx 23%", "5h 78%", "feat/x ← feat/w", "https://example.test/pr/1",
 		"inbox: 2 unread messages, the last one arrived at 14:03",

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -191,6 +192,14 @@ func runWatch(plan watchPlan, interval time.Duration) {
 		}
 		w.forget(labels)
 		for _, e := range w.observe(now, views) {
+			// Waiting on a long tool or on background work writes nothing
+			// in the worktree: that silence is work, read on its screen.
+			if e.Kind == eventSilent {
+				if screen, err := herdr.AgentScreen(agentNames[e.Label]); err == nil && busyOnScreen(screen) != "" {
+					w.rearm(e.Label, now)
+					continue
+				}
+			}
 			if err := deliver(plan.Inbox, plan.MasterName, eventMessage(statusDir, agentNames[e.Label], e)); err != nil {
 				fmt.Fprintln(os.Stderr, "message to the master:", err)
 			}
@@ -409,8 +418,14 @@ func (w *watcher) observe(now time.Time, views []workerView) []watchEvent {
 		idle := v.Status == "idle" || v.Status == "done"
 		if v.Hooked {
 			switch {
+			// The turn end to beat is the one from before this working
+			// stretch: under load the Stop hook can run while herdr still
+			// says working, and that turn end is the one the idle answers to.
 			case v.Status == "working":
-				m.turnEnd, m.idleSince = v.TurnEnd, time.Time{}
+				if m.status != "working" {
+					m.turnEnd = v.TurnEnd
+				}
+				m.idleSince = time.Time{}
 			case !idle || v.TurnEnd.After(m.turnEnd):
 				m.idleSince = time.Time{}
 			case seen && m.status == "working":
@@ -449,6 +464,43 @@ func (w *watcher) observe(now time.Time, views []workerView) []watchEvent {
 		m.status = v.Status
 	}
 	return events
+}
+
+// rearm starts label's quiet stretch over: its silence was explained, a
+// new one is counted from now.
+func (w *watcher) rearm(label string, now time.Time) {
+	if m := w.workers[label]; m != nil {
+		m.silentSince, m.reportedQuiet = now, false
+	}
+}
+
+var (
+	// backgroundCount is a count in Claude Code's footer: "1 shell", "3 monitors".
+	backgroundCount = regexp.MustCompile(`\b\d+ (?:shells?|monitors?)\b`)
+	// toolRunning is a tool still running in the foreground: "Running… (3s · timeout 9m 50s)".
+	toolRunning = regexp.MustCompile(`Running… \([^)]*timeout`)
+)
+
+// busyOnScreen says what an agent's screen shows it waiting on, "" for
+// nothing: a tool running in the foreground, or what runs in the
+// background, read in the footer under the input line (the last line that
+// starts with ❯), not in the conversation above it.
+// ponytail: matches Claude Code's rendering as of 2026-10, like typedInput;
+// another rendering reads as nothing, and the alert goes out as before.
+func busyOnScreen(screen string) string {
+	plain := ansiCode.ReplaceAllString(screen, "")
+	lines := strings.Split(plain, "\n")
+	var found []string
+	if toolRunning.MatchString(plain) {
+		found = append(found, "a tool running")
+	}
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.HasPrefix(strings.TrimLeft(lines[i], " │"), "❯") {
+			found = append(found, backgroundCount.FindAllString(strings.Join(lines[i+1:], "\n"), -1)...)
+			break
+		}
+	}
+	return strings.Join(found, ", ")
 }
 
 // forget drops what the watcher remembers of a worker no longer open: a

@@ -153,6 +153,20 @@ func TestDiffPRsNewAndGone(t *testing.T) {
 	}
 }
 
+// The search leaves drafts out: a draft marked ready enters it as if it
+// were new, hours after it was opened.
+func TestDiffPRsReadyForReview(t *testing.T) {
+	_, changes, _ := diffPRs(map[int]prState{}, []prState{{Number: 3, WasDraft: true}}, "me")
+	if len(changes) != 1 || !slices.Equal(changes[0].Events, []string{"ready for review (was a draft)"}) {
+		t.Errorf("changes = %+v, want it ready for review", changes)
+	}
+	// As GitHub answers: totalCount is the whole timeline, filteredCount the ready events.
+	_, prs, _ := parsePRSearch(searchResponse(`{"number": 3, "timelineItems": {"totalCount": 5, "filteredCount": 1}}`, `{"number": 4, "timelineItems": {"totalCount": 7, "filteredCount": 0}}`))
+	if len(prs) != 2 || !prs[0].WasDraft || prs[1].WasDraft {
+		t.Errorf("parsed = %+v", prs)
+	}
+}
+
 func TestPRLine(t *testing.T) {
 	pr := prState{Number: 3, URL: "https://github.com/some-org/some-repo/pull/3"}
 	if got, want := prLine(pr, "worker2", []string{"CI red", "conflict with base"}),

@@ -23,6 +23,17 @@ func TestTypedInput(t *testing.T) {
 }
 
 // Messages queue up in order and come out together, as one.
+func TestSlashCommand(t *testing.T) {
+	if got, err := slashCommand("  /reload-plugins \n"); err != nil || got != "/reload-plugins" {
+		t.Errorf("= %q, %v", got, err)
+	}
+	for _, bad := range []string{"reload-plugins", "/a\n/b", "/clear", "/clear now", ""} {
+		if _, err := slashCommand(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
 func TestTellWorkerQueuesMessages(t *testing.T) {
 	dir := t.TempDir()
 	for _, msg := range []string{"Go for B.\n", "Also: no migration."} {

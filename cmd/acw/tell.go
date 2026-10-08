@@ -69,6 +69,71 @@ func tellByHand(repo, arg string, words []string, stdin io.Reader, out io.Writer
 	return nil
 }
 
+// slashCommand checks what acw tell --command types: one line starting
+// with /. /clear is acw clear's, which confirms the reset took.
+func slashCommand(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	switch {
+	case !strings.HasPrefix(s, "/") || strings.Contains(s, "\n"):
+		return "", fmt.Errorf("%q is not a slash command: one line starting with /", s)
+	case s == "/clear" || strings.HasPrefix(s, "/clear "):
+		return "", errors.New("use acw clear, which checks that the reset took")
+	}
+	return s, nil
+}
+
+// commandWorker types a slash command into a worker's input, which acw
+// tell's messages can't carry: they reach the worker as text, at its end
+// of turn. It waits for the worker to be idle, and types nothing over a
+// prompt or over what stands on its input line.
+func commandWorker(repo, arg, command string, out io.Writer) error {
+	command, err := slashCommand(command)
+	if err != nil {
+		return err
+	}
+	index, err := workerArg(repo, arg)
+	if err != nil {
+		return err
+	}
+	pool, _, err := readPool(repo)
+	if err != nil {
+		return err
+	}
+	w := pool.worker(index)
+	if w == nil {
+		return fmt.Errorf("worker%d is not open", index)
+	}
+	name := names.Worker(names.Slug(repo), index)
+	status, err := agentStatus(name)
+	if err != nil {
+		return err
+	}
+	if status == "working" {
+		fmt.Fprintf(out, "%s is still working, waiting for it to go idle…\n", w.label())
+		if err := herdr.AgentWait(name, []string{"idle", "done", "blocked"}, clearIdleTimeout); err != nil {
+			return fmt.Errorf("%s didn't go idle within %s: %w", w.label(), clearIdleTimeout, err)
+		}
+		if status, err = agentStatus(name); err != nil {
+			return err
+		}
+	}
+	if status == "blocked" {
+		return fmt.Errorf("%s is blocked: resolve its pending request first, then run the command again", w.label())
+	}
+	screen, err := herdr.AgentScreen(name)
+	if err != nil {
+		return err
+	}
+	if typed := typedInput(screen); typed != "" {
+		return fmt.Errorf("%s's input line holds “%s”: nothing typed; it goes once that line is empty", w.label(), oneLine(typed))
+	}
+	if err := herdr.AgentPrompt(name, command); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "%s: %s typed.\n", w.label(), command)
+	return nil
+}
+
 // tellIdle hands an idle worker the messages waiting for it, typed into
 // its input: no end of turn will come to carry them. Never over something
 // on its input line, the user's half-typed text or a choice on screen:

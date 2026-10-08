@@ -261,6 +261,15 @@ func switchWorkerBranch(repo string, t clearTarget, br branchRequest, out io.Wri
 	if err := gitutil.Fetch(wt); err != nil {
 		return fmt.Errorf("%s: %w", t.label, err)
 	}
+	// A local copy of the branch can predate commits pushed since: a worker
+	// put on it would rebase the old version and force-push over them.
+	ahead, behind, err := gitutil.Divergence(wt, br.Branch)
+	if err != nil {
+		return fmt.Errorf("%s: %w", t.label, err)
+	}
+	if ahead > 0 && behind > 0 {
+		return fmt.Errorf("%s not put on %s, nothing was sent to it: the local branch and origin/%s have diverged (%d commits only here, %d only on origin); reconcile them, or delete the local branch to start from origin's", t.label, br.Branch, br.Branch, ahead, behind)
+	}
 	base := br.Base
 	if base == "" {
 		base = gitutil.DefaultBaseRef(repo)
@@ -279,6 +288,16 @@ func switchWorkerBranch(repo string, t clearTarget, br branchRequest, out io.Wri
 		// may leave the worktree on the branch with its stack not up yet.
 		return fmt.Errorf("%s may not be on %s yet, or be on it with its environment not ready; nothing was sent to it: run the same command again to finish: %w", t.label, br.Branch, err)
 	}
-	fmt.Fprintf(out, "%s: on %s.\n", t.label, br.Branch)
+	switch {
+	case behind > 0:
+		if err := gitutil.FastForward(wt, br.Branch); err != nil {
+			return fmt.Errorf("%s is on %s but %d commits behind origin's, and could not catch up; nothing was sent to it: %w", t.label, br.Branch, behind, err)
+		}
+		fmt.Fprintf(out, "%s: on %s, brought up to origin/%s (%d commits it lacked).\n", t.label, br.Branch, br.Branch, behind)
+	case ahead > 0:
+		fmt.Fprintf(out, "%s: on %s, with %d local commits not on origin.\n", t.label, br.Branch, ahead)
+	default:
+		fmt.Fprintf(out, "%s: on %s.\n", t.label, br.Branch)
+	}
 	return nil
 }

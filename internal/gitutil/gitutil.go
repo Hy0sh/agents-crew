@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -32,7 +33,50 @@ func output(args ...string) ([]byte, error) {
 
 // Fetch runs `git fetch origin` in repo.
 func Fetch(repo string) error {
-	_, err := run(repo, "fetch", "origin")
+	// Two workers taking a task at once fetched into the same refs and
+	// both failed on "cannot lock ref": acw's fetches take turns, and one
+	// colliding with a fetch of the worker's own is tried again once.
+	common, err := run(repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return err
+	}
+	lock, err := os.OpenFile(filepath.Join(common, "acw-fetch.lock"), os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return err
+	}
+	_, err = run(repo, "fetch", "origin")
+	if err != nil && strings.Contains(err.Error(), "cannot lock ref") {
+		time.Sleep(2 * time.Second)
+		_, err = run(repo, "fetch", "origin")
+	}
+	return err
+}
+
+// Divergence counts, after a fetch, the commits of the local branch that
+// origin's lacks (ahead) and those it lacks from origin's (behind). Zero
+// both when either side doesn't exist: nothing to compare.
+func Divergence(dir, branch string) (ahead, behind int, err error) {
+	local, remote := "refs/heads/"+branch, "refs/remotes/origin/"+branch
+	for _, ref := range []string{local, remote} {
+		if _, err := run(dir, "rev-parse", "--verify", "--quiet", ref); err != nil {
+			return 0, 0, nil
+		}
+	}
+	out, err := run(dir, "rev-list", "--left-right", "--count", local+"..."+remote)
+	if err != nil {
+		return 0, 0, err
+	}
+	_, err = fmt.Sscan(out, &ahead, &behind)
+	return ahead, behind, err
+}
+
+// FastForward brings the branch checked out in dir up to origin's.
+func FastForward(dir, branch string) error {
+	_, err := run(dir, "merge", "--ff-only", "refs/remotes/origin/"+branch)
 	return err
 }
 

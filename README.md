@@ -107,7 +107,7 @@ the terminal too.
 | `acw status [--repo <dir>]` | every worker at a glance | master, you |
 | `acw queue [--repo <dir>] [add \| move \| remove ...]` | list or change the task queue | master, you |
 | `acw done [--repo <dir>] workerN [task-id]` | end a worker's task | master, you |
-| `acw tell [--repo <dir>] workerN [message...]` | leave a worker a message | master, you |
+| `acw tell [--repo <dir>] workerN [message...]` | leave a worker a message; `--command /x` types a slash command | master, you |
 | `acw clear [--repo <dir>] worker1 [worker2...]` | reset workers' context, confirmed | you |
 | `acw dispatch [--repo <dir>] worker1 <brief-file>` | hand a worker a task outside the queue | you |
 | `acw pause` / `acw resume` | stop / restart the workers' stacks | you |
@@ -152,7 +152,11 @@ Every worker on one line, from what acw can read without asking anyone:
 - how old its `updated_at`, `last_turn_end` and the worktree's last change
   are. A status 40 minutes old next to a worktree changed 2 minutes ago is
   a worker coding without updating its status;
-- context and 5-hour quota, branch and base, PR.
+- context and 5-hour quota, branch and base, PR;
+- what its screen shows it waiting on: a tool running in the foreground,
+  or the background shells and monitors Claude Code counts under its
+  input line. A worker waiting on background tests keeps a `state` that
+  looks frozen.
 
 Then the unread messages of the master's inbox. A first line says when
 acw's watcher is no longer running: then nothing in the queue is
@@ -187,6 +191,12 @@ comes on stdin (a quoted heredoc) or as arguments.
   dimmed): then the master is told once, and the message waits for the
   line to be empty.
 - A new task drops the messages still waiting for the previous one.
+
+A message reaches the worker as text, so a slash command sent that way is
+only read, never run. `acw tell workerN --command /reload-plugins` types
+the command itself into the worker's input instead: it waits for the
+worker to be idle, and refuses one that is blocked or whose input line
+holds something. `/clear` is refused there: `acw clear` confirms the reset.
 
 It used to type into the worker's pane with `herdr agent prompt`, which a
 worker on an approval popup could not take, and which mixed with what you
@@ -224,6 +234,13 @@ With `--branch <b>` (a fix, a rebase on a known branch) it first runs
 - A branch a busy worker holds is refused; one a free worker holds is
   taken back first (see [Pool and queue](#pool-and-queue)). Nothing is
   ever stashed.
+- Local branches are shared by every worktree of the repo, and one cut by
+  another session may never have followed origin's. Behind origin's, it is
+  brought up to it after the switch (a worker rebasing the old copy would
+  force-push over the commits it lacked). Diverged from it, the task is
+  refused. What was done is in the master's "task #N → workerN" line.
+- Fetches take turns on a lock in the repo's git dir: two workers taking a
+  task at once used to fail on `cannot lock ref`.
 
 Without `--branch` the worker names its branch itself; the brief tells
 workers with a stack to create it with `wtm switch`.
@@ -408,10 +425,15 @@ when:
   block since its last context reset (so within one task), it adds a hint
   that it may be hitting a forbidden call. Some prompts show as `idle`
   rather than `blocked` in herdr, so a claude worker gone idle for 15 s
-  without its Stop hook having run gets the same message;
+  without its Stop hook having run gets the same message. The turn end it
+  looks for is any since the worker started working: under load the hook
+  can run while herdr still says `working`;
 - **a worker has been `working` for more than `silence-minutes`** (default
   30) with no activity acw can read: no turn end, no status update, no
-  file changed in its worktree;
+  file changed in its worktree. Unless its screen shows it waiting on a
+  tool still running or on background shells and monitors: a long
+  measurement writing outside the worktree is work, and the count starts
+  over;
 - **a worker without the Stop hook** (not `claude`) hands control back.
 
 A message is read at the end of the master's current turn, so a tool
@@ -726,7 +748,7 @@ The worker named is the one whose status file holds the PR's `pr_url`.
 | more unresolved review threads | a review or thread reply of yours |
 | CI turned red, or green again after a red | a resolved thread |
 | a head commit pushed by someone else (a reviewer, GitHub's "Update branch") | |
-| a new PR; a PR merged, closed or turned back to draft | |
+| a new PR, or a draft marked ready for review (the search leaves drafts out); a PR merged, closed or turned back to draft | |
 
 After 3 failed polls in a row the master is told once that the watch is
 failing.
