@@ -3,11 +3,99 @@ package main
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/Hy0sh/agents-crew/internal/gitutil"
+	"github.com/Hy0sh/agents-crew/internal/names"
 )
+
+// twoWorkerSwarm is a clone of a fresh remote with two worker worktrees on
+// their waiting branches, and a git runner.
+func twoWorkerSwarm(t *testing.T) (repo string, wts [2]string, git func(dir string, args ...string)) {
+	t.Helper()
+	git = func(dir string, args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.email=a@b", "-c", "user.name=a"}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	remote, repo := t.TempDir(), t.TempDir()
+	git(remote, "init", "-q")
+	git(remote, "commit", "-q", "--allow-empty", "-m", "init")
+	git(repo, "clone", "-q", remote, ".")
+	for i := range wts {
+		wts[i] = names.WorkerWorktree(repo, i+1, "20261008170000")
+		git(repo, "worktree", "add", "-q", wts[i], "-b", names.WorkerBranch(i+1, "20261008170000"))
+	}
+	if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return repo, wts, git
+}
+
+func onBranch(t *testing.T, wt string) string {
+	t.Helper()
+	b, err := gitutil.CurrentBranch(wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// Done puts a worker back on its waiting branch; a branch a free worker
+// still holds is taken back for the worker given it; a busy worker, or
+// uncommitted changes, keep theirs.
+func TestParkAndReleaseBranch(t *testing.T) {
+	repo, wts, git := twoWorkerSwarm(t)
+	pool := func(state1 string) poolState {
+		return poolState{Plan: provisionPlan{Repo: repo, Workers: []workerSpec{{Kind: "claude"}, {Kind: "claude"}}}, Workers: []poolWorker{
+			{Index: 1, Worktree: wts[0], State: state1, Task: 3}, {Index: 2, Worktree: wts[1], State: workerBusy, Task: 4}}}
+	}
+	setPool := func(p poolState) {
+		t.Helper()
+		if err := writeJSON(names.PoolFile(repo), p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	home1 := names.WorkerBranch(1, "20261008170000")
+
+	git(wts[0], "switch", "-q", "-c", "feat/x")
+	var out strings.Builder
+	if err := parkWorker(pool(workerBusy), pool(workerBusy).Workers[0], &out); err != nil || onBranch(t, wts[0]) != home1 {
+		t.Fatalf("park = %v, on %s, said %q", err, onBranch(t, wts[0]), out.String())
+	}
+
+	// Freed while still on feat/x: worker2 is given feat/x.
+	git(wts[0], "switch", "-q", "feat/x")
+	setPool(pool(workerFree))
+	out.Reset()
+	if err := switchWorkerBranch(repo, clearTarget{index: 2, label: "worker2"}, branchRequest{Branch: "feat/x"}, &out); err != nil {
+		t.Fatalf("switch = %v (%s)", err, out.String())
+	}
+	if onBranch(t, wts[0]) != home1 || onBranch(t, wts[1]) != "feat/x" || !strings.Contains(out.String(), "worker1: off feat/x") {
+		t.Errorf("worker1 on %s, worker2 on %s, said %q", onBranch(t, wts[0]), onBranch(t, wts[1]), out.String())
+	}
+
+	// Free with uncommitted work: left alone.
+	git(wts[0], "switch", "-q", "-c", "feat/y")
+	if err := os.WriteFile(filepath.Join(wts[0], "wip.txt"), []byte("wip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := switchWorkerBranch(repo, clearTarget{index: 2, label: "worker2"}, branchRequest{Branch: "feat/y"}, &out); err == nil || !strings.Contains(err.Error(), "uncommitted") || onBranch(t, wts[0]) != "feat/y" {
+		t.Errorf("dirty holder = %v, worker1 on %s", err, onBranch(t, wts[0]))
+	}
+	os.Remove(filepath.Join(wts[0], "wip.txt"))
+
+	// Busy: keeps it.
+	setPool(pool(workerBusy))
+	if err := switchWorkerBranch(repo, clearTarget{index: 2, label: "worker2"}, branchRequest{Branch: "feat/y"}, &out); err == nil || !strings.Contains(err.Error(), "busy") {
+		t.Errorf("busy holder = %v", err)
+	}
+}
 
 func TestDispatchRefusesAnEmptyBrief(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "brief.md")

@@ -221,7 +221,9 @@ With `--branch <b>` (a fix, a rebase on a known branch) it first runs
   only gets a fresh dump when the branch changes; put back on the branch it
   is already on (a fix after a KO), it restarts with its data as it was.
 - **worker without a stack**: plain `git switch`.
-- A branch another worktree holds is refused. Nothing is ever stashed.
+- A branch a busy worker holds is refused; one a free worker holds is
+  taken back first (see [Pool and queue](#pool-and-queue)). Nothing is
+  ever stashed.
 
 Without `--branch` the worker names its branch itself; the brief tells
 workers with a stack to create it with `wtm switch`.
@@ -254,11 +256,17 @@ workerN`.
 - A worker set apart in [`worker-overrides`](#keys) only takes the tasks
   queued for it with `--worker workerN`, or with `--kind` for a kind its
   `tasks` lists; the others take everything else.
-  `--worker` is also how a fix after a KO goes back to the worker that has
-  the context.
-- A task acw could not hand out (a branch held by another worktree, a
-  failed switch) goes back first in the queue, held with the reason, and is
+- A task acw could not hand out (a branch held by a busy worker, a failed
+  switch) goes back first in the queue, held with the reason, and is
   skipped until the master moves or removes it.
+- **Ending a task frees its branch.** `acw done` puts the worker back on
+  its waiting branch (the one it opened on) before freeing it, through
+  `wtm switch` for a worker with a stack. The branch of the task it ended
+  is then free for the next task on it: the review, then the fix of what
+  the review found, each going to whichever worker is free, with what it
+  needs in its brief. A worker with uncommitted changes is not moved, and
+  the master is told. A task given `--branch` that a free worker still
+  holds takes it back the same way; a busy worker keeps its own.
 - A task queued `--after <id>` (repeatable) waits until each of those tasks
   is ended with `acw done`: still queued or on a busy worker, it is not.
   That is the `rebase --onto` that needs the pushed result of the task

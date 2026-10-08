@@ -20,6 +20,15 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   takes those. `keep: true` opens it with the swarm and never closes it
   for being idle, so a review does not wait for a worktree and a stack.
 
+### Changed
+
+- `acw done` puts the worker back on its waiting branch before freeing it,
+  and a task given `--branch` that a free worker still holds takes it
+  back. A worker freed after asking for a review kept its branch checked
+  out, and git gives a branch to one worktree only: the reviewer, then
+  whoever fixed what it found, could not check it out. A worker with
+  uncommitted changes is left where it is, and the master told.
+
 ## [0.16.0] - 2026-10-08
 
 ### Changed
