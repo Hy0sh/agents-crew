@@ -6,6 +6,15 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `acw queue add --after <id>` (repeatable) holds a task until the tasks
+  it names are ended with `acw done`, then lets any free worker take it.
+  A follow-up that needs the pushed result of the task before it (the
+  `rebase --onto` of a stacked PR) used to be kept aside by hand, or
+  reserved with `--worker` for that same worker even with others free.
+  Removing a task it waits for holds it, with that reason.
+
 ## [0.16.0] - 2026-10-08
 
 ### Changed

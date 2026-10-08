@@ -165,7 +165,7 @@ replaces with its own (`ctx 34% · 5h 78%`) to record that usage.
 
 ```sh
 acw queue                                   # workers and queue
-acw queue add <brief-file> [--branch <b>] [--worker workerN] [--top]
+acw queue add <brief-file> [--branch <b>] [--worker workerN] [--after <id>]... [--top]
 acw queue move <id> <position>
 acw queue remove <id>
 acw done workerN [task-id]
@@ -258,6 +258,12 @@ workerN`.
 - A task acw could not hand out (a branch held by another worktree, a
   failed switch) goes back first in the queue, held with the reason, and is
   skipped until the master moves or removes it.
+- A task queued `--after <id>` (repeatable) waits until each of those tasks
+  is ended with `acw done`: still queued or on a busy worker, it is not.
+  That is the `rebase --onto` that needs the pushed result of the task
+  before it. While it waits, `acw queue` shows "waiting for #N", it opens
+  no worker, and any free worker takes it once unblocked. Removing a task it
+  waits for holds it with that reason.
 
 **Opening a worker.** A task no free worker can take opens the lowest
 worker not open, up to `workers`. For a worker in the code, when the repo

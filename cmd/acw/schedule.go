@@ -93,7 +93,7 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 	}
 
 	for _, t := range q.Tasks {
-		if t.Error != "" {
+		if t.Error != "" || len(waitingFor(t, p, q)) > 0 {
 			continue
 		}
 		if t.Worker != 0 {

@@ -55,6 +55,28 @@ func TestScheduleAssignsInOrderThenOpens(t *testing.T) {
 	}
 }
 
+// A task queued --after another waits until that one is ended: neither in
+// the queue nor on a busy worker. While it waits it opens no worker.
+func TestScheduleHoldsATaskUntilItsPrerequisitesEnd(t *testing.T) {
+	q := tasks(queuedTask{ID: 7}, queuedTask{ID: 8, After: []int{7}})
+	got := schedule(testPool(2, 2, free(1, t0), free(2, t0)), q, readyAll(1, 2), t0)
+	if want := []poolAction{{Kind: actAssign, Worker: 1, Task: 7}}; !slices.Equal(got, want) {
+		t.Errorf("7 queued = %+v, want %+v", got, want)
+	}
+	busy := poolWorker{Index: 1, State: workerBusy, Task: 7}
+	if got := schedule(testPool(2, 2, busy, free(2, t0)), tasks(queuedTask{ID: 8, After: []int{7}}), readyAll(1, 2), t0); len(got) != 0 {
+		t.Errorf("7 on worker1 = %+v, want 8 to wait", got)
+	}
+	if got := schedule(testPool(2, 2, busy), tasks(queuedTask{ID: 8, After: []int{7}}), readyAll(1), t0); len(got) != 0 {
+		t.Errorf("7 on worker1, room for one more = %+v, want no worker opened for a waiting task", got)
+	}
+	ended := poolWorker{Index: 1, State: workerFree, Since: t0}
+	got = schedule(testPool(2, 2, ended, free(2, t0)), tasks(queuedTask{ID: 8, After: []int{7}}), readyAll(1, 2), t0)
+	if want := []poolAction{{Kind: actAssign, Worker: 1, Task: 8}}; !slices.Equal(got, want) {
+		t.Errorf("7 ended = %+v, want %+v", got, want)
+	}
+}
+
 // A free worker whose agent cannot take a brief yet gets nothing, and a
 // worker already opening is counted for the first task waiting.
 func TestScheduleWaitsForReadyAndCountsOpening(t *testing.T) {
