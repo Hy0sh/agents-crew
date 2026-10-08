@@ -6,6 +6,29 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `acw queue add --after <id>` (repeatable) holds a task until the tasks
+  it names are ended with `acw done`, then lets any free worker take it.
+  A follow-up that needs the pushed result of the task before it (the
+  `rebase --onto` of a stacked PR) used to be kept aside by hand, or
+  reserved with `--worker` for that same worker even with others free.
+  Removing a task it waits for holds it, with that reason.
+- `worker-overrides` takes `tasks` and `keep`, and `acw queue add` takes
+  `--kind`: a reviewer listing `need-review` gets every task queued
+  `--kind need-review` and nothing else, and no general-purpose worker
+  takes those. `keep: true` opens it with the swarm and never closes it
+  for being idle, so a review does not wait for a worktree and a stack.
+
+### Changed
+
+- `acw done` puts the worker back on its waiting branch before freeing it,
+  and a task given `--branch` that a free worker still holds takes it
+  back. A worker freed after asking for a review kept its branch checked
+  out, and git gives a branch to one worktree only: the reviewer, then
+  whoever fixed what it found, could not check it out. A worker with
+  uncommitted changes is left where it is, and the master told.
+
 ## [0.16.0] - 2026-10-08
 
 ### Changed

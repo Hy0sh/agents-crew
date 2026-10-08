@@ -37,6 +37,30 @@ func TestResolveWorkersAppliesOverridesOnTopOfDefaults(t *testing.T) {
 	}
 }
 
+// tasks and keep reach the worker's spec; a kind must be one word.
+func TestResolveWorkersTasksAndKeep(t *testing.T) {
+	keep := true
+	opts := &startOptions{workers: 2, workerKind: "claude", overrides: map[string]config.WorkerOverride{
+		"2": {Tasks: []string{"need-review", " analysis "}, Keep: &keep},
+	}}
+	got, err := resolveWorkers(opts, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := got[1]; !reflect.DeepEqual(w.Tasks, []string{"need-review", "analysis"}) || !w.Keep || !w.Overridden {
+		t.Errorf("worker2 = %+v", w)
+	}
+	if got[0].Keep || got[0].Tasks != nil {
+		t.Errorf("worker1 = %+v, want a general one", got[0])
+	}
+	for _, bad := range []string{"", "need review", "--all"} {
+		opts.overrides = map[string]config.WorkerOverride{"2": {Tasks: []string{bad}}}
+		if _, err := resolveWorkers(opts, t.TempDir()); err == nil {
+			t.Errorf("tasks [%q] accepted", bad)
+		}
+	}
+}
+
 func TestResolveWorkersRejectsIndexesThatNameNoWorker(t *testing.T) {
 	for _, key := range []string{"0", "3", "a", "-1"} {
 		opts := &startOptions{workers: 2, workerKind: "claude", overrides: map[string]config.WorkerOverride{key: {}}}

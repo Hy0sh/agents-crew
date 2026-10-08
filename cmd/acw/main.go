@@ -396,6 +396,16 @@ func main() {
 					return fmt.Errorf("%q is not a task id", args[1])
 				}
 			}
+			// The worker goes back to its waiting branch before it is freed:
+			// freed first, the watcher could hand it a task mid-switch. A
+			// worker that can't be moved is still freed, and the master told.
+			if p, _, err := readPool(repo); err == nil {
+				if w := p.worker(index); w != nil && w.State == workerBusy && (task == 0 || w.Task == task) {
+					if err := parkWorker(p, *w, cmd.OutOrStdout()); err != nil {
+						fmt.Fprintln(cmd.OutOrStdout(), "warning:", err)
+					}
+				}
+			}
 			msg, finished, err := markDone(repo, index, task, time.Now())
 			if err != nil {
 				return err

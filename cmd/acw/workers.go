@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -23,6 +24,20 @@ type workerSpec struct {
 	// Dir, when set, is where a worker outside the code starts: no
 	// worktree, environment or branch (see validateAgentDir).
 	Dir string `json:"dir,omitempty"`
+	// Tasks are the kinds of task it takes (queue add --kind); Keep keeps
+	// it open for the life of the swarm.
+	Tasks []string `json:"tasks,omitempty"`
+	Keep  bool     `json:"keep,omitempty"`
+}
+
+// takes says whether a worker of spec w may get t without being named by
+// --worker: a task of a kind goes to the workers that list it, a task of
+// no kind to the general-purpose ones.
+func (w workerSpec) takes(t queuedTask) bool {
+	if t.Kind != "" {
+		return slices.Contains(w.Tasks, t.Kind)
+	}
+	return !w.Overridden
 }
 
 // resolveWorkers builds the spec of each of the opts.workers workers. An
@@ -65,6 +80,13 @@ func resolveWorkers(opts *startOptions, repo string) ([]workerSpec, error) {
 			}
 			w.Dir = dir
 		}
+		for _, k := range o.Tasks {
+			if k = strings.TrimSpace(k); k == "" || strings.HasPrefix(k, "-") || strings.ContainsAny(k, " \t") {
+				return nil, fmt.Errorf("worker-overrides %s: tasks: %q is not a task kind (one word, like need-review)", key, k)
+			}
+			w.Tasks = append(w.Tasks, k)
+		}
+		w.Keep = o.Keep != nil && *o.Keep
 	}
 	return workers, nil
 }
@@ -85,7 +107,7 @@ func distinctKinds(workers []workerSpec) []string {
 func briefWorkers(workers []workerSpec) []brief.Worker {
 	out := make([]brief.Worker, len(workers))
 	for i, w := range workers {
-		out[i] = brief.Worker{Kind: w.Kind, Model: w.Model, Prompt: w.Prompt, Overridden: w.Overridden, Dir: w.Dir}
+		out[i] = brief.Worker{Kind: w.Kind, Model: w.Model, Prompt: w.Prompt, Overridden: w.Overridden, Dir: w.Dir, Tasks: w.Tasks, Keep: w.Keep}
 	}
 	return out
 }
@@ -96,7 +118,7 @@ func briefWorkers(workers []workerSpec) []brief.Worker {
 func workerRole(label, statusFile string) string {
 	return fmt.Sprintf(`You are %[1]s, a worker of an acw setup. A master session hands you your tasks and relays the user's decisions: you report to the master only, through your status file and the end of your turn, never by expecting the user to read your pane. A message that starts with "Message from the master" comes from it. Your context is reset before each task: this prompt survives the reset, the task's brief brings the rest.
 
-Your status file is %[2]s, a JSON object. Write it after every significant step (taking the task, milestone reached, blocked on an arbitration, PR opened) with at least: tache, state, summary, base_branch, ports, branch, decision, pr_url, proof_path, blocked_on. Put the value itself in the field, and leave it empty as long as it does not exist: "approach chosen" without naming the choice, or "PR opened" without its link, is worse than empty. decision lists, before you write any code, the files you will create or modify. base_branch is the branch your PR is based on. blocked_on says what you wait for, while state says you are blocked. Leave updated_at, last_turn_end and state_since out: acw writes them at the end of each turn. If you delegate to a subagent or touch a shared code area, say so there plainly. If you hand control back while a subagent you started still runs, set state to waiting_subagent and say in summary what you wait for.
+Your status file is %[2]s, a JSON object. Write it after every significant step (taking the task, milestone reached, blocked on an arbitration, PR opened) with at least: tache, state, summary, base_branch, ports, branch, decision, pr_url, proof_path, blocked_on. Put the value itself in the field, and leave it empty as long as it does not exist: "approach chosen" without naming the choice, or "PR opened" without its link, is worse than empty. decision lists, before you write any code, the files you will create or modify. base_branch is the branch your PR is based on. blocked_on says what you wait for, while state says you are blocked. Whenever you hand a task over (proof ready, review asked, PR opened), everything is committed and git status is clean: once the master ends your task, acw puts you back on your waiting branch, and your branch goes to whoever takes the next task on it, a reviewer or another worker fixing what the review found. Leave updated_at, last_turn_end and state_since out: acw writes them at the end of each turn. If you delegate to a subagent or touch a shared code area, say so there plainly. If you hand control back while a subagent you started still runs, set state to waiting_subagent and say in summary what you wait for.
 
 Temporary files go in /tmp, outside the repo, and you never run rm -rf in your worktree: a recursive deletion triggers an approval prompt nobody may be there to answer.
 

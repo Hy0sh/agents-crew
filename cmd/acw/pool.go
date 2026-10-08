@@ -119,7 +119,14 @@ type queuedTask struct {
 	Base   string `json:"base,omitempty"`
 	// Worker, when set, is the only worker the task may go to (a fix
 	// after a KO goes back to whoever has the context), 0 otherwise.
-	Worker  int       `json:"worker,omitempty"`
+	Worker int `json:"worker,omitempty"`
+	// Kind, when set, sends it only to the workers whose tasks list it
+	// (a reviewer for need-review), never to a general-purpose one.
+	Kind string `json:"kind,omitempty"`
+	// After lists the tasks it waits for: it goes out once each is ended,
+	// neither queued nor on a busy worker (a rebase that needs the pushed
+	// result of the task before it).
+	After   []int     `json:"after,omitempty"`
 	AddedAt time.Time `json:"added_at"`
 	// Error is why handing it out failed: it is skipped until the master
 	// moves or removes it, rather than retried every few seconds.
@@ -129,6 +136,28 @@ type queuedTask struct {
 type taskQueue struct {
 	NextID int          `json:"next_id"`
 	Tasks  []queuedTask `json:"tasks"`
+}
+
+// waitingFor is what of t's After is not ended yet: still queued, or the
+// task of a busy worker.
+func waitingFor(t queuedTask, p poolState, q taskQueue) []int {
+	var out []int
+	for _, id := range t.After {
+		queued := slices.ContainsFunc(q.Tasks, func(x queuedTask) bool { return x.ID == id })
+		running := slices.ContainsFunc(p.Workers, func(w poolWorker) bool { return w.State == workerBusy && w.Task == id })
+		if queued || running {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+func taskList(ids []int) string {
+	s := make([]string, len(ids))
+	for i, id := range ids {
+		s[i] = fmt.Sprintf("#%d", id)
+	}
+	return strings.Join(s, ", ")
 }
 
 // withPool runs fn on the pool and the queue under the lock, and writes
@@ -212,7 +241,7 @@ func workerArg(repo, arg string) (int, error) {
 }
 
 // queueAdd queues the brief at path, last, or first with top.
-func queueAdd(repo, path string, br branchRequest, worker string, top bool, now time.Time, out io.Writer) error {
+func queueAdd(repo, path string, br branchRequest, worker, kind string, after []int, top bool, now time.Time, out io.Writer) error {
 	if err := br.check(); err != nil {
 		return err
 	}
@@ -230,14 +259,35 @@ func queueAdd(repo, path string, br branchRequest, worker string, top bool, now 
 		if index > len(p.Plan.Workers) {
 			return false, fmt.Errorf("worker%d is beyond this swarm's %d workers", index, len(p.Plan.Workers))
 		}
+		// A kind no worker takes would wait forever; a worker named with
+		// --worker must take the kind it is given.
+		if kind != "" {
+			if !slices.ContainsFunc(p.Plan.Workers, func(w workerSpec) bool { return slices.Contains(w.Tasks, kind) }) {
+				return false, fmt.Errorf("--kind %s: no worker takes it; list it under tasks in a worker-overrides entry", kind)
+			}
+			if index != 0 && !slices.Contains(p.Plan.Workers[index-1].Tasks, kind) {
+				return false, fmt.Errorf("--kind %s: worker%d does not take it", kind, index)
+			}
+		}
+		// Only a task that was queued can be waited for: one already ended
+		// is no wait at all, a number never given is a typo.
+		for _, id := range after {
+			if id < 1 || id > q.NextID {
+				return false, fmt.Errorf("--after %d: no task #%d was ever queued here (the last is #%d)", id, id, q.NextID)
+			}
+		}
 		q.NextID++
-		t := queuedTask{ID: q.NextID, Brief: text, Branch: br.Branch, Base: br.Base, Worker: index, AddedAt: now}
+		t := queuedTask{ID: q.NextID, Brief: text, Branch: br.Branch, Base: br.Base, Worker: index, Kind: kind, After: after, AddedAt: now}
 		if top {
 			q.Tasks = slices.Insert(q.Tasks, 0, t)
 		} else {
 			q.Tasks = append(q.Tasks, t)
 		}
-		fmt.Fprintf(out, "task #%d queued, position %d of %d.\n", t.ID, slices.IndexFunc(q.Tasks, func(x queuedTask) bool { return x.ID == t.ID })+1, len(q.Tasks))
+		fmt.Fprintf(out, "task #%d queued, position %d of %d", t.ID, slices.IndexFunc(q.Tasks, func(x queuedTask) bool { return x.ID == t.ID })+1, len(q.Tasks))
+		if waits := waitingFor(t, *p, *q); len(waits) > 0 {
+			fmt.Fprintf(out, "; it waits for %s to be ended (acw done)", taskList(waits))
+		}
+		fmt.Fprintln(out, ".")
 		return true, nil
 	})
 }
@@ -268,6 +318,14 @@ func queueRemove(repo string, id int, out io.Writer) error {
 		}
 		q.Tasks = slices.Delete(q.Tasks, i, i+1)
 		fmt.Fprintf(out, "task #%d removed.\n", id)
+		// What waited for it would otherwise go out without the result it
+		// waited for: it is held, for the master to move or remove.
+		for j := range q.Tasks {
+			if t := &q.Tasks[j]; t.Error == "" && slices.Contains(t.After, id) {
+				t.Error = fmt.Sprintf("the task it waited for, #%d, was removed", id)
+				fmt.Fprintf(out, "task #%d held: it waited for #%d (move it to let it go anyway, or remove it).\n", t.ID, id)
+			}
+		}
 		return true, nil
 	})
 }
@@ -475,8 +533,14 @@ func renderQueue(now time.Time, p poolState, q taskQueue) string {
 		if t.Worker != 0 {
 			fmt.Fprintf(&b, " · for worker%d", t.Worker)
 		}
+		if t.Kind != "" {
+			fmt.Fprintf(&b, " · kind %s", t.Kind)
+		}
 		if t.Branch != "" {
 			fmt.Fprintf(&b, " · on %s", t.Branch)
+		}
+		if waits := waitingFor(t, p, q); len(waits) > 0 {
+			fmt.Fprintf(&b, " · waiting for %s", taskList(waits))
 		}
 		fmt.Fprintf(&b, " · queued %s", age(now, t.AddedAt))
 		if t.Error != "" {

@@ -108,6 +108,19 @@ func TestBuildListsOutsideWorkersAndCountsOnlyCodersForStacks(t *testing.T) {
 	}
 }
 
+// A worker with kinds tells the master how to reach it and that nobody
+// else takes those tasks; a kept one, that it stays open.
+func TestBuildListsWorkerKinds(t *testing.T) {
+	p := params("claude", 3, 3)
+	p.Workers[2] = Worker{Kind: "claude", Model: "opus", Overridden: true, Tasks: []string{"need-review"}, Keep: true}
+	got := Build(p)
+	for _, want := range []string{"`--kind need-review`", "no general-purpose worker takes them", "stays open for the life of the swarm"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("brief missing %q", want)
+		}
+	}
+}
+
 func TestBuildNamesAllWorkers(t *testing.T) {
 	got := Build(params("claude", 3, 3))
 	for _, want := range []string{"worker1-testslug", "worker2-testslug", "worker3-testslug"} {

@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -176,6 +177,60 @@ func chooseBranchStep(stacked, switchAvailable, exists bool) (branchStep, error)
 	return branchStep{wtm: stacked, create: !exists}, nil
 }
 
+// releaseBranch takes branch back from the worktree at holder when it is a
+// free worker's: a worker freed after asking for a review keeps its branch
+// checked out, and git gives a branch to one worktree only, so the
+// reviewer, then whoever fixes, could never check it out. The free worker
+// goes back to the branch it opened on, through the same switch as a task
+// (wtm switch for a stack, which follows it). A busy worker keeps its
+// branch, and so does a free one with uncommitted work: nothing is lost.
+// ponytail: a task handed to that free worker in the same poll may switch
+// its worktree at the same moment; one of the two fails on git's lock and
+// its task is held with the reason.
+func releaseBranch(p poolState, holder, branch string, out io.Writer) error {
+	i := slices.IndexFunc(p.Workers, func(w poolWorker) bool { return w.Worktree != "" && realPath(w.Worktree) == realPath(holder) })
+	if i < 0 {
+		return fmt.Errorf("%s is checked out in %s, which is no worker of this swarm: leave the branch there first", branch, holder)
+	}
+	hw := p.Workers[i]
+	if hw.State != workerFree {
+		return fmt.Errorf("%s is checked out by %s, %s: give the task to that worker, or wait until it is done", branch, hw.label(), hw.State)
+	}
+	return parkWorker(p, hw, out)
+}
+
+// parkWorker puts a worker's worktree back on the branch it opened on, its
+// waiting branch, so that the branch of the task it ended is free for
+// whoever takes it next: acw done does it for every task, releaseBranch
+// for a free worker that still holds one. A worktree with uncommitted
+// changes is left alone: moving it would carry them along or fail.
+func parkWorker(p poolState, w poolWorker, out io.Writer) error {
+	if w.Worktree == "" {
+		return nil
+	}
+	home := names.WorkerBranch(w.Index, strings.TrimPrefix(filepath.Base(w.Worktree), w.label()+"-"))
+	current, err := gitutil.CurrentBranch(w.Worktree)
+	if err != nil || current == home {
+		return err
+	}
+	if !gitutil.Clean(w.Worktree) {
+		return fmt.Errorf("%s has uncommitted changes on %s in %s: not moved to its waiting branch, and %s can't go to another worker until they are committed or dropped", w.label(), current, w.Worktree, current)
+	}
+	if w.Stacked {
+		if !wtm.Available() || !wtm.SwitchAvailable() {
+			return fmt.Errorf("%s stays on %s: its stack would stay behind without wtm switch", w.label(), current)
+		}
+		err = wtm.Switch(w.Worktree, home, "", p.Plan.Profile, out)
+	} else {
+		err = gitutil.Switch(w.Worktree, home, "", false)
+	}
+	if err != nil {
+		return fmt.Errorf("%s could not be moved off %s to its waiting branch: %w", w.label(), current, err)
+	}
+	fmt.Fprintf(out, "%s: off %s, back on its waiting branch %s.\n", w.label(), current, home)
+	return nil
+}
+
 // switchWorkerBranch fetches then puts the worker's worktree on br.Branch.
 // Nothing is stashed: local changes make git or wtm refuse, and the error
 // says the worker got nothing.
@@ -194,7 +249,9 @@ func switchWorkerBranch(repo string, t clearTarget, br branchRequest, out io.Wri
 		return err
 	}
 	if holder := branchHolder(worktrees, br.Branch, wt); holder != "" {
-		return fmt.Errorf("%s is checked out in %s: give the task to that worker, or have it leave the branch first", br.Branch, holder)
+		if err := releaseBranch(p, holder, br.Branch, out); err != nil {
+			return fmt.Errorf("%s not put on %s, nothing was sent to it: %w", t.label, br.Branch, err)
+		}
 	}
 	// wtm.Available first: no wtm call at all on a machine without it.
 	step, err := chooseBranchStep(pw.Stacked, pw.Stacked && wtm.Available() && wtm.SwitchAvailable(), gitutil.HasBranch(wt, br.Branch))
