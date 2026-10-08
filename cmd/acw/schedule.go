@@ -91,6 +91,14 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 	ready := func(w poolWorker) bool {
 		return w.State == workerFree && !taken[w.Index] && polls[w.Index].Ready
 	}
+	counted := map[int]bool{} // workers of a kind coming up, already counted for a task
+
+	// Kept workers open with the swarm, whatever is queued.
+	for i := 1; i <= n; i++ {
+		if spec(i).Keep && canOpen(i) {
+			openWorker(i)
+		}
+	}
 
 	for _, t := range q.Tasks {
 		if t.Error != "" || len(waitingFor(t, p, q)) > 0 {
@@ -107,10 +115,27 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 			}
 			continue
 		}
-		if i := slices.IndexFunc(p.Workers, func(w poolWorker) bool { return ready(w) && !spec(w.Index).Overridden }); i >= 0 {
+		if i := slices.IndexFunc(p.Workers, func(w poolWorker) bool { return ready(w) && spec(w.Index).takes(t) }); i >= 0 {
 			w := p.Workers[i]
 			taken[w.Index] = true
 			actions = append(actions, poolAction{Kind: actAssign, Worker: w.Index, Task: t.ID})
+			continue
+		}
+		// A task of a kind waits for a worker that takes it: one coming
+		// up, else the lowest one not open. Never a general-purpose one.
+		if t.Kind != "" {
+			if i := slices.IndexFunc(p.Workers, func(w poolWorker) bool {
+				return w.State == workerOpening && spec(w.Index).takes(t) && !counted[w.Index]
+			}); i >= 0 {
+				counted[p.Workers[i].Index] = true
+				continue
+			}
+			for i := 1; i <= n; i++ {
+				if spec(i).takes(t) && canOpen(i) {
+					openWorker(i)
+					break
+				}
+			}
 			continue
 		}
 		if len(opening) > 0 {
@@ -128,14 +153,15 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 	// The floor: general-purpose workers kept open with nothing queued,
 	// so a task never waits for an opening, and min-workers equal to
 	// workers is the fixed swarm of before.
+	// A kept worker is on top of it, not part of it.
 	up := 0
 	for _, w := range p.Workers {
-		if w.State != workerClosing {
+		if w.State != workerClosing && !spec(w.Index).Keep {
 			up++
 		}
 	}
 	for _, a := range actions {
-		if a.Kind == actOpen {
+		if a.Kind == actOpen && !spec(a.Worker).Keep {
 			up++
 		}
 	}
@@ -151,10 +177,12 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 
 	idle := time.Duration(p.IdleCloseMinutes) * time.Minute
 	for _, w := range p.Workers {
-		if w.State != workerFree || taken[w.Index] || up <= p.MinWorkers {
+		if w.State != workerFree || taken[w.Index] || spec(w.Index).Keep || up <= p.MinWorkers {
 			continue
 		}
-		if slices.ContainsFunc(q.Tasks, func(t queuedTask) bool { return t.Worker == w.Index && t.Error == "" }) {
+		if slices.ContainsFunc(q.Tasks, func(t queuedTask) bool {
+			return t.Error == "" && (t.Worker == w.Index || t.Worker == 0 && t.Kind != "" && spec(w.Index).takes(t))
+		}) {
 			continue
 		}
 		limit := idle

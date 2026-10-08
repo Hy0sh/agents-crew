@@ -51,11 +51,11 @@ func queueIDs(t *testing.T, repo string) []int {
 func TestQueueAddMoveRemove(t *testing.T) {
 	repo := testSwarm(t, 2)
 	for _, text := range []string{"one", "two", "three"} {
-		if err := queueAdd(repo, briefFile(t, text), branchRequest{}, "", nil, false, t0, io.Discard); err != nil {
+		if err := queueAdd(repo, briefFile(t, text), branchRequest{}, "", "", nil, false, t0, io.Discard); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := queueAdd(repo, briefFile(t, "urgent"), branchRequest{Branch: "fix/x"}, "worker2", nil, true, t0, io.Discard); err != nil {
+	if err := queueAdd(repo, briefFile(t, "urgent"), branchRequest{Branch: "fix/x"}, "worker2", "", nil, true, t0, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if got := queueIDs(t, repo); !slices.Equal(got, []int{4, 1, 2, 3}) {
@@ -78,7 +78,7 @@ func TestQueueAddMoveRemove(t *testing.T) {
 	if err := queueRemove(repo, 42, io.Discard); err == nil {
 		t.Error("removing a task that is not there should fail")
 	}
-	if err := queueAdd(repo, briefFile(t, "x"), branchRequest{}, "worker3", nil, false, t0, io.Discard); err == nil {
+	if err := queueAdd(repo, briefFile(t, "x"), branchRequest{}, "worker3", "", nil, false, t0, io.Discard); err == nil {
 		t.Error("a task for a worker beyond the count should be refused")
 	}
 }
@@ -92,17 +92,17 @@ func TestQueueAfter(t *testing.T) {
 	if err := writeJSON(names.QueueFile(repo), q); err != nil {
 		t.Fatal(err)
 	}
-	if err := queueAdd(repo, briefFile(t, "rebase #2 onto the merged base"), branchRequest{}, "", nil, false, t0, io.Discard); err != nil {
+	if err := queueAdd(repo, briefFile(t, "rebase #2 onto the merged base"), branchRequest{}, "", "", nil, false, t0, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	var out strings.Builder
-	if err := queueAdd(repo, briefFile(t, "stack the next PR"), branchRequest{}, "", []int{1, 2}, false, t0, &out); err != nil {
+	if err := queueAdd(repo, briefFile(t, "stack the next PR"), branchRequest{}, "", "", []int{1, 2}, false, t0, &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "waits for #1, #2") {
 		t.Errorf("add = %q, want it to say what it waits for", out.String())
 	}
-	if err := queueAdd(repo, briefFile(t, "x"), branchRequest{}, "", []int{9}, false, t0, io.Discard); err == nil {
+	if err := queueAdd(repo, briefFile(t, "x"), branchRequest{}, "", "", []int{9}, false, t0, io.Discard); err == nil {
 		t.Error("--after a task that never existed was accepted")
 	}
 	p, q, _ := readPool(repo)
@@ -119,11 +119,34 @@ func TestQueueAfter(t *testing.T) {
 	}
 }
 
+// --kind needs a worker that takes it, and a --worker that takes it.
+func TestQueueAddKind(t *testing.T) {
+	repo := testSwarm(t, 2)
+	p, _, _ := readPool(repo)
+	p.Plan.Workers[1] = workerSpec{Kind: "claude", Overridden: true, Tasks: []string{"need-review"}}
+	if err := writeJSON(names.PoolFile(repo), p); err != nil {
+		t.Fatal(err)
+	}
+	if err := queueAdd(repo, briefFile(t, "x"), branchRequest{}, "", "analysis", nil, false, t0, io.Discard); err == nil || !strings.Contains(err.Error(), "no worker takes it") {
+		t.Errorf("a kind nobody takes = %v", err)
+	}
+	if err := queueAdd(repo, briefFile(t, "x"), branchRequest{}, "worker1", "need-review", nil, false, t0, io.Discard); err == nil {
+		t.Error("--worker worker1 --kind need-review accepted, worker1 does not take it")
+	}
+	if err := queueAdd(repo, briefFile(t, "review #12"), branchRequest{}, "", "need-review", nil, false, t0, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	p, q, _ := readPool(repo)
+	if got := renderQueue(t0, p, q); !strings.Contains(got, "#1  review #12 · kind need-review") {
+		t.Errorf("queue =\n%s", got)
+	}
+}
+
 // A branch or a base starting with a dash would reach git as an option.
 func TestQueueAddRefusesOptionLikeBranches(t *testing.T) {
 	repo := testSwarm(t, 1)
 	for _, br := range []branchRequest{{Branch: "--orphan=x"}, {Branch: "fix/x", Base: "-d"}} {
-		if err := queueAdd(repo, briefFile(t, "x"), br, "", nil, false, t0, io.Discard); err == nil {
+		if err := queueAdd(repo, briefFile(t, "x"), br, "", "", nil, false, t0, io.Discard); err == nil {
 			t.Errorf("queueAdd(%+v) = nil, want a refusal", br)
 		}
 	}
@@ -154,7 +177,7 @@ func TestQueueConcurrentAddsAllLand(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 20 {
 		wg.Go(func() {
-			if err := queueAdd(repo, path, branchRequest{}, "", nil, false, t0, io.Discard); err != nil {
+			if err := queueAdd(repo, path, branchRequest{}, "", "", nil, false, t0, io.Discard); err != nil {
 				t.Error(err)
 			}
 		})

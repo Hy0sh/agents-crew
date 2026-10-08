@@ -124,6 +124,10 @@ type Worker struct {
 	Overridden bool
 	// Dir is where a worker outside the code runs, "" for a coder.
 	Dir string
+	// Tasks are the kinds of task it takes (acw queue add --kind); Keep,
+	// that it stays open for the life of the swarm.
+	Tasks []string
+	Keep  bool
 }
 
 // Variables lists what a custom template can reference, e.g.
@@ -218,6 +222,15 @@ func pingingWorkers(slug string, workers []Worker) string {
 // told to verify must not get a feature to write), and must copy them
 // into every brief of a worker whose kind has no system prompt acw can
 // set — a context reset wipes them otherwise.
+// kindFlags is "--kind a or --kind b".
+func kindFlags(kinds []string) string {
+	flags := make([]string, len(kinds))
+	for i, k := range kinds {
+		flags[i] = "`--kind " + k + "`"
+	}
+	return strings.Join(flags, " or ")
+}
+
 func workerOverrides(slug string, workers []Worker) string {
 	var b strings.Builder
 	var generic []string
@@ -232,6 +245,13 @@ func workerOverrides(slug string, workers []Worker) string {
 			fmt.Fprintf(&b, ", outside the code, in %s: no worktree, no environment, no branch. NEVER give it code, "+
 				"and the worktree, branch, environment and PR rules above do not apply to it; "+
 				"its status file is at the same absolute path as the others', under the repo", w.Dir)
+		}
+		if len(w.Tasks) > 0 {
+			fmt.Fprintf(&b, ". It takes the tasks queued with %s, and only those (or what you send it with --worker); no general-purpose worker takes them",
+				kindFlags(w.Tasks))
+		}
+		if w.Keep {
+			b.WriteString(". It stays open for the life of the swarm, ready for the next one")
 		}
 		if w.Prompt == "" {
 			b.WriteString(", with no instructions of its own.\n")

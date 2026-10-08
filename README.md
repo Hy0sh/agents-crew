@@ -165,7 +165,7 @@ replaces with its own (`ctx 34% · 5h 78%`) to record that usage.
 
 ```sh
 acw queue                                   # workers and queue
-acw queue add <brief-file> [--branch <b>] [--worker workerN] [--after <id>]... [--top]
+acw queue add <brief-file> [--branch <b>] [--worker workerN] [--kind <kind>] [--after <id>]... [--top]
 acw queue move <id> <position>
 acw queue remove <id>
 acw done workerN [task-id]
@@ -252,7 +252,8 @@ free worker whose agent is idle, with the same steps as `acw dispatch`
 workerN`.
 
 - A worker set apart in [`worker-overrides`](#keys) only takes the tasks
-  queued for it with `--worker workerN`; the others take everything else.
+  queued for it with `--worker workerN`, or with `--kind` for a kind its
+  `tasks` lists; the others take everything else.
   `--worker` is also how a fix after a KO goes back to the worker that has
   the context.
 - A task acw could not hand out (a branch held by another worktree, a
@@ -601,6 +602,31 @@ instructions. Not predefined roles: whatever you write in its prompt file.
   checked after `-n`), an unknown field, and a `prompt` file that can't be
   read. Unlike `notes`, that last one is not just a warning: a worker meant
   to verify that silently becomes a generic one would skew every dispatch.
+
+**Kinds of task and kept workers.** A worker can be given work by kind
+rather than by number, and kept open:
+
+```json
+"worker-overrides": {
+  "5": { "model": "opus", "prompt": "~/.config/acw/reviewer.md", "tasks": ["need-review"], "keep": true },
+  "6": { "model": "opus", "dir": "~/notes/some-project", "tasks": ["analysis"] }
+}
+```
+
+- `tasks` lists the kinds it takes. A task queued `--kind need-review` goes
+  only to a worker that lists `need-review`. A general-purpose worker never
+  takes it, even when free and the reviewer is busy: the task waits for
+  the reviewer. A task with no `--kind` never goes to a worker with
+  `tasks`. The kinds are yours to name: one word each, no list in acw.
+- `acw queue add --kind X` is refused when no worker lists `X`, so a typo
+  fails at once instead of waiting forever. Given with `--worker`, that
+  worker must list it.
+- `keep: true` opens the worker with the swarm and never closes it for
+  being idle, so the first review does not wait for a worktree and a
+  stack. It is on top of `min-workers`, and its stack holds a `max-stacks`
+  slot the whole time.
+- Like any overridden worker, it otherwise only takes what is sent to it
+  with `--worker`.
 
 ### Working directories: `master-dir` and `dir`
 

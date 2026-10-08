@@ -14,6 +14,11 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   `rebase --onto` of a stacked PR) used to be kept aside by hand, or
   reserved with `--worker` for that same worker even with others free.
   Removing a task it waits for holds it, with that reason.
+- `worker-overrides` takes `tasks` and `keep`, and `acw queue add` takes
+  `--kind`: a reviewer listing `need-review` gets every task queued
+  `--kind need-review` and nothing else, and no general-purpose worker
+  takes those. `keep: true` opens it with the swarm and never closes it
+  for being idle, so a review does not wait for a worktree and a stack.
 
 ## [0.16.0] - 2026-10-08
 

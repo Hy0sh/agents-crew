@@ -116,6 +116,17 @@ func TestLoadWorkerOverrides(t *testing.T) {
 	}
 }
 
+func TestLoadWorkerOverrideTasksAndKeep(t *testing.T) {
+	writeConfig(t, `{"projects": {"/repo": {"worker-overrides": {"5": {"tasks": ["need-review"], "keep": true}}}}}`)
+	p, err := Load("/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o := p.WorkerOverrides["5"]; len(o.Tasks) != 1 || o.Tasks[0] != "need-review" || o.Keep == nil || !*o.Keep {
+		t.Errorf("override 5 = %+v", o)
+	}
+}
+
 func TestLoadRejectsUnknownKeyInWorkerOverride(t *testing.T) {
 	writeConfig(t, `{"projects": {"/repo": {"worker-overrides": {"1": {"modle": "opus"}}}}}`)
 	_, err := Load("/repo")

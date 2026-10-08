@@ -74,6 +74,12 @@ type WorkerOverride struct {
 	// Dir makes the worker one outside the code: it starts there, with no
 	// worktree, environment or branch. Checked by the caller.
 	Dir *string `json:"dir,omitempty"`
+	// Tasks are the kinds of task the worker takes (acw queue add --kind):
+	// a task of a kind goes only to the workers that list it.
+	Tasks []string `json:"tasks,omitempty"`
+	// Keep opens the worker with the swarm and never closes it for being
+	// idle: a reviewer is there when the first review comes.
+	Keep *bool `json:"keep,omitempty"`
 }
 
 type file struct {

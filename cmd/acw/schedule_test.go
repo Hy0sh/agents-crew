@@ -55,6 +55,58 @@ func TestScheduleAssignsInOrderThenOpens(t *testing.T) {
 	}
 }
 
+// reviewerPool is n general workers whose last one only takes need-review
+// tasks, kept open when keep is set.
+func reviewerPool(n int, keep bool, open ...poolWorker) poolState {
+	p := testPool(n, n, open...)
+	p.Plan.Workers[n-1] = workerSpec{Kind: "claude", Overridden: true, Tasks: []string{"need-review"}, Keep: keep}
+	return p
+}
+
+// A task of a kind goes to a worker that takes it, a task of no kind to a
+// general one; neither ever to the other.
+func TestScheduleKinds(t *testing.T) {
+	review, general := queuedTask{ID: 7, Kind: "need-review"}, queuedTask{ID: 8}
+	got := schedule(reviewerPool(3, false, free(1, t0), free(3, t0)), tasks(review, general), readyAll(1, 3), t0)
+	if want := []poolAction{{Kind: actAssign, Worker: 3, Task: 7}, {Kind: actAssign, Worker: 1, Task: 8}}; !slices.Equal(got, want) {
+		t.Errorf("both free = %+v, want %+v", got, want)
+	}
+	busy := poolWorker{Index: 3, State: workerBusy, Task: 5}
+	if got := schedule(reviewerPool(3, false, free(1, t0), busy), tasks(review), readyAll(1, 3), t0); len(got) != 0 {
+		t.Errorf("reviewer busy, worker1 free = %+v, want the review to wait for the reviewer", got)
+	}
+	if got := schedule(reviewerPool(3, false, free(3, t0)), tasks(general), readyAll(3), t0); slices.ContainsFunc(got, func(a poolAction) bool { return a.Kind == actAssign }) {
+		t.Errorf("only the reviewer free = %+v, want no general task on it", got)
+	}
+	got = schedule(reviewerPool(3, false, free(1, t0)), tasks(review), readyAll(1), t0)
+	if want := []poolAction{{Kind: actOpen, Worker: 3, Stacked: true}}; !slices.Equal(got, want) {
+		t.Errorf("reviewer not open = %+v, want %+v", got, want)
+	}
+	opening := poolWorker{Index: 3, State: workerOpening}
+	if got := schedule(reviewerPool(3, false, opening), tasks(review, queuedTask{ID: 9, Kind: "need-review"}), readyAll(), t0); len(got) != 0 {
+		t.Errorf("reviewer coming up = %+v, want both reviews to wait for it", got)
+	}
+}
+
+// A kept worker opens with the swarm, outside the floor, and is never
+// closed for being idle.
+func TestScheduleKeep(t *testing.T) {
+	got := schedule(reviewerPool(3, true), taskQueue{}, nil, t0)
+	if want := []poolAction{{Kind: actOpen, Worker: 3, Stacked: true}}; !slices.Equal(got, want) {
+		t.Errorf("nothing queued = %+v, want %+v", got, want)
+	}
+	p := reviewerPool(3, true, free(1, t0), free(3, t0))
+	p.MinWorkers = 1
+	if got := schedule(p, taskQueue{}, readyAll(1, 3), t0.Add(time.Hour)); len(got) != 0 {
+		t.Errorf("idle an hour = %+v, want worker1 kept by the floor and worker3 by keep", got)
+	}
+	p.MinWorkers = 0
+	got = schedule(p, taskQueue{}, readyAll(1, 3), t0.Add(time.Hour))
+	if want := []poolAction{{Kind: actClose, Worker: 1}}; !slices.Equal(got, want) {
+		t.Errorf("no floor = %+v, want %+v", got, want)
+	}
+}
+
 // A task queued --after another waits until that one is ended: neither in
 // the queue nor on a busy worker. While it waits it opens no worker.
 func TestScheduleHoldsATaskUntilItsPrerequisitesEnd(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -23,6 +24,20 @@ type workerSpec struct {
 	// Dir, when set, is where a worker outside the code starts: no
 	// worktree, environment or branch (see validateAgentDir).
 	Dir string `json:"dir,omitempty"`
+	// Tasks are the kinds of task it takes (queue add --kind); Keep keeps
+	// it open for the life of the swarm.
+	Tasks []string `json:"tasks,omitempty"`
+	Keep  bool     `json:"keep,omitempty"`
+}
+
+// takes says whether a worker of spec w may get t without being named by
+// --worker: a task of a kind goes to the workers that list it, a task of
+// no kind to the general-purpose ones.
+func (w workerSpec) takes(t queuedTask) bool {
+	if t.Kind != "" {
+		return slices.Contains(w.Tasks, t.Kind)
+	}
+	return !w.Overridden
 }
 
 // resolveWorkers builds the spec of each of the opts.workers workers. An
@@ -65,6 +80,13 @@ func resolveWorkers(opts *startOptions, repo string) ([]workerSpec, error) {
 			}
 			w.Dir = dir
 		}
+		for _, k := range o.Tasks {
+			if k = strings.TrimSpace(k); k == "" || strings.HasPrefix(k, "-") || strings.ContainsAny(k, " \t") {
+				return nil, fmt.Errorf("worker-overrides %s: tasks: %q is not a task kind (one word, like need-review)", key, k)
+			}
+			w.Tasks = append(w.Tasks, k)
+		}
+		w.Keep = o.Keep != nil && *o.Keep
 	}
 	return workers, nil
 }
@@ -85,7 +107,7 @@ func distinctKinds(workers []workerSpec) []string {
 func briefWorkers(workers []workerSpec) []brief.Worker {
 	out := make([]brief.Worker, len(workers))
 	for i, w := range workers {
-		out[i] = brief.Worker{Kind: w.Kind, Model: w.Model, Prompt: w.Prompt, Overridden: w.Overridden, Dir: w.Dir}
+		out[i] = brief.Worker{Kind: w.Kind, Model: w.Model, Prompt: w.Prompt, Overridden: w.Overridden, Dir: w.Dir, Tasks: w.Tasks, Keep: w.Keep}
 	}
 	return out
 }
