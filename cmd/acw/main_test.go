@@ -101,6 +101,17 @@ func TestCheckCounts(t *testing.T) {
 	}
 }
 
+// Claude Code refuses an --autocompact outside 100K-1M: the master would
+// not start, so acw refuses it first. 0 passes no flag.
+func TestCheckCountsMasterAutocompact(t *testing.T) {
+	for v, ok := range map[int]bool{0: true, 100_000: true, 1_000_000: true, 99_999: false, 1_000_001: false, -1: false} {
+		err := checkCounts(&startOptions{workers: 1, masterAutocompact: v})
+		if (err == nil) != ok {
+			t.Errorf("checkCounts(master-autocompact %d) = %v, want ok %t", v, err, ok)
+		}
+	}
+}
+
 func TestApplyConfigPoolKeys(t *testing.T) {
 	min, idle := 2, 5
 	opts := &startOptions{idleCloseMinutes: 10}

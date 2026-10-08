@@ -166,7 +166,7 @@ func TestInboxWatchCommand(t *testing.T) {
 // command the brief gives, and only that command.
 func TestMasterArgsAllowOnlyTheInboxWatch(t *testing.T) {
 	watch, _ := inboxWatchCommand("claude", "", "/bin/acw", "/repo/inbox")
-	got := masterArgs("claude", "opus", "/bin/acw", watch)
+	got := masterArgs("claude", "opus", "/bin/acw", watch, "/s/master.system.md", 0)
 	i := slices.Index(got, "--allowedTools")
 	if i < 0 || i+1 >= len(got) || got[i+1] != "Bash(/bin/acw __inbox-watch:*)" {
 		t.Errorf("masterArgs() = %v, want --allowedTools Bash(/bin/acw __inbox-watch:*)", got)
@@ -198,13 +198,16 @@ func TestMasterArgsAllowOnlyTheInboxWatch(t *testing.T) {
 	// A claude master with a custom brief that reads no inbox still runs
 	// status, queue and done: without the rules every acw queue add would
 	// stop on an approval.
-	got = masterArgs("claude", "opus", "/bin/acw", "")
-	want := []string{"--model", "opus", "--allowedTools", "Bash(/bin/acw status:*)", "Bash(/bin/acw queue:*)", "Bash(/bin/acw done:*)", "Bash(/bin/acw tell:*)", "Bash(/bin/acw board decision:*)"}
+	got = masterArgs("claude", "opus", "/bin/acw", "", "/s/master.system.md", 250000)
+	want := []string{"--model", "opus", "--autocompact", "250000", "--append-system-prompt-file", "/s/master.system.md", "--disallowedTools", "Edit", "Write", "NotebookEdit", "--allowedTools", "Bash(/bin/acw status:*)", "Bash(/bin/acw queue:*)", "Bash(/bin/acw done:*)", "Bash(/bin/acw tell:*)", "Bash(/bin/acw board decision:*)"}
 	if !slices.Equal(got, want) {
 		t.Errorf("masterArgs(claude, no inbox) = %v, want %v", got, want)
 	}
 
-	if got := masterArgs("codex", "gpt", "/bin/acw", ""); slices.Contains(got, "--allowedTools") {
+	if got := masterArgs("claude", "opus", "/bin/acw", "", "/s/master.system.md", 0); slices.Contains(got, "--autocompact") {
+		t.Errorf("masterArgs(autocompact 0) = %v, want Claude Code's own window", got)
+	}
+	if got := masterArgs("codex", "gpt", "/bin/acw", "", "", 250000); slices.Contains(got, "--allowedTools") {
 		t.Errorf("masterArgs(codex) = %v; --allowedTools is Claude Code's own flag", got)
 	}
 }

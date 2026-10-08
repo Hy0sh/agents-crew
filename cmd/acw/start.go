@@ -144,11 +144,21 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if err := herdr.PaneRename(masterPane, "master"); err != nil {
 		return err
 	}
-	if err := herdr.AgentStart(masterName, opts.masterKind, masterPane, masterArgs(opts.masterKind, opts.masterModel, self, inboxWatch)...); err != nil {
+	// A claude master gets its brief as a system prompt (see masterArgs),
+	// and only a kickoff as its first prompt.
+	firstPrompt := masterBrief
+	briefPath := filepath.Join(names.StatusDir(repo), "master.system.md")
+	if opts.masterKind == "claude" {
+		if err := os.WriteFile(briefPath, []byte(masterBrief+"\n"), 0o644); err != nil {
+			return err
+		}
+		firstPrompt = masterKickoff
+	}
+	if err := herdr.AgentStart(masterName, opts.masterKind, masterPane, masterArgs(opts.masterKind, opts.masterModel, self, inboxWatch, briefPath, opts.masterAutocompact)...); err != nil {
 		return fmt.Errorf("herdr agent start master: %w", explainStart(err, masterDir))
 	}
 
-	if err := herdr.AgentPrompt(masterName, masterBrief); err != nil {
+	if err := herdr.AgentPrompt(masterName, firstPrompt); err != nil {
 		return fmt.Errorf("herdr agent prompt master: %w", err)
 	}
 	if err := herdr.WorkspaceFocus(workspaceID); err != nil {

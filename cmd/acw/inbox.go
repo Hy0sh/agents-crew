@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -24,6 +25,10 @@ const (
 	inboxWatchUse = "__inbox-watch"
 	inboxNextUse  = "__inbox-next"
 )
+
+// masterKickoff is the first prompt of a claude master, whose brief is
+// in its system prompt.
+const masterKickoff = "Your brief is in your system prompt: start as it says."
 
 // drainSettle is how long drainOnce waits after taking the inbox, so an
 // append that opened the file just before the rename still lands in what
@@ -67,11 +72,21 @@ func inboxNextCommand(exe, inbox string) string {
 // and a prompt at every re-run would stall the master just the same.
 // Scoped to acw's own commands, not Bash in general; --allowedTools is
 // Claude Code's own flag, so no other kind gets it.
-func masterArgs(kind, model, exe, inboxWatch string) []string {
+// A claude master also compacts at autocompact tokens, unless 0: it lives
+// all day, and every turn re-reads its whole context (left at the model's
+// 1M window, a day-long master ended past 800K). Its brief (briefPath)
+// goes in as a system prompt, which a compaction does not summarize away.
+// It is denied the file tools: it dispatches, it does not code.
+func masterArgs(kind, model, exe, inboxWatch, briefPath string, autocompact int) []string {
 	args := modelArgs(model)
 	if kind != "claude" {
 		return args
 	}
+	if autocompact > 0 {
+		args = append(args, "--autocompact", strconv.Itoa(autocompact))
+	}
+	args = append(args, "--append-system-prompt-file", briefPath,
+		"--disallowedTools", "Edit", "Write", "NotebookEdit")
 	args = append(args, "--allowedTools")
 	if inboxWatch != "" {
 		args = append(args,
