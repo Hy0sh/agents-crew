@@ -1,10 +1,12 @@
 package gitutil
 
 import (
+	"fmt"
 	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -140,6 +142,78 @@ func TestSwitchAndHasBranch(t *testing.T) {
 	}
 	if got, _ := CurrentBranch(dir); got != base {
 		t.Errorf("after Switch(existing): on %q, want %q", got, base)
+	}
+}
+
+// clone gives a clone of a new remote, and a git runner for any dir.
+func clone(t *testing.T) (remote, dir string, git func(dir string, args ...string)) {
+	t.Helper()
+	remote, dir = gitInit(t), t.TempDir()
+	git = func(dir string, args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.email=a@b", "-c", "user.name=a"}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git(dir, "clone", "-q", remote, ".")
+	return remote, dir, git
+}
+
+// A local branch that never followed origin's: behind it, then diverged.
+func TestDivergenceAndFastForward(t *testing.T) {
+	remote, dir, git := clone(t)
+	if a, b, err := Divergence(dir, "feat/x"); err != nil || a+b != 0 {
+		t.Fatalf("no such branch = %d, %d, %v", a, b, err)
+	}
+	git(remote, "branch", "feat/x")
+	git(dir, "fetch", "-q")
+	git(dir, "branch", "feat/x", "origin/feat/x")
+	git(remote, "switch", "-q", "feat/x")
+	for range 2 {
+		git(remote, "commit", "-q", "--allow-empty", "-m", "pushed by someone else")
+	}
+	if err := Fetch(dir); err != nil {
+		t.Fatal(err)
+	}
+	if a, b, err := Divergence(dir, "feat/x"); err != nil || a != 0 || b != 2 {
+		t.Fatalf("stale local = %d ahead, %d behind, %v; want 0, 2", a, b, err)
+	}
+	git(dir, "switch", "-q", "feat/x")
+	if err := FastForward(dir, "feat/x"); err != nil {
+		t.Fatal(err)
+	}
+	if a, b, _ := Divergence(dir, "feat/x"); a+b != 0 {
+		t.Errorf("after FastForward = %d, %d", a, b)
+	}
+	git(dir, "commit", "-q", "--allow-empty", "-m", "local")
+	git(remote, "commit", "-q", "--allow-empty", "-m", "remote")
+	Fetch(dir)
+	if a, b, _ := Divergence(dir, "feat/x"); a != 1 || b != 1 {
+		t.Errorf("diverged = %d, %d; want 1, 1", a, b)
+	}
+}
+
+// Worktrees of one repo share its refs: fetches at once used to fail on
+// "cannot lock ref".
+func TestConcurrentFetchesInWorktrees(t *testing.T) {
+	remote, dir, git := clone(t)
+	wts := []string{dir}
+	for i := range 3 {
+		wt := filepath.Join(t.TempDir(), "wt")
+		git(dir, "worktree", "add", "-q", "-b", fmt.Sprintf("w%d", i), wt)
+		wts = append(wts, wt)
+	}
+	for range 3 {
+		git(remote, "commit", "-q", "--allow-empty", "-m", "more")
+		var wg sync.WaitGroup
+		for _, wt := range wts {
+			wg.Go(func() {
+				if err := Fetch(wt); err != nil {
+					t.Error(err)
+				}
+			})
+		}
+		wg.Wait()
 	}
 }
 

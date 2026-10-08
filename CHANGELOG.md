@@ -19,6 +19,22 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   `--kind need-review` and nothing else, and no general-purpose worker
   takes those. `keep: true` opens it with the swarm and never closes it
   for being idle, so a review does not wait for a worktree and a stack.
+- `acw board` answers what waits on you, where each ticket stands and how
+  the swarm runs, instead of listing workers, PRs and decisions flat. A
+  "Waiting on you" block comes first, oldest first: plans, verdicts and
+  review drafts to approve (`*_ready`), a worker stopped on a prompt, a PR
+  ready for your merge, review asks nobody holds, decisions parked on you.
+  Tickets are read from branches, PR titles and tasks (`PROJ-123`), with
+  their stage, whom they wait on, their PRs and their decisions.
+- A Done button on each waiting line tells the master "the user marked
+  done", as information, never as an approval. The line comes back,
+  flagged, if the wait is still there two minutes later.
+- `acw board park`, `parked` and `resume`: the master puts off a decision
+  that waits on the client or on you, frees the worker, and picks it up
+  again by number, in this swarm or a later one, when you answer
+  "for #N: ...".
+- `acw tell workerN --command /reload-plugins` types a slash command into
+  an idle worker. Sent as a message, it was only ever read as text.
 
 ### Changed
 
@@ -28,6 +44,32 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   out, and git gives a branch to one worktree only: the reviewer, then
   whoever fixed what it found, could not check it out. A worker with
   uncommitted changes is left where it is, and the master told.
+- The board's banner says how long ago the watcher last reported. It said
+  "Live" whenever the page reloaded, even with the watcher dead.
+- `acw status` shows what a worker's screen says it waits on: a tool
+  running, background shells and monitors.
+- A draft marked ready for review reaches the master as such, no longer as
+  a new PR.
+- A worker that stops for an approval sets its state to `plan_ready`,
+  `verdict_ready` or `review_ready`.
+
+### Fixed
+
+- `--branch` on a branch that exists locally brings it up to origin's, or
+  refuses it when they diverged. A stale copy cut by another session was
+  rebased, and its force-push would have erased commits merged since.
+- Two workers taking a task at once no longer both fail on
+  `cannot lock ref`: acw's fetches take turns.
+- A worker under load was reported "idle without finishing its turn" when
+  its turn had ended: its Stop hook ran while herdr still said working.
+- A worker waiting on a long tool or on background work writing outside
+  its worktree is no longer reported silent.
+
+### Upgrading
+
+- The board's base gains tables and columns. Restart running swarms after
+  upgrading: a watcher started by an older acw can no longer write its
+  workers to it.
 
 ## [0.16.0] - 2026-10-08
 

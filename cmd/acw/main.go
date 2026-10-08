@@ -10,6 +10,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -425,6 +426,7 @@ func main() {
 	doneRepo = repoFlag(done)
 
 	var tellRepo func() (string, error)
+	var slash string
 	tell := &cobra.Command{
 		Use:   "tell workerN [message...]",
 		Short: "Leave a worker a message, read from stdin without one: it gets it at the end of its turn, or at once when idle",
@@ -434,10 +436,17 @@ func main() {
 			if err != nil {
 				return err
 			}
+			if slash != "" {
+				if len(args) > 1 {
+					return errors.New("--command takes no message: the command is all that is typed")
+				}
+				return commandWorker(repo, args[0], slash, cmd.OutOrStdout())
+			}
 			return tellByHand(repo, args[0], args[1:], cmd.InOrStdin(), cmd.OutOrStdout())
 		},
 	}
 	tellRepo = repoFlag(tell)
+	tell.Flags().StringVar(&slash, "command", "", "type this slash command (e.g. /reload-plugins) into the worker's input once it is idle, instead of a message")
 
 	pause := &cobra.Command{
 		Use:   "pause",

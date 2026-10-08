@@ -110,6 +110,9 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		DoneCommand:      shellWord(self) + " done --repo " + shellWord(repo),
 		TellCommand:      shellWord(self) + " tell --repo " + shellWord(repo),
 		DecisionCommand:  shellWord(self) + " board decision --repo " + shellWord(repo),
+		ParkCommand:      shellWord(self) + " board park --repo " + shellWord(repo),
+		ParkedCommand:    shellWord(self) + " board parked --repo " + shellWord(repo),
+		ResumeCommand:    shellWord(self) + " board resume",
 		SwitchCommand:    switchCommand,
 		PRWatch:          prWatchRepo != "",
 	})

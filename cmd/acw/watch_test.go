@@ -174,6 +174,53 @@ func TestWatcherTrustsAnIdleThatEndedATurn(t *testing.T) {
 	}
 }
 
+// Screens as Claude Code drew them on 2026-10-08: the footer under the
+// input line counts background work, a foreground tool says Running….
+func TestBusyOnScreen(t *testing.T) {
+	for _, c := range []struct{ screen, want string }{
+		{"✻ Churned for 2s · done 14:51 · 2 monitors still running\n\n────\n❯ \n────\n  ctx 14% · 5h 15%\n  ⏵⏵ auto mode on · 2 monitors · ← 4 agents\n", "2 monitors"},
+		{"────\n\x1b[2m❯\x1b[0m \n────\n  ⏵⏵ auto mode on · 1 shell, 3 monitors\n", "1 shell, 3 monitors"},
+		{"⏺ Bash(until [ -f /tmp/m.done ]; do sleep 15; done)\n  ⎿  Running… (3s · timeout 9m 50s)\n\n✻ Kneading… (43m 6s)\n────\n❯ \n────\n  ⏵⏵ auto mode on\n", "a tool running"},
+		// The conversation above the input line doesn't count.
+		{"I started 3 shells earlier.\n────\n❯ \n────\n  ⏵⏵ auto mode on\n", ""},
+		{"no input line at all, 2 monitors\n", ""},
+	} {
+		if got := busyOnScreen(c.screen); got != c.want {
+			t.Errorf("busyOnScreen(%q) = %q, want %q", c.screen, got, c.want)
+		}
+	}
+}
+
+// A silence explained by the screen is counted again from scratch.
+func TestWatcherRearm(t *testing.T) {
+	w := newWatcher(30 * time.Minute)
+	v := workerView{Label: "worker1", Hooked: true, Status: "working", Activity: t0}
+	w.observe(t0, []workerView{v})
+	w.observe(t0.Add(31*time.Minute), []workerView{v})
+	w.rearm("worker1", t0.Add(31*time.Minute))
+	if got := w.observe(t0.Add(50*time.Minute), []workerView{v}); len(got) != 0 {
+		t.Errorf("19 min after the rearm = %v, want nothing", got)
+	}
+	if got := kinds(w.observe(t0.Add(62*time.Minute), []workerView{v})); !slices.Equal(got, []eventKind{eventSilent}) {
+		t.Errorf("31 min after the rearm = %v, want a silent event", got)
+	}
+}
+
+// Under load herdr can still say working when the Stop hook has already
+// run: that turn end is the one the coming idle answers to.
+func TestWatcherTrustsATurnEndSeenWhileStillWorking(t *testing.T) {
+	w := newWatcher(30 * time.Minute)
+	v := workerView{Label: "worker1", Hooked: true, Status: "working", Activity: t0, TurnEnd: t0}
+	w.observe(t0, []workerView{v})
+	v.TurnEnd = t0.Add(4 * time.Second)
+	w.observe(t0.Add(5*time.Second), []workerView{v})
+	v.Status = "idle"
+	w.observe(t0.Add(10*time.Second), []workerView{v})
+	if got := w.observe(t0.Add(30*time.Second), []workerView{v}); len(got) != 0 {
+		t.Errorf("idle after a turn end seen while working = %v, want nothing", got)
+	}
+}
+
 func TestWatcherRemindsAnUnreadInboxOnce(t *testing.T) {
 	w := newWatcher(30 * time.Minute)
 	if w.remindInbox(t0, true) || w.remindInbox(t0.Add(4*time.Minute), true) {

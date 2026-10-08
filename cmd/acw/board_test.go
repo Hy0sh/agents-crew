@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -66,6 +68,37 @@ func TestBoardWorkerState(t *testing.T) {
 	}
 }
 
+// The worker's own state dates from state_since, and carries blocked_on.
+func TestBoardWorkerSinceAndBlockedOn(t *testing.T) {
+	now := time.Now()
+	pw := poolWorker{Index: 1, State: workerBusy, Since: now.Add(-time.Hour)}
+	s := workerStatus{State: "blocked", BlockedOn: "VAT rounding", StateSince: now.Add(-5 * time.Minute).UTC().Format(time.RFC3339)}
+	got := boardWorker("/r", pw, "idle", s, now)
+	if got.BlockedOn != "VAT rounding" || now.Sub(got.Since).Round(time.Minute) != 5*time.Minute {
+		t.Errorf("= %+v", got)
+	}
+	s.StateSince = ""
+	if got := boardWorker("/r", pw, "idle", s, now); !got.Since.Equal(pw.Since) {
+		t.Errorf("without state_since = %v, want the pool's", got.Since)
+	}
+}
+
+// herdr's blocked dates from the first poll that saw it, not from the task.
+func TestChangedWorkersDatesBlocked(t *testing.T) {
+	last := map[string]board.Worker{}
+	t0 := time.Unix(1000, 0)
+	w := board.Worker{Worker: "worker1", State: "coding", Since: time.Unix(1, 0), UpdatedAt: t0}
+	changedWorkers(last, []board.Worker{w})
+	w.State, w.UpdatedAt = "blocked", t0.Add(5*time.Second)
+	if got := changedWorkers(last, []board.Worker{w}); len(got) != 1 || !got[0].Since.Equal(t0.Add(5*time.Second)) {
+		t.Fatalf("newly blocked = %+v", got)
+	}
+	w.UpdatedAt = t0.Add(10 * time.Second)
+	if got := changedWorkers(last, []board.Worker{w}); len(got) != 0 {
+		t.Errorf("still blocked = %+v, want no write", got)
+	}
+}
+
 // Only what moved is written again; UpdatedAt alone is not a move.
 func TestChangedWorkers(t *testing.T) {
 	last := map[string]board.Worker{}
@@ -108,16 +141,83 @@ func TestPRFromURL(t *testing.T) {
 
 func TestBoardPR(t *testing.T) {
 	now := time.Now()
-	pr := prState{Number: 421, URL: "u", Title: "t", Base: "main", Mergeable: "CONFLICTING", CI: "green", LastReview: "APPROVED by alice", OpenThreads: 2}
-	got := boardPR("/r", pr, "worker2", "", now)
-	if got.Status != "conflicting" || got.CI != "green" || got.Review != "APPROVED by alice · 2 threads open" || got.Worker != "worker2" {
+	pr := prState{Number: 421, URL: "u", Title: "t", Head: "feat/x", Base: "main", Mergeable: "CONFLICTING", CI: "green", LastReview: "APPROVED by alice", OpenThreads: 2}
+	got := boardPR("/r", pr, "worker2", "", true, now)
+	if got.Status != "conflicting" || got.CI != "green" || got.Review != "APPROVED by alice · 2 threads open" || got.Worker != "worker2" || got.Head != "feat/x" {
 		t.Errorf("= %+v", got)
 	}
-	if got := boardPR("/r", pr, "", "merged", now); got.Status != "merged" {
-		t.Errorf("fate = %q, want merged", got.Status)
+	if !got.SinceReady.IsZero() || !got.SinceHole.IsZero() {
+		t.Errorf("conflicting and held = %+v, want neither ready nor a hole", got)
 	}
-	pr.Mergeable, pr.OpenThreads, pr.LastReview = "MERGEABLE", 0, ""
-	if got := boardPR("/r", pr, "", "", now); got.Status != "open" || got.Review != "" {
+	if got := boardPR("/r", pr, "", "merged", false, now); got.Status != "merged" || !got.SinceHole.IsZero() {
+		t.Errorf("fate = %+v, want merged and no hole", got)
+	}
+	// Threads open and nobody on it: a hole.
+	if got := boardPR("/r", pr, "", "", false, now); !got.SinceHole.Equal(now) {
+		t.Errorf("unheld threads = %+v, want a hole", got)
+	}
+	pr.Mergeable, pr.OpenThreads = "MERGEABLE", 0
+	if got := boardPR("/r", pr, "", "", false, now); !got.SinceReady.Equal(now) || !got.SinceHole.IsZero() {
+		t.Errorf("approved and green = %+v, want ready", got)
+	}
+	pr.LastReview = ""
+	if got := boardPR("/r", pr, "", "", false, now); got.Status != "open" || got.Review != "" || !got.SinceReady.IsZero() {
 		t.Errorf("plain = %+v", got)
+	}
+}
+
+// A busy worker holds its PR and branch, a free one nothing, a queued
+// task its branch.
+func TestHeldPRs(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "worker1.json"), []byte(`{"pr_url": "https://github.com/o/r/pull/1/", "branch": "feat/a"}`), 0o644)
+	os.WriteFile(filepath.Join(dir, "worker2.json"), []byte(`{"pr_url": "https://github.com/o/r/pull/2", "branch": "feat/b"}`), 0o644)
+	pool := poolState{Workers: []poolWorker{{Index: 1, State: workerBusy}, {Index: 2, State: workerFree}}}
+	urls, branches := heldPRs(dir, pool, taskQueue{Tasks: []queuedTask{{Branch: "feat/c"}}})
+	if !urls["https://github.com/o/r/pull/1"] || urls["https://github.com/o/r/pull/2"] || !branches["feat/a"] || branches["feat/b"] || !branches["feat/c"] {
+		t.Errorf("urls %v, branches %v", urls, branches)
+	}
+}
+
+// Park, list, read back and resume: the number is what the user quotes,
+// the answer becomes a decision, a second answer is refused.
+func TestParkAndResume(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	repo := t.TempDir()
+	run := func(stdin string, args ...string) (string, error) {
+		t.Helper()
+		cmd := boardCommand()
+		var out strings.Builder
+		cmd.SetOut(&out)
+		cmd.SetIn(strings.NewReader(stdin))
+		cmd.SetArgs(args)
+		err := cmd.Execute()
+		return out.String(), err
+	}
+	out, err := run("Which address on a reissue?\n1. the old one\n2. the new one", "park", "--repo", repo, "--ticket", "SHOP-7", "--on", "client")
+	if err != nil || !strings.HasPrefix(out, "#1 parked") {
+		t.Fatalf("park = %q, %v", out, err)
+	}
+	if _, err := run("x", "park", "--repo", repo); err == nil {
+		t.Error("park without --on accepted")
+	}
+	if out, _ := run("", "parked", "--repo", repo); !strings.Contains(out, "#1 SHOP-7 · waits on client") || !strings.Contains(out, "Which address") {
+		t.Errorf("parked = %q", out)
+	}
+	if out, _ := run("", "parked", "#1"); !strings.Contains(out, "2. the new one") {
+		t.Errorf("parked #1 = %q, want all of it", out)
+	}
+	if out, err := run("the old one", "resume", "1"); err != nil || !strings.Contains(out, "#1 closed") {
+		t.Fatalf("resume = %q, %v", out, err)
+	}
+	if _, err := run("the new one", "resume", "1"); err == nil || !strings.Contains(err.Error(), "the old one") {
+		t.Errorf("second resume = %v", err)
+	}
+	d := boardDay(t, repo, time.Now())
+	if len(d.Decisions) != 1 || d.Decisions[0].Text != "the old one" || d.Decisions[0].Subject != "SHOP-7" || !strings.Contains(d.Decisions[0].Why, "#1") {
+		t.Errorf("decisions = %+v", d.Decisions)
+	}
+	if out, _ := run("", "parked", "--repo", repo); !strings.Contains(out, "no decision parked") {
+		t.Errorf("parked after resume = %q", out)
 	}
 }

@@ -49,6 +49,7 @@ type prState struct {
 	Number    int
 	URL       string
 	Title     string
+	Head      string // its branch
 	Base      string
 	Mergeable string // MERGEABLE, CONFLICTING, or UNKNOWN while GitHub computes it
 	CI        string // red, green or running
@@ -62,6 +63,9 @@ type prState struct {
 	// Committer is the head commit's committer login, or its name when no
 	// GitHub account is linked to it.
 	Committer string
+	// WasDraft is set once the PR was marked ready for review: the search
+	// leaves drafts out, so one appearing that way is not a new PR.
+	WasDraft bool
 }
 
 const prSearchQuery = `query($q: String!) {
@@ -69,10 +73,11 @@ const prSearchQuery = `query($q: String!) {
   search(query: $q, type: ISSUE, first: 50) {
     nodes {
       ... on PullRequest {
-        number url title baseRefName mergeable
+        number url title headRefName baseRefName mergeable
         reviews(last: 100) { nodes { state author { login } } }
         reviewThreads(first: 100) { nodes { isResolved } }
         commits(last: 1) { nodes { commit { oid committer { name user { login } } statusCheckRollup { state } } } }
+        timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT]) { filteredCount }
       }
     }
   }
@@ -90,6 +95,7 @@ type prSearchResponse struct {
 				Number      int
 				URL         string
 				Title       string
+				HeadRefName string
 				BaseRefName string
 				Mergeable   string
 				Reviews     struct {
@@ -113,6 +119,9 @@ type prSearchResponse struct {
 						}
 					}
 				}
+				// filteredCount: totalCount counts the whole timeline,
+				// whatever itemTypes says.
+				TimelineItems struct{ FilteredCount int }
 			}
 		}
 	}
@@ -127,7 +136,8 @@ func parsePRSearch(data []byte) (viewer string, prs []prState, err error) {
 		if n.Number == 0 {
 			continue
 		}
-		pr := prState{Number: n.Number, URL: n.URL, Title: n.Title, Base: n.BaseRefName, Mergeable: n.Mergeable, CI: "running"}
+		pr := prState{Number: n.Number, URL: n.URL, Title: n.Title, Head: n.HeadRefName, Base: n.BaseRefName, Mergeable: n.Mergeable, CI: "running",
+			WasDraft: n.TimelineItems.FilteredCount > 0}
 		// The viewer's own reviews are left out: replying to a thread
 		// submits one, and it must not wake the master.
 		for _, rv := range n.Reviews.Nodes {
@@ -220,6 +230,9 @@ func diffPRs(prev map[int]prState, cur []prState, viewer string) (next map[int]p
 			continue
 		}
 		events := []string{"new PR"}
+		if pr.WasDraft {
+			events = []string{"ready for review (was a draft)"}
+		}
 		if seen {
 			events = prEvents(old, pr, viewer)
 		}

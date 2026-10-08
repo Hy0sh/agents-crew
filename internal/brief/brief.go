@@ -74,6 +74,10 @@ type MasterData struct {
 	// DecisionCommand records a decision on acw board, its text on stdin
 	// (acw board decision).
 	DecisionCommand string
+	// ParkCommand puts a decision off until someone answers, its text on
+	// stdin; ParkedCommand lists or prints the parked ones; ResumeCommand,
+	// followed by a number, closes one with the answer on stdin.
+	ParkCommand, ParkedCommand, ResumeCommand string
 	// SwitchCommand is `wtm switch` when acw found it and the workers in
 	// the code get a stack, empty otherwise: the brief stays
 	// tooling-neutral unless the tool is known to be there.
@@ -108,6 +112,8 @@ type Params struct {
 	DoneCommand     string
 	TellCommand     string
 	DecisionCommand string
+	// ParkCommand, ParkedCommand, ResumeCommand: see MasterData.
+	ParkCommand, ParkedCommand, ResumeCommand string
 	// SwitchCommand: see MasterData.
 	SwitchCommand string
 	PRWatch       bool
@@ -165,6 +171,9 @@ func newMasterData(p Params) MasterData {
 		DoneCommand:      p.DoneCommand,
 		TellCommand:      p.TellCommand,
 		DecisionCommand:  p.DecisionCommand,
+		ParkCommand:      p.ParkCommand,
+		ParkedCommand:    p.ParkedCommand,
+		ResumeCommand:    p.ResumeCommand,
 		SwitchCommand:    p.SwitchCommand,
 		PRWatch:          p.PRWatch,
 	}

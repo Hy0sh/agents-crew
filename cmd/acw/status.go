@@ -28,6 +28,9 @@ type statusRow struct {
 	Updated, TurnEnd, Activity      time.Time
 	StateSince                      time.Time
 	Context, FiveHour               *float64
+	// Busy is what its screen shows it waiting on (busyOnScreen): a
+	// worker on background work keeps a state that looks frozen.
+	Busy string
 }
 
 // maxWorkers bounds the scan for workers in collectStatus.
@@ -44,6 +47,9 @@ func renderStatus(now time.Time, rows []statusRow, unread int, lastAt time.Time,
 		state := orDash(r.State)
 		if r.State != "" && !r.StateSince.IsZero() {
 			state += " since " + age(now, r.StateSince)
+		}
+		if r.Busy != "" {
+			state += ", waiting on " + r.Busy
 		}
 		label := r.Label
 		if r.Name != "" {
@@ -101,6 +107,13 @@ func collectStatus(repo string) (rows []statusRow, unread int, lastAt time.Time,
 		return nil, 0, time.Time{}, fmt.Errorf("herdr agent list: %w", err)
 	}
 	rows = scanWorkers(statusDir, agents, names.Slug(repo))
+	for i, r := range rows {
+		if r.Name != "" {
+			if screen, err := herdr.AgentScreen(r.Name); err == nil {
+				rows[i].Busy = busyOnScreen(screen)
+			}
+		}
+	}
 	if content, err := os.ReadFile(names.Inbox(repo)); err == nil && len(content) > 0 {
 		unread = bytes.Count(content, []byte("\n"))
 		if info, err := os.Stat(names.Inbox(repo)); err == nil {
