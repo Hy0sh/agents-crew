@@ -6,6 +6,8 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-08
+
 ### Added
 
 - `acw queue add --after <id>` (repeatable) holds a task until the tasks
@@ -752,7 +754,8 @@ project: 7 PRs, 3 merged. Each entry names what actually went wrong.
   anything, with a clear message and install instructions if not; `wtm` is
   checked too but stays optional.
 
-[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/Hy0sh/agents-crew/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/Hy0sh/agents-crew/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/Hy0sh/agents-crew/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/Hy0sh/agents-crew/compare/v0.13.1...v0.14.0
