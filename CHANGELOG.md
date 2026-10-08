@@ -6,6 +6,18 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Changed
+
+- A claude master compacts at 250000 tokens, set with
+  `--master-autocompact` or the `master-autocompact` key (`0` leaves
+  Claude Code's own window). Left at the model's 1M window, a day-long
+  master ended past 800K, and every turn re-read all of it.
+- A claude master gets its brief as a system prompt, and only a short
+  kickoff as its first prompt. Sent as the first prompt, the brief was
+  summarized by every compaction, its rules with it.
+- A claude master is denied `Edit`, `Write` and `NotebookEdit`: it had
+  coded a task itself instead of dispatching it.
+
 ## [0.15.0] - 2026-10-07
 
 ### Changed

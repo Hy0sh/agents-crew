@@ -34,7 +34,10 @@ type Project struct {
 	WorkerKind  *string `json:"worker-kind,omitempty"`
 	MasterModel *string `json:"master-model,omitempty"`
 	WorkerModel *string `json:"worker-model,omitempty"`
-	Brief       *string `json:"brief,omitempty"`
+	// MasterAutocompact is the context size, in tokens, at which a claude
+	// master compacts; 0 leaves Claude Code's own.
+	MasterAutocompact *int    `json:"master-autocompact,omitempty"`
+	Brief             *string `json:"brief,omitempty"`
 	// BriefExtra is a template appended to the brief, built-in or custom:
 	// a mode such as a test campaign, without forking the whole brief.
 	BriefExtra *string `json:"brief-extra,omitempty"`
@@ -257,6 +260,7 @@ func (p *Project) Summary() string {
 	addStr("worker-kind", p.WorkerKind)
 	addStr("master-model", p.MasterModel)
 	addStr("worker-model", p.WorkerModel)
+	addInt("master-autocompact", p.MasterAutocompact)
 	addStr("brief", p.Brief)
 	addStr("brief-extra", p.BriefExtra)
 	addStr("profile", p.Profile)

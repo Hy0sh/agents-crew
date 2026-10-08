@@ -90,6 +90,7 @@ only way to stop a swarm.
 | `--worker-kind` | `claude` | Herdr agent kind for the workers |
 | `--master-model` | `opus` | model for the master; **empty means no `--model` is passed** to its CLI, for a kind that has no such flag |
 | `--worker-model` | `sonnet` | model for the workers; same empty-means-nothing rule |
+| `--master-autocompact` | `250000` | context size in tokens (100000 to 1000000) at which a claude master compacts; `0` leaves Claude Code's own, see [The master](#the-master) |
 | `--preset` | *(none)* | a named preset of the repo's config entry, laid over it, see [Presets](#presets) |
 | `--brief` | *(built-in)* | path to a custom master brief template, see [Custom brief template](#custom-brief-template) |
 | `--pr-watch` | off | tell the master what changed on your open pull requests, see [PR watch](#pr-watch) |
@@ -296,6 +297,17 @@ after `idle-close-minutes`, unless that would take the pool under
 `min-workers` set to `workers` opens every worker at launch and never
 closes one: the fixed swarm of acw 0.10.
 
+### The master
+
+A claude master lives all day, and every turn re-reads its whole context.
+It therefore compacts at `master-autocompact` tokens (250000 by default)
+instead of the model's 1M window. **Its brief is in its system prompt**,
+so no compaction summarizes it away; its first prompt only tells it to
+start. **It cannot edit a file**: `Edit`, `Write` and `NotebookEdit` are
+denied to it (`--disallowedTools`), whatever its permission mode. It
+dispatches, it does not code. It still has Bash, for the briefs it writes
+with a heredoc, so a rule against coding through Bash stays in its brief.
+
 ### What each claude worker gets
 
 **Its role, in its system prompt**, which survives the reset before each
@@ -494,6 +506,7 @@ The commands above write this; editing it directly works just as well.
 | `max-stacks` | `--max-stacks` | same as `workers` |
 | `master-kind` / `worker-kind` | `--master-kind` / `--worker-kind` | `claude` |
 | `master-model` / `worker-model` | `--master-model` / `--worker-model` | `opus` / `sonnet`; `""` means no `--model`, like the flag |
+| `master-autocompact` | `--master-autocompact` | `250000`; `0` leaves Claude Code's own |
 | `brief` | `--brief` | built-in template |
 | `brief-extra` | *(no flag)* | none: a template appended to the brief, see [Custom brief template](#custom-brief-template) |
 | `profile` | *(no flag)* | none: the whole stack |
