@@ -112,10 +112,11 @@ the terminal too.
 | `acw dispatch [--repo <dir>] worker1 <brief-file>` | hand a worker a task outside the queue | you |
 | `acw pause` / `acw resume` | stop / restart the workers' stacks | you |
 | `acw project create\|edit [dir]` | write the repo's config entry | you |
-| `acw board` | local read-only page of what the swarms did | you |
+| `acw board` | local page of what waits on you, ticket by ticket | you |
+| `acw board decision\|park\|parked\|resume [--repo <dir>] ...` | record a decision, put one off, list or close the ones put off | master |
 
-A `claude` master is started allowed to run `status`, `queue`, `done` and
-`tell` without a prompt, and nothing broader (see
+A `claude` master is started allowed to run `status`, `queue`, `done`,
+`tell` and its `board` commands without a prompt, and nothing broader (see
 [The master's inbox](#the-masters-inbox) for the exact list). `clear` and
 `dispatch` stay yours.
 
@@ -406,7 +407,9 @@ broader:
 ```
 --allowedTools "Bash(<acw> __inbox-watch:*)" "Bash(<acw> __inbox-next:*)"
                "Bash(<acw> status:*)" "Bash(<acw> queue:*)" "Bash(<acw> done:*)"
-               "Bash(<acw> tell:*)"
+               "Bash(<acw> tell:*)" "Bash(<acw> board decision:*)"
+               "Bash(<acw> board park:*)" "Bash(<acw> board parked:*)"
+               "Bash(<acw> board resume:*)"
 ```
 
 The two inbox commands only when it reads an inbox. A master of another
@@ -789,6 +792,9 @@ and keep the variables you need:
 | `{{.DoneCommand}}` | `acw done --repo <repo>`, fully written, to follow with a worker's label (`worker2`): ends its task |
 | `{{.TellCommand}}` | `acw tell --repo <repo>`, fully written, to follow with a worker's label and the message on stdin: leaves it a message |
 | `{{.DecisionCommand}}` | `acw board decision --repo <repo>`, fully written, to follow with the decision on stdin: records it on the board |
+| `{{.ParkCommand}}` | `acw board park --repo <repo>`, fully written, to follow with `--ticket`, `--on` and the question on stdin: puts a decision off, prints its number |
+| `{{.ParkedCommand}}` | `acw board parked --repo <repo>`, fully written: lists the parked decisions, or prints one given its number |
+| `{{.ResumeCommand}}` | `acw board resume`, fully written, to follow with a number and the answer on stdin: closes a parked decision |
 | `{{.SwitchCommand}}` | `wtm switch` when acw found it (wtm 0.26.0 or later) and the workers in the code get a stack; empty otherwise |
 | `{{.PRWatch}}` | `true` when `pr-watch` is on: the master receives `PR #…` lines for the PRs that changed |
 
@@ -822,20 +828,49 @@ variables. A preset is where it usually belongs:
 
 ## Board
 
-`acw board` opens a local page of what your swarms did, on `127.0.0.1` (a
-free port, or `--port`), until Ctrl-C. It is read-only: nothing on it
-reaches an agent.
+`acw board` opens a local page on `127.0.0.1` (a free port, or `--port`),
+until Ctrl-C. It answers three questions, in this order: what waits on a
+gesture of yours, where each ticket stands, and whether the swarm runs
+well. Nothing on it is stored for it: it is read off what the watcher and
+the master write.
 
-- **Workers**: each one's state, subject, branch, PR and summary, as acw's
-  watcher sees them.
-- **Pull requests followed**: from the PR watch when it runs (title, base,
-  CI, reviews), otherwise from the PRs the workers' status files name.
-- **Decisions**: what the master records with `acw board decision`, the 8
-  latest of the day first.
-- **Handled**: each task `acw done` ended, with its outcome.
+- **The banner** says how long ago the watcher last reported: green, orange
+  after 2 minutes, red after 10. A page that only reloads can't tell a
+  quiet swarm from a dead watcher.
+- **Waiting on you**, oldest first: a worker in a `*_ready` state (a plan,
+  a verdict or a review draft to approve), a worker's `blocked_on`, a
+  worker stopped on a prompt, a PR approved and green waiting for your
+  merge, a PR with review asks that no busy worker and no queued task
+  holds, and the decisions parked on you. The last two need the PR watch;
+  without it the page says so.
+- **Parked decisions** waiting on someone else, with what to tell the
+  master when the answer comes: "for #7: ...".
+- **Tickets**, the oldest wait first: the key is read in the branch, the PR
+  title or the task (`PROJ-123`), and a stacked PR without one takes its
+  base's. Each ticket shows its stage, whom it waits on and since when, its
+  PRs (base, CI, review) and its decisions. PRs without a key and tickets
+  finished today come after.
+- **The swarm**: watcher, queue, inbox, 5-hour quota, and a line per
+  worker with what its screen shows it waiting on.
 
-A repo picker and a day picker read the history: a past day shows its
-decisions and handled tasks. Everything lives in one SQLite base,
+**Done**: each line of "Waiting on you" has a button that tells the master
+"the user marked done: ..." and sets the line aside. The master takes it as
+information, never as an approval: a gate or a merge still waits for your
+words. If the wait is still there two minutes later, the line comes back,
+flagged. The button only works from the page itself: it needs a header of
+its own, which makes a browser ask first, and nothing answers that, so
+another site open in the same browser can't write to your master.
+
+**Parked decisions**: the master puts off a decision that waits on the
+client, a third party or a gesture of yours with `acw board park --ticket
+<key> --on <who>` (the question, its options and what it needs to resume
+on stdin) and frees the worker. Its number holds from one swarm to the
+next. `acw board parked` lists them; when the answer comes, tell the
+master "for #7: <answer>", and it closes it with `acw board resume 7`,
+which records the answer as a decision.
+
+A repo picker and a day picker read the history: a past day shows the
+tickets it touched and their decisions. Everything lives in one SQLite base,
 `~/.local/state/acw/board.db` (`$XDG_STATE_HOME/acw/board.db` if set),
 written whether the page is open or not, and never purged. A write that
 fails never stops the swarm.

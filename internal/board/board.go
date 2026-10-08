@@ -8,6 +8,8 @@ package board
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -33,13 +35,24 @@ CREATE TABLE IF NOT EXISTS prs (repo TEXT, number INTEGER, url TEXT, title TEXT,
 CREATE TABLE IF NOT EXISTS handled (repo TEXT, at INTEGER, worker TEXT, task INTEGER, subject TEXT, summary TEXT, pr_url TEXT, outcome TEXT);
 CREATE TABLE IF NOT EXISTS decisions (repo TEXT, at INTEGER, worker TEXT, subject TEXT, text TEXT, why TEXT);
 CREATE TABLE IF NOT EXISTS watchers (repo TEXT PRIMARY KEY, seen INTEGER);
+CREATE TABLE IF NOT EXISTS parked (id INTEGER PRIMARY KEY, repo TEXT, ticket TEXT, worker TEXT, on_whom TEXT, text TEXT, created_at INTEGER, closed_at INTEGER, answer TEXT);
+CREATE TABLE IF NOT EXISTS marks (repo TEXT, item TEXT, at INTEGER);
 CREATE INDEX IF NOT EXISTS handled_day ON handled (repo, at);
 CREATE INDEX IF NOT EXISTS decisions_day ON decisions (repo, at);`
 
 // migrations[i] takes a base from version i+1 to i+2. A new base starts at
-// version 1 and goes through them all, like an old one.
+// version 1 and goes through them all, like an old one. Writes name their
+// columns: a column added here lands at the end of its table.
 var migrations = []string{
 	`ALTER TABLE workers ADD COLUMN blocked_on TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE workers ADD COLUMN busy TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE workers ADD COLUMN ctx REAL`,
+	`ALTER TABLE workers ADD COLUMN five_hour REAL`,
+	`ALTER TABLE prs ADD COLUMN head TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE prs ADD COLUMN since_ready INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE prs ADD COLUMN since_hole INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE watchers ADD COLUMN queue INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE watchers ADD COLUMN inbox INTEGER NOT NULL DEFAULT 0`,
 }
 
 type DB struct{ sql *sql.DB }
@@ -106,29 +119,55 @@ func migrate(db *sql.DB) error {
 func (b *DB) Close() error { return b.sql.Close() }
 
 type Worker struct {
-	Repo      string    `json:"-"`
-	Worker    string    `json:"worker"`
-	State     string    `json:"state"`
-	Subject   string    `json:"subject"`
-	Branch    string    `json:"branch"`
-	PRURL     string    `json:"pr_url"`
-	Summary   string    `json:"summary"`
-	BlockedOn string    `json:"blocked_on"`
+	Repo      string `json:"-"`
+	Worker    string `json:"worker"`
+	State     string `json:"state"`
+	Subject   string `json:"subject"`
+	Branch    string `json:"branch"`
+	PRURL     string `json:"pr_url"`
+	Summary   string `json:"summary"`
+	BlockedOn string `json:"blocked_on"`
+	// Busy is what its screen shows it waiting on: a tool running, or
+	// background shells and monitors.
+	Busy      string    `json:"busy"`
+	Context   *float64  `json:"ctx"`
+	FiveHour  *float64  `json:"five_hour"`
 	Since     time.Time `json:"since"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type PR struct {
-	Repo      string    `json:"-"`
-	Number    int       `json:"number"`
-	URL       string    `json:"url"`
-	Title     string    `json:"title"`
-	Worker    string    `json:"worker"`
-	Base      string    `json:"base"`
-	Status    string    `json:"status"`
-	CI        string    `json:"ci"`
-	Review    string    `json:"review"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Repo   string `json:"-"`
+	Number int    `json:"number"`
+	URL    string `json:"url"`
+	Title  string `json:"title"`
+	Worker string `json:"worker"`
+	Head   string `json:"head"`
+	Base   string `json:"base"`
+	Status string `json:"status"`
+	CI     string `json:"ci"`
+	Review string `json:"review"`
+	// SinceReady and SinceHole are when the watcher first saw the PR
+	// ready for its merge, or with review asks and nobody on it; zero
+	// while it isn't. A later write keeps the first date.
+	SinceReady time.Time `json:"since_ready"`
+	SinceHole  time.Time `json:"since_hole"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// Parked is a decision the master put off until someone answers: the
+// client, a third party, or the user (On "me"). Its ID is the number the
+// user quotes back, the same from one swarm to the next.
+type Parked struct {
+	ID        int64      `json:"id"`
+	Repo      string     `json:"-"`
+	Ticket    string     `json:"ticket"`
+	Worker    string     `json:"worker"`
+	On        string     `json:"on"`
+	Text      string     `json:"text"`
+	CreatedAt time.Time  `json:"created_at"`
+	ClosedAt  *time.Time `json:"closed_at"`
+	Answer    string     `json:"answer"`
 }
 
 type Handled struct {
@@ -155,12 +194,19 @@ type Decision struct {
 // today: workers and PRs are the current state, so only today has them,
 // and Seen, the last time a watcher of the repo wrote it was alive.
 type Day struct {
-	Live      bool       `json:"live"`
-	Seen      *time.Time `json:"seen"`
-	Workers   []Worker   `json:"workers"`
-	PRs       []PR       `json:"prs"`
-	Handled   []Handled  `json:"handled"`
-	Decisions []Decision `json:"decisions"`
+	Live bool       `json:"live"`
+	Seen *time.Time `json:"seen"`
+	// Queue and Inbox are the task queue's length and the master's unread
+	// messages at Seen.
+	Queue, Inbox int
+	Workers      []Worker   `json:"workers"`
+	PRs          []PR       `json:"prs"`
+	Handled      []Handled  `json:"handled"`
+	Decisions    []Decision `json:"decisions"`
+	// Parked holds the open parked decisions, Marks the lines marked done
+	// on the page in the last day, by item: today only, like Workers.
+	Parked []Parked
+	Marks  map[string]time.Time
 }
 
 type RepoDays struct {
@@ -169,16 +215,34 @@ type RepoDays struct {
 }
 
 func (b *DB) UpsertWorker(w Worker) error {
-	_, err := b.sql.Exec(`INSERT OR REPLACE INTO workers VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		w.Repo, w.Worker, w.State, w.Subject, w.Branch, w.PRURL, w.Summary, w.Since.Unix(), w.UpdatedAt.Unix(), w.BlockedOn)
+	_, err := b.sql.Exec(`INSERT OR REPLACE INTO workers (repo, worker, state, subject, branch, pr_url, summary, since, updated_at, blocked_on, busy, ctx, five_hour)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		w.Repo, w.Worker, w.State, w.Subject, w.Branch, w.PRURL, w.Summary, w.Since.Unix(), w.UpdatedAt.Unix(), w.BlockedOn, w.Busy, w.Context, w.FiveHour)
 	return err
 }
 
-// Beat records that a watcher of repo is alive at at: a page that only
-// reloads can't tell a quiet swarm from a dead watcher.
-func (b *DB) Beat(repo string, at time.Time) error {
-	_, err := b.sql.Exec(`INSERT OR REPLACE INTO watchers VALUES (?,?)`, repo, at.Unix())
+// Beat records that a watcher of repo is alive at at, with its queue's
+// length and the master's unread messages: a page that only reloads can't
+// tell a quiet swarm from a dead watcher.
+func (b *DB) Beat(repo string, at time.Time, queue, inbox int) error {
+	_, err := b.sql.Exec(`INSERT OR REPLACE INTO watchers (repo, seen, queue, inbox) VALUES (?,?,?,?)`, repo, at.Unix(), queue, inbox)
 	return err
+}
+
+// unix is t as unix seconds, 0 for the zero time.
+func unix(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.Unix()
+}
+
+// fromUnix is the reverse of unix.
+func fromUnix(s int64) time.Time {
+	if s == 0 {
+		return time.Time{}
+	}
+	return time.Unix(s, 0)
 }
 
 func (b *DB) DeleteWorker(repo, worker string) error {
@@ -199,12 +263,95 @@ func (b *DB) KeepWorkers(repo string, keep []string) error {
 }
 
 func (b *DB) UpsertPR(p PR) error {
-	// The worker is kept when the new row has none: once its worker moves on, nothing names the owner any more.
-	_, err := b.sql.Exec(`INSERT INTO prs VALUES (?,?,?,?,?,?,?,?,?,?)
+	// The worker and the head are kept when the new row has none: once
+	// its worker moves on, nothing names the owner any more, and a row
+	// from a status file knows no head. A since stays the first one seen.
+	_, err := b.sql.Exec(`INSERT INTO prs (repo, number, url, title, worker, base, status, ci, review, updated_at, head, since_ready, since_hole)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT (repo, number) DO UPDATE SET url=excluded.url, title=excluded.title,
 		worker=CASE WHEN excluded.worker <> '' THEN excluded.worker ELSE prs.worker END,
-		base=excluded.base, status=excluded.status, ci=excluded.ci, review=excluded.review, updated_at=excluded.updated_at`,
-		p.Repo, p.Number, p.URL, p.Title, p.Worker, p.Base, p.Status, p.CI, p.Review, p.UpdatedAt.Unix())
+		head=CASE WHEN excluded.head <> '' THEN excluded.head ELSE prs.head END,
+		base=excluded.base, status=excluded.status, ci=excluded.ci, review=excluded.review, updated_at=excluded.updated_at,
+		since_ready=CASE WHEN excluded.since_ready = 0 THEN 0 WHEN prs.since_ready <> 0 THEN prs.since_ready ELSE excluded.since_ready END,
+		since_hole=CASE WHEN excluded.since_hole = 0 THEN 0 WHEN prs.since_hole <> 0 THEN prs.since_hole ELSE excluded.since_hole END`,
+		p.Repo, p.Number, p.URL, p.Title, p.Worker, p.Base, p.Status, p.CI, p.Review, p.UpdatedAt.Unix(), p.Head, unix(p.SinceReady), unix(p.SinceHole))
+	return err
+}
+
+// Park records a decision put off, and returns its number.
+func (b *DB) Park(p Parked) (int64, error) {
+	res, err := b.sql.Exec(`INSERT INTO parked (repo, ticket, worker, on_whom, text, created_at, closed_at, answer) VALUES (?,?,?,?,?,?,NULL,'')`,
+		p.Repo, p.Ticket, p.Worker, p.On, p.Text, p.CreatedAt.Unix())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+const parkedColumns = `id, repo, ticket, worker, on_whom, text, created_at, closed_at, answer`
+
+func scanParked(scan func(...any) error) (Parked, error) {
+	var p Parked
+	var created int64
+	var closed sql.NullInt64
+	if err := scan(&p.ID, &p.Repo, &p.Ticket, &p.Worker, &p.On, &p.Text, &created, &closed, &p.Answer); err != nil {
+		return p, err
+	}
+	p.CreatedAt = time.Unix(created, 0)
+	if closed.Valid {
+		t := time.Unix(closed.Int64, 0)
+		p.ClosedAt = &t
+	}
+	return p, nil
+}
+
+// GetParked reads parked decision id, open or closed.
+func (b *DB) GetParked(id int64) (Parked, error) {
+	p, err := scanParked(b.sql.QueryRow(`SELECT `+parkedColumns+` FROM parked WHERE id = ?`, id).Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		return p, fmt.Errorf("no parked decision #%d", id)
+	}
+	return p, err
+}
+
+// OpenParked lists repo's parked decisions still waiting, oldest first.
+func (b *DB) OpenParked(repo string) ([]Parked, error) {
+	rows, err := b.sql.Query(`SELECT `+parkedColumns+` FROM parked WHERE repo = ? AND closed_at IS NULL ORDER BY id`, repo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Parked{}
+	for rows.Next() {
+		p, err := scanParked(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// CloseParked closes parked decision id with answer. One already closed
+// is refused, saying when and with what: a second answer would be lost.
+func (b *DB) CloseParked(id int64, answer string, at time.Time) (Parked, error) {
+	res, err := b.sql.Exec(`UPDATE parked SET closed_at = ?, answer = ? WHERE id = ? AND closed_at IS NULL`, at.Unix(), answer, id)
+	if err != nil {
+		return Parked{}, err
+	}
+	p, err := b.GetParked(id)
+	if err != nil {
+		return p, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return p, fmt.Errorf("#%d was already closed on %s, with: %s", id, p.ClosedAt.Local().Format("02/01 15:04"), p.Answer)
+	}
+	return p, nil
+}
+
+// Mark records that the user marked item done on the page.
+func (b *DB) Mark(repo, item string, at time.Time) error {
+	_, err := b.sql.Exec(`INSERT INTO marks (repo, item, at) VALUES (?,?,?)`, repo, item, at.Unix())
 	return err
 }
 
@@ -231,10 +378,11 @@ func bounds(t time.Time) (int64, int64) {
 func (b *DB) Board(repo string, day, now time.Time) (Day, error) {
 	start, end := bounds(day)
 	today, _ := bounds(now)
-	d := Day{Live: start == today, Workers: []Worker{}, PRs: []PR{}, Handled: []Handled{}, Decisions: []Decision{}}
+	d := Day{Live: start == today, Workers: []Worker{}, PRs: []PR{}, Handled: []Handled{}, Decisions: []Decision{},
+		Parked: []Parked{}, Marks: map[string]time.Time{}}
 	if d.Live {
 		var seen int64
-		switch err := b.sql.QueryRow(`SELECT seen FROM watchers WHERE repo = ?`, repo).Scan(&seen); err {
+		switch err := b.sql.QueryRow(`SELECT seen, queue, inbox FROM watchers WHERE repo = ?`, repo).Scan(&seen, &d.Queue, &d.Inbox); err {
 		case nil:
 			t := time.Unix(seen, 0)
 			d.Seen = &t
@@ -242,14 +390,14 @@ func (b *DB) Board(repo string, day, now time.Time) (Day, error) {
 		default:
 			return d, err
 		}
-		rows, err := b.sql.Query(`SELECT worker, state, subject, branch, pr_url, summary, blocked_on, since, updated_at FROM workers WHERE repo = ? ORDER BY worker`, repo)
+		rows, err := b.sql.Query(`SELECT worker, state, subject, branch, pr_url, summary, blocked_on, busy, ctx, five_hour, since, updated_at FROM workers WHERE repo = ? ORDER BY worker`, repo)
 		if err != nil {
 			return d, err
 		}
 		for rows.Next() {
 			w := Worker{Repo: repo}
 			var since, updated int64
-			if err := rows.Scan(&w.Worker, &w.State, &w.Subject, &w.Branch, &w.PRURL, &w.Summary, &w.BlockedOn, &since, &updated); err != nil {
+			if err := rows.Scan(&w.Worker, &w.State, &w.Subject, &w.Branch, &w.PRURL, &w.Summary, &w.BlockedOn, &w.Busy, &w.Context, &w.FiveHour, &since, &updated); err != nil {
 				rows.Close()
 				return d, err
 			}
@@ -257,19 +405,36 @@ func (b *DB) Board(repo string, day, now time.Time) (Day, error) {
 			d.Workers = append(d.Workers, w)
 		}
 		rows.Close()
-		rows, err = b.sql.Query(`SELECT number, url, title, worker, base, status, ci, review, updated_at FROM prs WHERE repo = ? AND updated_at >= ? AND updated_at < ? ORDER BY number DESC`, repo, start, end)
+		rows, err = b.sql.Query(`SELECT number, url, title, worker, head, base, status, ci, review, since_ready, since_hole, updated_at FROM prs WHERE repo = ? AND updated_at >= ? AND updated_at < ? ORDER BY number DESC`, repo, start, end)
 		if err != nil {
 			return d, err
 		}
 		for rows.Next() {
 			p := PR{Repo: repo}
-			var updated int64
-			if err := rows.Scan(&p.Number, &p.URL, &p.Title, &p.Worker, &p.Base, &p.Status, &p.CI, &p.Review, &updated); err != nil {
+			var ready, hole, updated int64
+			if err := rows.Scan(&p.Number, &p.URL, &p.Title, &p.Worker, &p.Head, &p.Base, &p.Status, &p.CI, &p.Review, &ready, &hole, &updated); err != nil {
 				rows.Close()
 				return d, err
 			}
-			p.UpdatedAt = time.Unix(updated, 0)
+			p.SinceReady, p.SinceHole, p.UpdatedAt = fromUnix(ready), fromUnix(hole), time.Unix(updated, 0)
 			d.PRs = append(d.PRs, p)
+		}
+		rows.Close()
+		if d.Parked, err = b.OpenParked(repo); err != nil {
+			return d, err
+		}
+		rows, err = b.sql.Query(`SELECT item, max(at) FROM marks WHERE repo = ? AND at >= ? GROUP BY item`, repo, now.Add(-24*time.Hour).Unix())
+		if err != nil {
+			return d, err
+		}
+		for rows.Next() {
+			var item string
+			var at int64
+			if err := rows.Scan(&item, &at); err != nil {
+				rows.Close()
+				return d, err
+			}
+			d.Marks[item] = time.Unix(at, 0)
 		}
 		rows.Close()
 	}

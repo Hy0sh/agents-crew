@@ -2,6 +2,7 @@ package board
 
 import (
 	"database/sql"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -200,20 +201,76 @@ INSERT INTO workers VALUES ('/r', 'worker1', 'coding', 'SHOP-142', '', '', '', 0
 	}
 }
 
-// Seen is the repo's last beat, today only, nil before any.
+// Seen is the repo's last beat, with its queue and inbox, today only, nil
+// before any.
 func TestBeat(t *testing.T) {
 	b := open(t)
 	if d, _ := b.Board("/r", noon, noon); d.Seen != nil {
 		t.Errorf("seen before any beat = %v", d.Seen)
 	}
-	b.Beat("/r", noon)
-	b.Beat("/r", noon.Add(30*time.Second))
-	b.Beat("/other", noon.Add(time.Hour))
-	if d, _ := b.Board("/r", noon, noon); d.Seen == nil || !d.Seen.Equal(noon.Add(30*time.Second)) {
-		t.Errorf("seen = %v", d.Seen)
+	b.Beat("/r", noon, 0, 0)
+	b.Beat("/r", noon.Add(30*time.Second), 2, 5)
+	b.Beat("/other", noon.Add(time.Hour), 0, 0)
+	if d, _ := b.Board("/r", noon, noon); d.Seen == nil || !d.Seen.Equal(noon.Add(30*time.Second)) || d.Queue != 2 || d.Inbox != 5 {
+		t.Errorf("seen = %v, queue %d, inbox %d", d.Seen, d.Queue, d.Inbox)
 	}
 	if d, _ := b.Board("/r", noon.AddDate(0, 0, -1), noon); d.Seen != nil {
 		t.Errorf("past day seen = %v", d.Seen)
+	}
+}
+
+// A parked decision gets a number, waits until closed once; a second
+// answer is refused with the first.
+func TestParked(t *testing.T) {
+	b := open(t)
+	id, err := b.Park(Parked{Repo: "/r", Ticket: "SHOP-7", On: "client", Text: "Which address?\n1. old 2. new", CreatedAt: noon})
+	if err != nil || id == 0 {
+		t.Fatalf("Park = %d, %v", id, err)
+	}
+	b.Park(Parked{Repo: "/other", On: "me", Text: "elsewhere", CreatedAt: noon})
+	if got, _ := b.OpenParked("/r"); len(got) != 1 || got[0].ID != id || got[0].Ticket != "SHOP-7" {
+		t.Errorf("OpenParked = %+v", got)
+	}
+	if d, _ := b.Board("/r", noon, noon); len(d.Parked) != 1 {
+		t.Errorf("board parked = %+v", d.Parked)
+	}
+	p, err := b.CloseParked(id, "the old one", noon.Add(time.Hour))
+	if err != nil || p.Answer != "the old one" || p.ClosedAt == nil {
+		t.Fatalf("CloseParked = %+v, %v", p, err)
+	}
+	if _, err := b.CloseParked(id, "the new one", noon.Add(2*time.Hour)); err == nil || !strings.Contains(err.Error(), "the old one") {
+		t.Errorf("second close = %v, want a refusal quoting the first answer", err)
+	}
+	if got, _ := b.OpenParked("/r"); len(got) != 0 {
+		t.Errorf("open after close = %+v", got)
+	}
+	if _, err := b.GetParked(999); err == nil {
+		t.Error("GetParked(999) found something")
+	}
+}
+
+// A since stays the first one seen while the condition holds, and goes
+// when it stops; head and worker survive a row that lacks them.
+func TestUpsertPRKeepsTheFirstSince(t *testing.T) {
+	b := open(t)
+	b.UpsertPR(PR{Repo: "/r", Number: 1, Head: "feat/x", Worker: "worker1", Status: "open", SinceReady: noon, UpdatedAt: noon})
+	b.UpsertPR(PR{Repo: "/r", Number: 1, Status: "open", SinceReady: noon.Add(time.Minute), UpdatedAt: noon.Add(time.Minute)})
+	d, _ := b.Board("/r", noon, noon)
+	if p := d.PRs[0]; !p.SinceReady.Equal(noon) || p.Head != "feat/x" || p.Worker != "worker1" {
+		t.Errorf("after a second ready poll = %+v", p)
+	}
+	b.UpsertPR(PR{Repo: "/r", Number: 1, Status: "open", UpdatedAt: noon.Add(2 * time.Minute)})
+	if d, _ := b.Board("/r", noon, noon); !d.PRs[0].SinceReady.IsZero() {
+		t.Errorf("no longer ready, since = %v", d.PRs[0].SinceReady)
+	}
+}
+
+func TestMarks(t *testing.T) {
+	b := open(t)
+	b.Mark("/r", "worker:worker1:plan_ready:1", noon.Add(-25*time.Hour))
+	b.Mark("/r", "worker:worker1:plan_ready:2", noon)
+	if d, _ := b.Board("/r", noon, noon); len(d.Marks) != 1 || !d.Marks["worker:worker1:plan_ready:2"].Equal(noon) {
+		t.Errorf("marks = %v, want the last day's only", d.Marks)
 	}
 }
 

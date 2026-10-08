@@ -24,237 +24,278 @@
   --warn: #e2b24a; --warn-soft: #3a2f14; --bad: #ef7d74; --bad-soft: #3d1d1b; --idle: #9aa6b2; --idle-soft: #232d37; color-scheme: dark }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 var(--f-body); }
-.wrap { max-width: 1240px; margin: 0 auto; padding: 28px 16px 48px; display: grid; gap: 28px; }
+.wrap { max-width: 1240px; margin: 0 auto; padding: 24px 16px 48px; display: grid; gap: 26px; }
 header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 24px; }
 h1 { font: 600 clamp(1.6rem, 3vw, 2.1rem)/1.15 var(--f-display); margin: 0; }
-h1 small { font: 400 15px var(--f-data); color: var(--muted); margin-left: 8px; }
+.pickers { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; font-size: 13px; color: var(--muted); }
+.pickers select { font: 14px var(--f-body); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
 .stamp { font: 13px var(--f-data); color: var(--muted); }
 .stamp::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--idle); margin-right: 6px; }
 [data-tone="ok"].stamp::before { background: var(--ok); } [data-tone="warn"].stamp::before { background: var(--warn); }
 [data-tone="bad"].stamp { color: var(--bad); font-weight: 600; } [data-tone="bad"].stamp::before { background: var(--bad); }
-.time.late { color: var(--bad); font-weight: 600; }
-.strip { display: flex; flex-wrap: wrap; gap: 10px; }
-.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; display: grid; min-width: 150px; flex: 1 1 150px; }
-.tile[hidden] { display: none; }
-.tile b { font: 600 1.5rem/1.1 var(--f-data); font-variant-numeric: tabular-nums; }
-.tile span { font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
-.filters { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
-.filters input, .filters select { font: 14px var(--f-body); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
-.filters input { flex: 1 1 260px; min-width: 0; }
-.filters label { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
-.grid { display: grid; gap: 28px; grid-template-columns: minmax(0, 1fr); }
-@media (min-width: 1000px) { .grid { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); } .full { grid-column: 1 / -1; } }
 h2 { font: 700 13px var(--f-body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; display: flex; gap: 8px; align-items: baseline; }
 h2 .count { font-family: var(--f-data); color: var(--accent); }
+section[hidden], .tile[hidden] { display: none; }
 .list { display: grid; gap: 8px; }
-.workers { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
 .row { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--idle); border-radius: 6px; padding: 10px 14px; display: grid; gap: 4px; min-width: 0; }
 [data-tone="ok"].row { border-left-color: var(--ok); } [data-tone="warn"].row { border-left-color: var(--warn); }
 [data-tone="bad"].row { border-left-color: var(--bad); } [data-tone="accent"].row { border-left-color: var(--accent); }
 .top { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
+.key { font: 600 13px var(--f-data); color: var(--accent); }
 .title { font-weight: 700; overflow-wrap: anywhere; }
-.who { font: 600 13px var(--f-data); }
-.ref { font: 12px var(--f-data); color: var(--accent); }
-.ref a { color: inherit; }
-.meta { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
-.time { font: 12px var(--f-data); color: var(--muted); font-variant-numeric: tabular-nums; margin-left: auto; }
+.who { font: 600 12px var(--f-data); color: var(--muted); }
+.meta { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; white-space: pre-line; }
+.time { font: 12px var(--f-data); color: var(--muted); font-variant-numeric: tabular-nums; margin-left: auto; white-space: nowrap; }
+.time.late { color: var(--bad); font-weight: 600; }
 .pill { font: 600 11px var(--f-data); padding: 2px 8px; border-radius: 99px; background: var(--idle-soft); color: var(--idle); white-space: nowrap; }
 [data-tone="ok"].pill { background: var(--ok-soft); color: var(--ok); } [data-tone="warn"].pill { background: var(--warn-soft); color: var(--warn); }
 [data-tone="bad"].pill { background: var(--bad-soft); color: var(--bad); } [data-tone="accent"].pill { background: var(--accent-soft); color: var(--accent); }
-.why { font-size: 13.5px; } .why::before { content: "Why: "; color: var(--muted); }
-.timeline .row { grid-template-columns: 56px minmax(0, 1fr); column-gap: 12px; }
-.timeline .time { margin: 0; padding-top: 2px; }
-.empty { border: 1px dashed var(--line); border-radius: 6px; padding: 14px; color: var(--muted); font-size: 14px; }
-.more { justify-self: start; font: 600 13px var(--f-body); color: var(--accent); background: var(--panel); border: 1px solid var(--line); border-radius: 99px; padding: 6px 14px; cursor: pointer; margin-top: 8px; }
-.more:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.done-btn { font: 600 12px var(--f-body); color: var(--ok); background: var(--panel); border: 1px solid var(--ok); border-radius: 99px; padding: 2px 12px; cursor: pointer; }
+.done-btn:hover { background: var(--ok-soft); } .done-btn:disabled { opacity: .5; cursor: wait; }
+.flag { font: 12px var(--f-data); color: var(--bad); }
+.note { font-size: 13px; color: var(--muted); }
+.ticket { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; display: grid; gap: 8px; }
+.waits { font-size: 14px; display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.prs { display: flex; flex-wrap: wrap; gap: 6px; }
+.pr { font: 12px var(--f-data); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; display: flex; gap: 6px; align-items: center; background: var(--bg); }
+.pr a, .ref a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.title a { color: inherit; text-decoration: none; } .title a:hover { text-decoration: underline; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--idle); }
+[data-tone="ok"].dot { background: var(--ok); } [data-tone="warn"].dot { background: var(--warn); } [data-tone="bad"].dot { background: var(--bad); }
+details { font-size: 13.5px; }
+summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+details ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+details li .t { font-family: var(--f-data); color: var(--muted); font-size: 12px; margin-right: 6px; }
+.why { color: var(--muted); }
+.bar { display: flex; flex-wrap: wrap; gap: 8px 18px; font: 13px var(--f-data); color: var(--muted); margin-bottom: 10px; }
+.bar b { color: var(--fg); }
+.empty { border: 1px dashed var(--line); border-radius: 6px; padding: 12px; color: var(--muted); font-size: 14px; }
+.grid2 { display: grid; gap: 26px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1100px) { .grid2 { grid-template-columns: minmax(0, 5fr) minmax(0, 2fr); } }
+button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1><span id="repo-name">acw board</span> <small id="repo-sub"></small></h1>
+    <h1 id="repo-name">acw board</h1>
+    <div class="pickers">
+      <label>Repo <select id="repo"></select></label>
+      <label>Day <select id="day"></select></label>
+    </div>
     <div class="stamp" id="stamp">Loading…</div>
   </header>
-  <div class="strip">
-    <div class="tile live-only"><b id="n-busy">–</b><span>Workers busy</span></div>
-    <div class="tile live-only"><b id="n-prs">–</b><span>PRs followed</span></div>
-    <div class="tile"><b id="n-today">–</b><span id="l-today">Handled today</span></div>
-    <div class="tile"><b id="n-decisions">–</b><span>Decisions</span></div>
-  </div>
-  <div class="filters" role="search">
-    <label>Repo <select id="repo"></select></label>
-    <label>Day <select id="day"></select></label>
-    <input id="q" type="search" placeholder="Search a ticket, a PR, a word…" aria-label="Search">
-    <label>Worker <select id="w"><option value="">All</option></select></label>
-  </div>
-  <div class="grid">
-    <section class="full live-only"><h2>Waiting on you <span class="count" id="c-attention"></span></h2><div class="list" id="attention"></div></section>
-    <section class="full live-only"><h2>Workers <span class="count" id="c-workers"></span></h2><div class="workers" id="workers"></div></section>
-    <section class="live-only"><h2>Pull requests followed <span class="count" id="c-prs"></span></h2><div class="list" id="prs"></div></section>
-    <section><h2>Decisions <span class="count" id="c-decisions"></span></h2><div class="list" id="decisions"></div><button type="button" id="more" class="more" hidden>Show 8 more</button></section>
-    <section class="full"><h2>Handled <span class="count" id="c-today"></span></h2><div class="list timeline" id="today"></div></section>
+
+  <section class="live-only">
+    <h2>Waiting on you <span class="count" id="c-waits"></span></h2>
+    <div class="list" id="waits"></div>
+    <div class="note" id="no-prwatch" hidden>The PR watch is off: PRs ready for your merge and review asks nobody holds can't show here.</div>
+    <details id="marked-box" hidden style="margin-top:10px"><summary>Marked done, the master was told <span id="c-marked"></span></summary><div class="list" id="marked" style="margin-top:8px"></div></details>
+  </section>
+
+  <section class="live-only" id="parked-box">
+    <h2>Parked decisions <span class="count" id="c-parked"></span></h2>
+    <div class="list" id="parked"></div>
+  </section>
+
+  <div class="grid2">
+    <section>
+      <h2 id="l-tickets">Tickets <span class="count" id="c-tickets"></span></h2>
+      <div class="list" id="tickets"></div>
+      <div class="live-only" id="no-ticket-box" style="margin-top:12px">
+        <h2>Without a ticket <span class="count" id="c-no-ticket"></span></h2>
+        <div class="prs" id="no-ticket"></div>
+      </div>
+      <details id="done-box" style="margin-top:12px"><summary id="done-sum"></summary><div class="list" id="done" style="margin-top:8px"></div></details>
+      <details id="loose-box" style="margin-top:12px"><summary id="loose-sum"></summary><ul id="loose"></ul></details>
+    </section>
+    <section class="live-only">
+      <h2>The swarm</h2>
+      <div class="bar" id="bar"></div>
+      <div class="list" id="workers"></div>
+    </section>
   </div>
 </div>
 <script>
 const $ = id => document.getElementById(id);
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
-const tone = s => /block|fail|red|refus|dropped|conflict|closed/i.test(s) ? "bad"
-  : /review|draft|running|wait|verdict|plan/i.test(s) ? "warn"
-  : /merged|green|approved|free|done/i.test(s) ? "ok"
-  : /busy|coding|open|progress/i.test(s) ? "accent" : "idle";
-const pill = (s, prefix = "") => { const p = el("span", "pill", prefix + s); p.dataset.tone = tone(s); return p; };
-const row = t => { const r = el("article", "row"); r.dataset.tone = t; return r; };
-const hm = iso => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const toned = (node, tone) => { node.dataset.tone = tone; return node; };
+const pill = (text, tone) => toned(el("span", "pill", text), tone);
+const link = (text, url, cls = "ref") => { const s = el("span", cls); if (url) { const a = el("a", null, text); a.href = url; a.target = "_blank"; a.rel = "noopener"; s.append(a); } else s.textContent = text; return s; };
 const secs = iso => (Date.now() - new Date(iso)) / 1000;
-const span = s => s < 60 ? Math.round(s) + " s" : s < 3600 ? Math.floor(s / 60) + " min" : s < 86400 ? Math.floor(s / 3600) + " h" : Math.floor(s / 86400) + " d";
+const span = s => s < 60 ? Math.round(s) + " s" : s < 3600 ? Math.floor(s / 60) + " min" : s < 86400 ? Math.floor(s / 3600) + " h " + String(Math.floor(s % 3600 / 60)).padStart(2, "0") : Math.floor(s / 86400) + " d";
+const hm = iso => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 // An age, the exact date on hover; late (red) past lateAfter seconds.
 const ago = (iso, lateAfter = Infinity) => { const t = el("span", "time" + (secs(iso) > lateAfter ? " late" : ""), span(Math.max(0, secs(iso)))); t.title = new Date(iso).toLocaleString(); return t; };
-const prNum = url => (url || "").match(/\/pull\/(\d+)/)?.[1];
-const link = (text, url) => { const s = el("span", "ref"); if (url) { const a = el("a", null, text); a.href = url; a.target = "_blank"; a.rel = "noopener"; s.append(a); } else s.textContent = text; return s; };
+const fill = (id, nodes, empty) => $(id).replaceChildren(...(nodes.length ? nodes : empty ? [el("div", "empty", empty)] : []));
+const count = (id, n) => { $(id).textContent = n || ""; };
 
-function worker(d) {
-  const r = row(tone(d.state)), top = el("div", "top");
-  top.append(el("span", "who", d.worker), pill(d.state || "free"), ago(d.since));
-  r.append(top);
-  if (d.subject) r.append(el("div", "title", d.subject));
-  const ref = el("div", "top");
-  if (prNum(d.pr_url)) ref.append(link("#" + prNum(d.pr_url), d.pr_url));
-  if (d.branch) ref.append(el("span", "ref", d.branch));
-  if (ref.childElementCount) r.append(ref);
-  if (d.summary) r.append(el("div", "meta", d.summary));
-  return r;
-}
-function pr(d) {
-  const r = row(tone(d.status)), top = el("div", "top");
-  top.append(link("#" + d.number, d.url), pill(d.status || "open"));
-  if (d.ci) top.append(pill(d.ci, "CI "));
-  r.append(top);
-  if (d.title) r.append(el("div", "title", d.title));
-  const meta = [d.worker, d.base && "base " + d.base, d.review].filter(Boolean).join(" · ");
-  if (meta) r.append(el("div", "meta", meta));
-  return r;
-}
-// What waits on a gesture of yours, derived from the workers and the PRs,
-// never stored: a worker stuck on a prompt first (it can do nothing until
-// it is answered), then the oldest waits, then the PRs.
-function waits(workers, prs) {
-  const out = [];
-  for (const w of workers) {
-    if (w.state === "blocked") out.push({ rank: 0, tone: "bad", worker: w.worker, text: "stuck on a prompt: a tool approval or a question", detail: w.subject, since: w.since });
-    else if (w.blocked_on) out.push({ rank: 1, tone: "warn", worker: w.worker, text: "waits: " + w.blocked_on, detail: w.subject, since: w.since });
-  }
-  out.sort((a, b) => a.rank - b.rank || new Date(a.since) - new Date(b.since));
-  for (const p of prs) {
-    if (p.status !== "open") continue;
-    if (/CHANGES_REQUESTED|threads open/.test(p.review)) out.push({ tone: "warn", worker: p.worker, number: p.number, url: p.url, text: p.review, detail: p.title });
-    else if (p.ci === "green" && /^APPROVED/.test(p.review)) out.push({ tone: "ok", worker: p.worker, number: p.number, url: p.url, text: "approved and green: ready for your merge", detail: p.title });
-  }
-  return out;
-}
-function wait(d) {
-  const r = row(d.tone), top = el("div", "top");
-  if (d.number) top.append(link("#" + d.number, d.url));
-  if (d.worker) top.append(el("span", "who", d.worker));
-  top.append(el("span", "title", d.text));
-  if (d.since) top.append(ago(d.since, 15 * 60));
-  r.append(top);
-  if (d.detail) r.append(el("div", "meta", d.detail));
-  return r;
-}
+const stageTone = { "merged": "ok", "ready to merge": "ok", "changes asked": "warn", "in review": "accent", "draft PR": "idle", "plan to approve": "bad", "verdict to rule on": "bad" };
+const ciTone = ci => ci === "green" ? "ok" : ci === "red" ? "bad" : ci === "running" ? "warn" : "idle";
+
 // The watcher beats every 30 s: past 2 min it is late, past 10 min the
-// page is showing a state nobody updates any more.
-function freshness() {
-  if (!board.live) return ["idle", "Swarm not running on this day"];
-  if (!board.seen) return ["idle", board.workers.length ? "No watcher has reported yet" : "No swarm running"];
-  const s = secs(board.seen);
+// page shows a state nobody updates any more.
+function freshness(v) {
+  if (!v.live) return ["idle", "A past day: the decisions taken, by ticket"];
+  const tail = ` · queue ${v.queue} · inbox ${v.inbox}`;
+  if (!v.seen) return ["idle", v.workers.length ? "No watcher has reported yet" : "No swarm running"];
+  const s = secs(v.seen);
   if (s < -60) return ["bad", "The watcher's clock is ahead of this one: check the machine's time"];
-  if (s > 120 && !board.workers.length) return ["idle", `No swarm running, last watcher seen ${span(s)} ago`];
-  if (s <= 120) return ["ok", `Live, watcher seen ${span(Math.max(0, s))} ago`];
+  if (s > 120 && !v.workers.length) return ["idle", `No swarm running, last watcher seen ${span(s)} ago`];
+  if (s <= 120) return ["ok", `Live, watcher seen ${span(Math.max(0, s))} ago` + tail];
   if (s <= 600) return ["warn", `Watcher silent for ${span(s)}: this page may be behind`];
   return ["bad", `Watcher silent for ${span(s)}: this page is stale, check acw status`];
 }
-function decision(d) {
-  const r = row("accent"), top = el("div", "top");
-  if (d.subject) top.append(el("span", "ref", d.subject));
-  if (d.worker) top.append(el("span", "who", d.worker));
-  top.append(el("span", "time", hm(d.at)));
-  r.append(top, el("div", null, d.text));
-  if (d.why) r.append(el("div", "why", d.why));
+
+function wait(w, withButton) {
+  const r = toned(el("article", "row"), w.who === "nobody" || /stopped|plan|verdict/.test(w.text) ? "bad" : "warn"), top = el("div", "top");
+  top.append(w.ticket ? el("span", "key", w.ticket) : el("span", "who", "no ticket"), w.url ? link(w.text, w.url, "title") : el("span", "title", w.text));
+  if (w.who) top.append(el("span", "who", w.who));
+  top.append(ago(w.since, 15 * 60));
+  if (withButton) {
+    const b = el("button", "done-btn", "Done");
+    b.type = "button";
+    b.addEventListener("click", () => markDone(w, b));
+    top.append(b);
+  }
+  r.append(top);
+  if (w.detail && w.detail !== w.text) r.append(el("div", "meta", w.detail));
+  if (w.marked_at) r.append(el("div", "flag", (withButton ? "Still waiting, marked done at " : "Marked done at ") + hm(w.marked_at)));
   return r;
 }
-function handled(d) {
-  const r = row(tone(d.outcome)), body = el("div"), top = el("div", "top");
-  top.append(el("span", "title", d.subject || "task #" + d.task));
-  if (prNum(d.pr_url)) top.append(link("#" + prNum(d.pr_url), d.pr_url));
-  if (d.outcome) top.append(pill(d.outcome));
-  body.append(top, el("div", "meta", [d.worker, d.summary].filter(Boolean).join(" · ")));
-  r.append(el("span", "time", hm(d.at)), body);
+async function markDone(w, b) {
+  b.disabled = true;
+  try {
+    const res = await fetch("/api/done", { method: "POST", headers: { "Content-Type": "application/json", "X-Acw-Board": "1" },
+      body: JSON.stringify({ repo: state.repo, id: w.id, ticket: w.ticket, text: w.text, since: w.since }) });
+    if (!res.ok) throw new Error((await res.text()).trim());
+    load();
+  } catch (e) {
+    b.disabled = false;
+    b.closest(".row").append(el("div", "flag", "Not sent: " + e.message));
+  }
+}
+function parkedCard(p) {
+  const r = toned(el("article", "row"), "accent"), top = el("div", "top"), [first, ...rest] = p.text.split("\n");
+  top.append(pill("#" + p.id, "accent"));
+  if (p.ticket) top.append(el("span", "key", p.ticket));
+  top.append(el("span", "title", first), el("span", "who", "waits on " + p.on), ago(p.created_at));
+  r.append(top);
+  if (rest.join("").trim()) r.append(el("div", "meta", rest.join("\n").trim()));
+  r.append(el("div", "who", `When the answer comes, tell the master: "for #${p.id}: …"`));
+  return r;
+}
+function prChip(p) {
+  const c = el("span", "pr");
+  c.append(link("#" + p.number, p.url), toned(el("span", "dot"), ciTone(p.ci)));
+  c.title = "CI " + (p.ci || "unknown");
+  const bits = [p.status !== "open" ? p.status : "", p.base ? "on " + p.base : "", p.review || (p.status === "open" ? "no review" : ""), p.worker].filter(Boolean);
+  c.append(document.createTextNode(bits.join(" · ")));
+  return c;
+}
+function decisionList(ds) {
+  const ul = el("ul");
+  for (const d of ds) {
+    const li = el("li");
+    li.append(el("span", "t", hm(d.at)), document.createTextNode(d.text));
+    if (d.why) li.append(el("span", "why", " · " + d.why));
+    ul.append(li);
+  }
+  return ul;
+}
+function ticket(t) {
+  const box = el("div", "ticket"), head = el("div", "top");
+  head.append(el("span", "key", t.key), el("span", "title", t.title || ""));
+  if (t.phase) head.append(pill(t.phase, stageTone[t.phase] || "idle"));
+  for (const p of t.parked) if (p.on !== "me") head.append(pill(`#${p.id} waits on ${p.on}`, "accent"));
+  box.append(head);
+  if (t.waiting) {
+    const w = el("div", "waits");
+    w.append(el("span", null, "Waits on "), el("b", null, t.waiting));
+    if (t.wait_since) w.append(el("span", "who", "· " + span(Math.max(0, secs(t.wait_since)))));
+    box.append(w);
+  }
+  if (t.prs.length) { const prs = el("div", "prs"); prs.append(...t.prs.map(prChip)); box.append(prs); }
+  if (t.decisions.length) {
+    const d = el("details"), s = el("summary", null, `${t.decisions.length} decision${t.decisions.length > 1 ? "s" : ""}, the last at ${hm(t.decisions[0].at)}`);
+    d.dataset.key = t.key;
+    d.open = opened.has(t.key);
+    d.addEventListener("toggle", () => d.open ? opened.add(t.key) : opened.delete(t.key));
+    d.append(s, decisionList(t.decisions));
+    box.append(d);
+  }
+  return box;
+}
+function worker(w) {
+  const tone = w.state === "blocked" ? "bad" : /_ready$/.test(w.state) ? "warn" : w.state === "free" ? "ok" : "accent";
+  const noStatus = w.state === "busy" && !w.subject;
+  const r = toned(el("article", "row"), noStatus ? "warn" : tone), top = el("div", "top");
+  top.append(el("b", "who", w.worker), pill(noStatus ? "no status file" : w.state || "free", noStatus ? "warn" : tone), ago(w.since));
+  r.append(top);
+  const bits = [w.subject, w.busy && "waiting on " + w.busy, w.ctx != null && "ctx " + Math.round(w.ctx) + " %"].filter(Boolean);
+  if (bits.length) r.append(el("div", "meta", bits.join(" · ")));
   return r;
 }
 
 const store = { get: k => { try { return localStorage.getItem(k) || ""; } catch { return ""; } },
                 set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
-const state = { repo: store.get("repo"), day: store.get("day"), q: store.get("q"), w: store.get("w"), shown: 8 };
-let repos = [], board = null;
+const state = { repo: store.get("repo"), day: store.get("day") };
+// The tickets whose decisions are unfolded: the page renders again every 5 s.
+const opened = new Set();
 const today = () => new Date().toLocaleDateString("sv");  // YYYY-MM-DD, local
-
-const keep = d => (!state.w || d.worker === state.w) && (!state.q || Object.values(d).join(" ").toLowerCase().includes(state.q.toLowerCase()));
-function fill(id, items, build, empty, limit) {
-  const box = $(id), shown = items.filter(keep), cut = limit ? shown.slice(0, limit) : shown;
-  box.replaceChildren(...(cut.length ? cut.map(build) : [el("div", "empty", empty)]));
-  $("c-" + id).textContent = shown.length === items.length ? items.length : `${shown.length} / ${items.length}`;
-  return shown.length;
-}
 function options(select, values, current, label = v => v) {
   if (JSON.stringify([...select.options].map(o => o.value)) !== JSON.stringify(values)) select.replaceChildren(...values.map(v => { const o = el("option", null, label(v)); o.value = v; return o; }));
   select.value = values.includes(current) ? current : values[0] || "";
   return select.value;
 }
-function render() {
-  if (!board) return;
-  const live = board.live;
-  document.querySelectorAll(".live-only").forEach(s => s.hidden = !live);
-  const [t, text] = freshness();
-  $("stamp").dataset.tone = t;
-  $("stamp").textContent = text;
-  fill("attention", live ? waits(board.workers, board.prs) : [], wait, "Nothing waits on you.");
-  fill("workers", board.workers, worker, "No worker open.");
-  fill("prs", board.prs, pr, "No pull request followed.");
-  const matching = fill("decisions", board.decisions, decision, "No decision recorded.", state.shown);
-  $("more").hidden = matching <= state.shown;
-  fill("today", board.handled, handled, "Nothing handled on this day.");
-  $("l-today").textContent = state.day ? "Handled" : "Handled today";
-  $("n-busy").textContent = `${board.workers.filter(w => w.state !== "free").length} / ${board.workers.length}`;
-  $("n-prs").textContent = board.prs.length;
-  $("n-today").textContent = board.handled.length;
-  $("n-decisions").textContent = board.decisions.length;
-  const names = [...new Set([...board.workers, ...board.prs, ...board.handled, ...board.decisions].map(d => d.worker).filter(Boolean))].sort();
-  options($("w"), ["", ...names], state.w, v => v || "All");
+
+function render(v) {
+  document.querySelectorAll(".live-only").forEach(s => s.hidden = !v.live);
+  const [tone, text] = freshness(v);
+  toned($("stamp"), tone).textContent = text;
+  fill("waits", v.waits.map(w => wait(w, true)), "Nothing waits on you.");
+  count("c-waits", v.waits.length);
+  $("no-prwatch").hidden = v.pr_watch || !v.live;
+  fill("marked", v.marked.map(w => wait(w, false)));
+  count("c-marked", v.marked.length ? `(${v.marked.length})` : "");
+  $("marked-box").hidden = !v.marked.length;
+  fill("parked", v.parked.map(parkedCard));
+  count("c-parked", v.parked.length);
+  $("parked-box").hidden = !v.live || !v.parked.length;
+  $("l-tickets").firstChild.textContent = v.live ? "Tickets in progress " : "Tickets touched that day ";
+  fill("tickets", v.tickets.map(ticket), v.live ? "No ticket in progress." : "No decision on a ticket that day.");
+  count("c-tickets", v.tickets.length);
+  fill("no-ticket", v.no_ticket.map(prChip), "None.");
+  count("c-no-ticket", v.no_ticket.length);
+  $("done-box").hidden = !v.done.length;
+  $("done-sum").textContent = "Finished today: " + v.done.map(t => t.key).join(", ");
+  fill("done", v.done.map(ticket));
+  $("loose-box").hidden = !v.loose.length;
+  $("loose-sum").textContent = `${v.loose.length} decision${v.loose.length > 1 ? "s" : ""} without a ticket`;
+  $("loose").replaceChildren(...decisionList(v.loose).children);
+  const quota = Math.max(-1, ...v.workers.map(w => w.five_hour ?? -1));
+  $("bar").replaceChildren(...[["workers", `${v.workers.filter(w => w.state !== "free").length}/${v.workers.length} busy`], ["queue", v.queue], ["inbox", v.inbox], ["5h", quota >= 0 ? Math.round(quota) + " %" : "-"]]
+    .map(([k, val]) => { const s = el("span", null, k + " "); s.append(el("b", null, String(val))); return s; }));
+  fill("workers", v.workers.map(worker), "No worker open.");
 }
 async function load() {
   try {
-    repos = await (await fetch("/api/repos")).json();
+    const repos = await (await fetch("/api/repos")).json();
     state.repo = options($("repo"), repos.map(r => r.repo), state.repo, r => r.split("/").pop());
     const days = repos.find(r => r.repo === state.repo)?.days || [];
     // "" is today, followed: a page left open past midnight moves on.
     state.day = options($("day"), ["", ...days.filter(d => d !== today())], state.day, d => d || "Today");
     $("repo-name").textContent = state.repo ? state.repo.split("/").pop() : "acw board";
-    $("repo-sub").textContent = state.repo ? "acw · " + state.repo : "";
     const q = new URLSearchParams({ repo: state.repo, day: state.day || today() });
-    board = await (await fetch("/api/board?" + q)).json();
-    render();
+    const res = await fetch("/api/board?" + q);
+    if (!res.ok) throw new Error((await res.text()).trim());
+    render(await res.json());
   } catch (e) {
-    $("stamp").dataset.tone = "bad";
-    $("stamp").textContent = "acw board is not answering: " + e.message;
+    toned($("stamp"), "bad").textContent = "acw board is not answering: " + e.message;
   }
 }
-const on = (id, ev, f) => $(id).addEventListener(ev, f);
-on("repo", "change", e => { state.repo = e.target.value; state.day = ""; state.shown = 8; store.set("repo", state.repo); store.set("day", ""); load(); });
-on("day", "change", e => { state.day = e.target.value; state.shown = 8; store.set("day", state.day); load(); });
-on("q", "input", e => { state.q = e.target.value; store.set("q", state.q); render(); });
-on("w", "change", e => { state.w = e.target.value; store.set("w", state.w); render(); });
-on("more", "click", () => { state.shown += 8; render(); });
-$("q").value = state.q;
+$("repo").addEventListener("change", e => { state.repo = e.target.value; state.day = ""; store.set("repo", state.repo); store.set("day", ""); load(); });
+$("day").addEventListener("change", e => { state.day = e.target.value; store.set("day", state.day); load(); });
 load();
 setInterval(load, 5000);
 </script>

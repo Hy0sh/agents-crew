@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -58,6 +59,7 @@ func runWatch(plan watchPlan, interval time.Duration) {
 	slug := names.Slug(plan.Repo)
 	w := newWatcher(time.Duration(plan.SilenceMinutes) * time.Minute)
 	worktrees := worktreeCache{}
+	screens := screenCache{}
 	var prs *prWatcher
 	if plan.PRWatchRepo != "" {
 		prs = newPRWatcher(plan.PRWatchRepo)
@@ -143,14 +145,23 @@ func runWatch(plan watchPlan, interval time.Duration) {
 		var rows []board.Worker
 		var prRows []board.PR
 		for _, pw := range pool.Workers {
-			a, _ := herdr.FindAgent(agents, names.Worker(slug, pw.Index))
+			a, found := herdr.FindAgent(agents, names.Worker(slug, pw.Index))
 			s, _ := readWorkerStatus(filepath.Join(statusDir, pw.label()+".json"))
-			rows = append(rows, boardWorker(plan.Repo, pw, a.Status, s, now))
+			row := boardWorker(plan.Repo, pw, a.Status, s, now)
+			if found {
+				row.Busy = screens.get(now, pw.label(), a.Name)
+			}
+			if u, err := readUsage(filepath.Join(statusDir, pw.label()+".usage.json")); err == nil {
+				row.Context, row.FiveHour = u.Context, u.FiveHour
+			}
+			rows = append(rows, row)
 			if p, ok := prFromURL(plan.Repo, s.PRURL, pw.label(), now); ok && prs == nil {
 				prRows = append(prRows, p)
 			}
 		}
-		if now.Sub(beaten) >= beatEvery && record("heartbeat", func(b *board.DB) error { return b.Beat(plan.Repo, now) }) {
+		if now.Sub(beaten) >= beatEvery && record("heartbeat", func(b *board.DB) error {
+			return b.Beat(plan.Repo, now, len(queue.Tasks), unreadLines(plan.Inbox))
+		}) {
 			beaten = now
 		}
 		moved := changedWorkers(boardLast, rows)
@@ -212,14 +223,16 @@ func runWatch(plan watchPlan, interval time.Duration) {
 					fmt.Fprintln(os.Stderr, "message to the master:", err)
 				}
 			}
+			heldURLs, heldBranches := heldPRs(statusDir, pool, queue)
+			held := func(pr prState) bool { return heldURLs[normalizePRURL(pr.URL)] || heldBranches[pr.Head] }
 			record("prs", func(b *board.DB) error {
 				for _, pr := range prs.prev {
-					if err := b.UpsertPR(boardPR(plan.Repo, pr, owners[normalizePRURL(pr.URL)], "", now)); err != nil {
+					if err := b.UpsertPR(boardPR(plan.Repo, pr, owners[normalizePRURL(pr.URL)], "", held(pr), now)); err != nil {
 						return err
 					}
 				}
 				for _, c := range prs.closed {
-					if err := b.UpsertPR(boardPR(plan.Repo, c.PR, owners[normalizePRURL(c.PR.URL)], c.Fate, now)); err != nil {
+					if err := b.UpsertPR(boardPR(plan.Repo, c.PR, owners[normalizePRURL(c.PR.URL)], c.Fate, held(c.PR), now)); err != nil {
 						return err
 					}
 				}
@@ -244,6 +257,39 @@ func runWatch(plan watchPlan, interval time.Duration) {
 // beatEvery is how often the watcher tells the board it is alive: the
 // page turns orange after 2 min without it.
 const beatEvery = 30 * time.Second
+
+// screenCache keeps what each worker's screen shows it waiting on
+// (busyOnScreen) between reads: a herdr call per worker every poll is a
+// steady cost for a line of the board.
+type screenCache map[string]struct {
+	at   time.Time
+	busy string
+}
+
+func (c screenCache) get(now time.Time, label, agent string) string {
+	if e, ok := c[label]; ok && now.Sub(e.at) < worktreeEvery {
+		return e.busy
+	}
+	var busy string
+	if screen, err := herdr.AgentScreen(agent); err == nil {
+		busy = busyOnScreen(screen)
+	}
+	c[label] = struct {
+		at   time.Time
+		busy string
+	}{now, busy}
+	return busy
+}
+
+// unreadLines counts the messages waiting in an inbox file, one per line;
+// 0 without an inbox.
+func unreadLines(path string) int {
+	if path == "" {
+		return 0
+	}
+	content, _ := os.ReadFile(path)
+	return bytes.Count(content, []byte("\n"))
+}
 
 // worktreeEvery is how often the watcher reruns git status on a working
 // worker's worktree: silence is counted in minutes, and a status per
