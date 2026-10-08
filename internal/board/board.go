@@ -6,6 +6,7 @@
 package board
 
 import (
+	"context"
 	"database/sql"
 	"os"
 	"path/filepath"
@@ -31,8 +32,15 @@ CREATE TABLE IF NOT EXISTS workers (repo TEXT, worker TEXT, state TEXT, subject 
 CREATE TABLE IF NOT EXISTS prs (repo TEXT, number INTEGER, url TEXT, title TEXT, worker TEXT, base TEXT, status TEXT, ci TEXT, review TEXT, updated_at INTEGER, PRIMARY KEY (repo, number));
 CREATE TABLE IF NOT EXISTS handled (repo TEXT, at INTEGER, worker TEXT, task INTEGER, subject TEXT, summary TEXT, pr_url TEXT, outcome TEXT);
 CREATE TABLE IF NOT EXISTS decisions (repo TEXT, at INTEGER, worker TEXT, subject TEXT, text TEXT, why TEXT);
+CREATE TABLE IF NOT EXISTS watchers (repo TEXT PRIMARY KEY, seen INTEGER);
 CREATE INDEX IF NOT EXISTS handled_day ON handled (repo, at);
 CREATE INDEX IF NOT EXISTS decisions_day ON decisions (repo, at);`
+
+// migrations[i] takes a base from version i+1 to i+2. A new base starts at
+// version 1 and goes through them all, like an old one.
+var migrations = []string{
+	`ALTER TABLE workers ADD COLUMN blocked_on TEXT NOT NULL DEFAULT ''`,
+}
 
 type DB struct{ sql *sql.DB }
 
@@ -51,7 +59,48 @@ func Open(path string) (*DB, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return &DB{db}, nil
+}
+
+// migrate runs the migrations a base lacks. The watchers and the page may
+// open the base at the same moment: BEGIN IMMEDIATE takes the write lock
+// before reading the version, so the second one waits, then finds it done.
+func migrate(db *sql.DB) error {
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		return err
+	}
+	err = func() error {
+		var version int
+		if err := conn.QueryRowContext(ctx, `SELECT version FROM meta`).Scan(&version); err != nil {
+			return err
+		}
+		if version > len(migrations) {
+			return nil
+		}
+		for _, m := range migrations[version-1:] {
+			if _, err := conn.ExecContext(ctx, m); err != nil {
+				return err
+			}
+		}
+		_, err := conn.ExecContext(ctx, `UPDATE meta SET version = ?`, len(migrations)+1)
+		return err
+	}()
+	if err != nil {
+		conn.ExecContext(ctx, `ROLLBACK`)
+		return err
+	}
+	_, err = conn.ExecContext(ctx, `COMMIT`)
+	return err
 }
 
 func (b *DB) Close() error { return b.sql.Close() }
@@ -64,6 +113,7 @@ type Worker struct {
 	Branch    string    `json:"branch"`
 	PRURL     string    `json:"pr_url"`
 	Summary   string    `json:"summary"`
+	BlockedOn string    `json:"blocked_on"`
 	Since     time.Time `json:"since"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -102,9 +152,11 @@ type Decision struct {
 }
 
 // Day is what the page shows for one repo and one day. Live is set for
-// today: workers and PRs are the current state, so only today has them.
+// today: workers and PRs are the current state, so only today has them,
+// and Seen, the last time a watcher of the repo wrote it was alive.
 type Day struct {
 	Live      bool       `json:"live"`
+	Seen      *time.Time `json:"seen"`
 	Workers   []Worker   `json:"workers"`
 	PRs       []PR       `json:"prs"`
 	Handled   []Handled  `json:"handled"`
@@ -117,8 +169,15 @@ type RepoDays struct {
 }
 
 func (b *DB) UpsertWorker(w Worker) error {
-	_, err := b.sql.Exec(`INSERT OR REPLACE INTO workers VALUES (?,?,?,?,?,?,?,?,?)`,
-		w.Repo, w.Worker, w.State, w.Subject, w.Branch, w.PRURL, w.Summary, w.Since.Unix(), w.UpdatedAt.Unix())
+	_, err := b.sql.Exec(`INSERT OR REPLACE INTO workers VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		w.Repo, w.Worker, w.State, w.Subject, w.Branch, w.PRURL, w.Summary, w.Since.Unix(), w.UpdatedAt.Unix(), w.BlockedOn)
+	return err
+}
+
+// Beat records that a watcher of repo is alive at at: a page that only
+// reloads can't tell a quiet swarm from a dead watcher.
+func (b *DB) Beat(repo string, at time.Time) error {
+	_, err := b.sql.Exec(`INSERT OR REPLACE INTO watchers VALUES (?,?)`, repo, at.Unix())
 	return err
 }
 
@@ -174,14 +233,23 @@ func (b *DB) Board(repo string, day, now time.Time) (Day, error) {
 	today, _ := bounds(now)
 	d := Day{Live: start == today, Workers: []Worker{}, PRs: []PR{}, Handled: []Handled{}, Decisions: []Decision{}}
 	if d.Live {
-		rows, err := b.sql.Query(`SELECT worker, state, subject, branch, pr_url, summary, since, updated_at FROM workers WHERE repo = ? ORDER BY worker`, repo)
+		var seen int64
+		switch err := b.sql.QueryRow(`SELECT seen FROM watchers WHERE repo = ?`, repo).Scan(&seen); err {
+		case nil:
+			t := time.Unix(seen, 0)
+			d.Seen = &t
+		case sql.ErrNoRows:
+		default:
+			return d, err
+		}
+		rows, err := b.sql.Query(`SELECT worker, state, subject, branch, pr_url, summary, blocked_on, since, updated_at FROM workers WHERE repo = ? ORDER BY worker`, repo)
 		if err != nil {
 			return d, err
 		}
 		for rows.Next() {
 			w := Worker{Repo: repo}
 			var since, updated int64
-			if err := rows.Scan(&w.Worker, &w.State, &w.Subject, &w.Branch, &w.PRURL, &w.Summary, &since, &updated); err != nil {
+			if err := rows.Scan(&w.Worker, &w.State, &w.Subject, &w.Branch, &w.PRURL, &w.Summary, &w.BlockedOn, &since, &updated); err != nil {
 				rows.Close()
 				return d, err
 			}

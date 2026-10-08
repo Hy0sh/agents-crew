@@ -66,6 +66,37 @@ func TestBoardWorkerState(t *testing.T) {
 	}
 }
 
+// The worker's own state dates from state_since, and carries blocked_on.
+func TestBoardWorkerSinceAndBlockedOn(t *testing.T) {
+	now := time.Now()
+	pw := poolWorker{Index: 1, State: workerBusy, Since: now.Add(-time.Hour)}
+	s := workerStatus{State: "blocked", BlockedOn: "VAT rounding", StateSince: now.Add(-5 * time.Minute).UTC().Format(time.RFC3339)}
+	got := boardWorker("/r", pw, "idle", s, now)
+	if got.BlockedOn != "VAT rounding" || now.Sub(got.Since).Round(time.Minute) != 5*time.Minute {
+		t.Errorf("= %+v", got)
+	}
+	s.StateSince = ""
+	if got := boardWorker("/r", pw, "idle", s, now); !got.Since.Equal(pw.Since) {
+		t.Errorf("without state_since = %v, want the pool's", got.Since)
+	}
+}
+
+// herdr's blocked dates from the first poll that saw it, not from the task.
+func TestChangedWorkersDatesBlocked(t *testing.T) {
+	last := map[string]board.Worker{}
+	t0 := time.Unix(1000, 0)
+	w := board.Worker{Worker: "worker1", State: "coding", Since: time.Unix(1, 0), UpdatedAt: t0}
+	changedWorkers(last, []board.Worker{w})
+	w.State, w.UpdatedAt = "blocked", t0.Add(5*time.Second)
+	if got := changedWorkers(last, []board.Worker{w}); len(got) != 1 || !got[0].Since.Equal(t0.Add(5*time.Second)) {
+		t.Fatalf("newly blocked = %+v", got)
+	}
+	w.UpdatedAt = t0.Add(10 * time.Second)
+	if got := changedWorkers(last, []board.Worker{w}); len(got) != 0 {
+		t.Errorf("still blocked = %+v, want no write", got)
+	}
+}
+
 // Only what moved is written again; UpdatedAt alone is not a move.
 func TestChangedWorkers(t *testing.T) {
 	last := map[string]board.Worker{}

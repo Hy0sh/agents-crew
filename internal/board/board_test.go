@@ -1,6 +1,7 @@
 package board
 
 import (
+	"database/sql"
 	"sync"
 	"testing"
 	"time"
@@ -164,6 +165,55 @@ func TestConcurrentWrites(t *testing.T) {
 	defer b.Close()
 	if d, _ := b.Board("/r", noon, noon); len(d.Decisions) != 8 {
 		t.Errorf("decisions = %d, want 8", len(d.Decisions))
+	}
+}
+
+// A base written by v0.16.0 (version 1, no blocked_on) is migrated in
+// place: its rows stay, the new column reads back.
+func TestMigratesVersion1Base(t *testing.T) {
+	path := t.TempDir() + "/board.db"
+	old, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := old.Exec(`CREATE TABLE meta (version INTEGER NOT NULL); INSERT INTO meta VALUES (1);
+CREATE TABLE workers (repo TEXT, worker TEXT, state TEXT, subject TEXT, branch TEXT, pr_url TEXT, summary TEXT, since INTEGER, updated_at INTEGER, PRIMARY KEY (repo, worker));
+INSERT INTO workers VALUES ('/r', 'worker1', 'coding', 'SHOP-142', '', '', '', 0, 0);`); err != nil {
+		t.Fatal(err)
+	}
+	old.Close()
+	for range 2 { // the second open finds it done
+		b, err := Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b.Close()
+	}
+	b, _ := Open(path)
+	defer b.Close()
+	if d, _ := b.Board("/r", noon, noon); len(d.Workers) != 1 || d.Workers[0].Subject != "SHOP-142" {
+		t.Fatalf("old row = %+v", d.Workers)
+	}
+	b.UpsertWorker(Worker{Repo: "/r", Worker: "worker1", State: "blocked", BlockedOn: "VAT rounding"})
+	if d, _ := b.Board("/r", noon, noon); d.Workers[0].BlockedOn != "VAT rounding" {
+		t.Errorf("blocked_on = %q", d.Workers[0].BlockedOn)
+	}
+}
+
+// Seen is the repo's last beat, today only, nil before any.
+func TestBeat(t *testing.T) {
+	b := open(t)
+	if d, _ := b.Board("/r", noon, noon); d.Seen != nil {
+		t.Errorf("seen before any beat = %v", d.Seen)
+	}
+	b.Beat("/r", noon)
+	b.Beat("/r", noon.Add(30*time.Second))
+	b.Beat("/other", noon.Add(time.Hour))
+	if d, _ := b.Board("/r", noon, noon); d.Seen == nil || !d.Seen.Equal(noon.Add(30*time.Second)) {
+		t.Errorf("seen = %v", d.Seen)
+	}
+	if d, _ := b.Board("/r", noon.AddDate(0, 0, -1), noon); d.Seen != nil {
+		t.Errorf("past day seen = %v", d.Seen)
 	}
 }
 

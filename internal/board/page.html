@@ -29,7 +29,10 @@ header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content:
 h1 { font: 600 clamp(1.6rem, 3vw, 2.1rem)/1.15 var(--f-display); margin: 0; }
 h1 small { font: 400 15px var(--f-data); color: var(--muted); margin-left: 8px; }
 .stamp { font: 13px var(--f-data); color: var(--muted); }
-.stamp .live { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); margin-right: 6px; }
+.stamp::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--idle); margin-right: 6px; }
+[data-tone="ok"].stamp::before { background: var(--ok); } [data-tone="warn"].stamp::before { background: var(--warn); }
+[data-tone="bad"].stamp { color: var(--bad); font-weight: 600; } [data-tone="bad"].stamp::before { background: var(--bad); }
+.time.late { color: var(--bad); font-weight: 600; }
 .strip { display: flex; flex-wrap: wrap; gap: 10px; }
 .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; display: grid; min-width: 150px; flex: 1 1 150px; }
 .tile[hidden] { display: none; }
@@ -85,6 +88,7 @@ h2 .count { font-family: var(--f-data); color: var(--accent); }
     <label>Worker <select id="w"><option value="">All</option></select></label>
   </div>
   <div class="grid">
+    <section class="full live-only"><h2>Waiting on you <span class="count" id="c-attention"></span></h2><div class="list" id="attention"></div></section>
     <section class="full live-only"><h2>Workers <span class="count" id="c-workers"></span></h2><div class="workers" id="workers"></div></section>
     <section class="live-only"><h2>Pull requests followed <span class="count" id="c-prs"></span></h2><div class="list" id="prs"></div></section>
     <section><h2>Decisions <span class="count" id="c-decisions"></span></h2><div class="list" id="decisions"></div><button type="button" id="more" class="more" hidden>Show 8 more</button></section>
@@ -101,12 +105,16 @@ const tone = s => /block|fail|red|refus|dropped|conflict|closed/i.test(s) ? "bad
 const pill = (s, prefix = "") => { const p = el("span", "pill", prefix + s); p.dataset.tone = tone(s); return p; };
 const row = t => { const r = el("article", "row"); r.dataset.tone = t; return r; };
 const hm = iso => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const secs = iso => (Date.now() - new Date(iso)) / 1000;
+const span = s => s < 60 ? Math.round(s) + " s" : s < 3600 ? Math.floor(s / 60) + " min" : s < 86400 ? Math.floor(s / 3600) + " h" : Math.floor(s / 86400) + " d";
+// An age, the exact date on hover; late (red) past lateAfter seconds.
+const ago = (iso, lateAfter = Infinity) => { const t = el("span", "time" + (secs(iso) > lateAfter ? " late" : ""), span(Math.max(0, secs(iso)))); t.title = new Date(iso).toLocaleString(); return t; };
 const prNum = url => (url || "").match(/\/pull\/(\d+)/)?.[1];
 const link = (text, url) => { const s = el("span", "ref"); if (url) { const a = el("a", null, text); a.href = url; a.target = "_blank"; a.rel = "noopener"; s.append(a); } else s.textContent = text; return s; };
 
 function worker(d) {
   const r = row(tone(d.state)), top = el("div", "top");
-  top.append(el("span", "who", d.worker), pill(d.state || "free"), el("span", "time", "since " + hm(d.since)));
+  top.append(el("span", "who", d.worker), pill(d.state || "free"), ago(d.since));
   r.append(top);
   if (d.subject) r.append(el("div", "title", d.subject));
   const ref = el("div", "top");
@@ -125,6 +133,45 @@ function pr(d) {
   const meta = [d.worker, d.base && "base " + d.base, d.review].filter(Boolean).join(" · ");
   if (meta) r.append(el("div", "meta", meta));
   return r;
+}
+// What waits on a gesture of yours, derived from the workers and the PRs,
+// never stored: a worker stuck on a prompt first (it can do nothing until
+// it is answered), then the oldest waits, then the PRs.
+function waits(workers, prs) {
+  const out = [];
+  for (const w of workers) {
+    if (w.state === "blocked") out.push({ rank: 0, tone: "bad", worker: w.worker, text: "stuck on a prompt: a tool approval or a question", detail: w.subject, since: w.since });
+    else if (w.blocked_on) out.push({ rank: 1, tone: "warn", worker: w.worker, text: "waits: " + w.blocked_on, detail: w.subject, since: w.since });
+  }
+  out.sort((a, b) => a.rank - b.rank || new Date(a.since) - new Date(b.since));
+  for (const p of prs) {
+    if (p.status !== "open") continue;
+    if (/CHANGES_REQUESTED|threads open/.test(p.review)) out.push({ tone: "warn", worker: p.worker, number: p.number, url: p.url, text: p.review, detail: p.title });
+    else if (p.ci === "green" && /^APPROVED/.test(p.review)) out.push({ tone: "ok", worker: p.worker, number: p.number, url: p.url, text: "approved and green: ready for your merge", detail: p.title });
+  }
+  return out;
+}
+function wait(d) {
+  const r = row(d.tone), top = el("div", "top");
+  if (d.number) top.append(link("#" + d.number, d.url));
+  if (d.worker) top.append(el("span", "who", d.worker));
+  top.append(el("span", "title", d.text));
+  if (d.since) top.append(ago(d.since, 15 * 60));
+  r.append(top);
+  if (d.detail) r.append(el("div", "meta", d.detail));
+  return r;
+}
+// The watcher beats every 30 s: past 2 min it is late, past 10 min the
+// page is showing a state nobody updates any more.
+function freshness() {
+  if (!board.live) return ["idle", "Swarm not running on this day"];
+  if (!board.seen) return ["idle", board.workers.length ? "No watcher has reported yet" : "No swarm running"];
+  const s = secs(board.seen);
+  if (s < -60) return ["bad", "The watcher's clock is ahead of this one: check the machine's time"];
+  if (s > 120 && !board.workers.length) return ["idle", `No swarm running, last watcher seen ${span(s)} ago`];
+  if (s <= 120) return ["ok", `Live, watcher seen ${span(Math.max(0, s))} ago`];
+  if (s <= 600) return ["warn", `Watcher silent for ${span(s)}: this page may be behind`];
+  return ["bad", `Watcher silent for ${span(s)}: this page is stale, check acw status`];
 }
 function decision(d) {
   const r = row("accent"), top = el("div", "top");
@@ -167,7 +214,10 @@ function render() {
   if (!board) return;
   const live = board.live;
   document.querySelectorAll(".live-only").forEach(s => s.hidden = !live);
-  $("stamp").textContent = live ? "Live, refreshed every 5 s" : "Swarm not running on this day";
+  const [t, text] = freshness();
+  $("stamp").dataset.tone = t;
+  $("stamp").textContent = text;
+  fill("attention", live ? waits(board.workers, board.prs) : [], wait, "Nothing waits on you.");
   fill("workers", board.workers, worker, "No worker open.");
   fill("prs", board.prs, pr, "No pull request followed.");
   const matching = fill("decisions", board.decisions, decision, "No decision recorded.", state.shown);
@@ -194,6 +244,7 @@ async function load() {
     board = await (await fetch("/api/board?" + q)).json();
     render();
   } catch (e) {
+    $("stamp").dataset.tone = "bad";
     $("stamp").textContent = "acw board is not answering: " + e.message;
   }
 }

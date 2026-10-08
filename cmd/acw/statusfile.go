@@ -29,6 +29,7 @@ type workerStatus struct {
 	Branch      string `json:"branch"`
 	BaseBranch  string `json:"base_branch"`
 	PRURL       string `json:"pr_url"`
+	BlockedOn   string `json:"blocked_on"`
 	UpdatedAt   string `json:"updated_at"`
 	LastTurnEnd string `json:"last_turn_end"`
 	StateSince  string `json:"state_since"`

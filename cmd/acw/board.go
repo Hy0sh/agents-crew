@@ -139,13 +139,18 @@ func boardCommand() *cobra.Command {
 
 // boardWorker is a worker's row: herdr's blocked first (it waits on
 // someone), then, while it has a task, the state it gives itself, else
-// the pool's. A free worker has no subject.
+// the pool's. A free worker has no subject. Since is when that state
+// began: state_since for the worker's own, which acw stamps; herdr's
+// blocked is dated by changedWorkers.
 func boardWorker(repo string, pw poolWorker, agentStatus string, s workerStatus, now time.Time) board.Worker {
 	w := board.Worker{Repo: repo, Worker: pw.label(), State: pw.State, Since: pw.Since, UpdatedAt: now}
 	if pw.State == workerBusy {
-		w.Subject, w.Branch, w.PRURL, w.Summary = s.Tache, s.Branch, s.PRURL, s.Summary
+		w.Subject, w.Branch, w.PRURL, w.Summary, w.BlockedOn = s.Tache, s.Branch, s.PRURL, s.Summary, s.BlockedOn
 		if s.State != "" {
 			w.State = s.State
+			if t, err := time.Parse(time.RFC3339, s.StateSince); err == nil {
+				w.Since = t
+			}
 		}
 	}
 	if agentStatus == "blocked" {
@@ -156,10 +161,18 @@ func boardWorker(repo string, pw poolWorker, agentStatus string, s workerStatus,
 
 // changedWorkers returns the rows of cur that differ from last, UpdatedAt
 // aside, and keeps last up to date: the base is written on a move only.
+// herdr's blocked has no date of its own: it dates from the poll that
+// first saw it.
 func changedWorkers(last map[string]board.Worker, cur []board.Worker) []board.Worker {
 	var out []board.Worker
 	for _, w := range cur {
 		prev, seen := last[w.Worker]
+		if w.State == "blocked" {
+			w.Since = w.UpdatedAt
+			if seen && prev.State == "blocked" {
+				w.Since = prev.Since
+			}
+		}
 		prev.UpdatedAt = w.UpdatedAt
 		if !seen || prev != w {
 			out = append(out, w)

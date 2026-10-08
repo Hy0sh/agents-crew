@@ -75,7 +75,7 @@ func runWatch(plan watchPlan, interval time.Duration) {
 	}
 	defer inflight.Wait()
 	boardLast := map[string]board.Worker{}
-	var prsWritten time.Time
+	var prsWritten, beaten time.Time
 	for {
 		if !ownsRun(plan.Repo, plan.Stamp) {
 			return
@@ -148,6 +148,9 @@ func runWatch(plan watchPlan, interval time.Duration) {
 			if p, ok := prFromURL(plan.Repo, s.PRURL, pw.label(), now); ok && prs == nil {
 				prRows = append(prRows, p)
 			}
+		}
+		if now.Sub(beaten) >= beatEvery && record("heartbeat", func(b *board.DB) error { return b.Beat(plan.Repo, now) }) {
+			beaten = now
 		}
 		moved := changedWorkers(boardLast, rows)
 		gone := prunedWorkers(boardLast, labels)
@@ -228,6 +231,10 @@ func runWatch(plan watchPlan, interval time.Duration) {
 		time.Sleep(interval)
 	}
 }
+
+// beatEvery is how often the watcher tells the board it is alive: the
+// page turns orange after 2 min without it.
+const beatEvery = 30 * time.Second
 
 // worktreeEvery is how often the watcher reruns git status on a working
 // worker's worktree: silence is counted in minutes, and a status per
