@@ -6,6 +6,16 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Fixed
+
+- A task `--branch B` queued right after `acw done` of the worker on B
+  could go to another worker while the freed one's agent was not ready
+  yet. That other worker then took B back from the freed one, which the
+  next poll had handed another task: the task was held with "B is
+  checked out by workerN, busy". A task on a branch a clean free worker
+  is on now waits for that worker, or, when it can't take the task, for
+  it to be parked first.
+
 ## [0.19.0] - 2026-10-09
 
 ### Added
