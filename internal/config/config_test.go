@@ -320,6 +320,24 @@ func TestEditKeepsOtherEntries(t *testing.T) {
 	}
 }
 
+// Edit never writes an entry acw would then refuse: workers next to
+// roles is refused, and the file is left as it was.
+func TestEditRefusesAnEntryLoadWouldRefuse(t *testing.T) {
+	writeConfig(t, `{"projects": {"/repo": {"roles": {"worker": {"max": 2}}}}}`)
+	before, _ := os.ReadFile(Path())
+	err := Edit("/repo", func(p *Project) error {
+		three := 3
+		p.Workers = &three
+		return nil
+	})
+	if err == nil {
+		t.Error("Edit wrote workers next to roles")
+	}
+	if after, _ := os.ReadFile(Path()); string(after) != string(before) {
+		t.Errorf("config changed:\n%s", after)
+	}
+}
+
 // Edit makes the entry when there is none and changes it when there is
 // one: the user needn't know which.
 func TestEditCreatesOrChanges(t *testing.T) {

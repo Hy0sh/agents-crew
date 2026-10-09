@@ -328,6 +328,11 @@ func Edit(repo string, change func(*Project) error) error {
 	if err := change(&p); err != nil {
 		return err
 	}
+	// Never write what Load would refuse: every later acw start in the
+	// repo would fail until the JSON is fixed by hand.
+	if err := p.CheckRoles(); err != nil {
+		return err
+	}
 	f.Projects[key] = p
 
 	content, err := json.MarshalIndent(f, "", "  ")
