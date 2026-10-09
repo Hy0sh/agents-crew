@@ -6,6 +6,14 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-10-09
+
+### Security
+
+- Built with Go 1.27.2, which fixes five `net/http` and HTTP/2
+  vulnerabilities of 1.27.1 (memory exhaustion on the server side among
+  them). `acw board` serves HTTP on 127.0.0.1.
+
 ### Fixed
 
 - `acw board`: Done on a PR's line (ready for your merge, review asks
@@ -767,7 +775,8 @@ project: 7 PRs, 3 merged. Each entry names what actually went wrong.
   anything, with a clear message and install instructions if not; `wtm` is
   checked too but stays optional.
 
-[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.17.1...HEAD
+[0.17.1]: https://github.com/Hy0sh/agents-crew/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/Hy0sh/agents-crew/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/Hy0sh/agents-crew/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/Hy0sh/agents-crew/compare/v0.14.0...v0.15.0
