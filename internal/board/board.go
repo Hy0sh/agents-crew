@@ -204,7 +204,7 @@ type Day struct {
 	Handled      []Handled  `json:"handled"`
 	Decisions    []Decision `json:"decisions"`
 	// Parked holds the open parked decisions, Marks the lines marked done
-	// on the page in the last day, by item: today only, like Workers.
+	// on the page within markWindow, by item: today only, like Workers.
 	Parked []Parked
 	Marks  map[string]time.Time
 }
@@ -349,10 +349,21 @@ func (b *DB) CloseParked(id int64, answer string, at time.Time) (Parked, error) 
 	return p, nil
 }
 
+// markWindow is how far back marks are read: a PR's mark holds until its
+// state changes, and a reviewer can take days to come back.
+const markWindow = 14 * 24 * time.Hour
+
 // Mark records that the user marked item done on the page.
 func (b *DB) Mark(repo, item string, at time.Time) error {
 	_, err := b.sql.Exec(`INSERT INTO marks (repo, item, at) VALUES (?,?,?)`, repo, item, at.Unix())
 	return err
+}
+
+// Marked says the user already marked item done.
+func (b *DB) Marked(repo, item string) (bool, error) {
+	var n int
+	err := b.sql.QueryRow(`SELECT count(*) FROM marks WHERE repo = ? AND item = ?`, repo, item).Scan(&n)
+	return n > 0, err
 }
 
 func (b *DB) AddHandled(h Handled) error {
@@ -423,7 +434,7 @@ func (b *DB) Board(repo string, day, now time.Time) (Day, error) {
 		if d.Parked, err = b.OpenParked(repo); err != nil {
 			return d, err
 		}
-		rows, err = b.sql.Query(`SELECT item, max(at) FROM marks WHERE repo = ? AND at >= ? GROUP BY item`, repo, now.Add(-24*time.Hour).Unix())
+		rows, err = b.sql.Query(`SELECT item, max(at) FROM marks WHERE repo = ? AND at >= ? GROUP BY item`, repo, now.Add(-markWindow).Unix())
 		if err != nil {
 			return d, err
 		}

@@ -6,6 +6,19 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Fixed
+
+- `acw board`: Done on a PR's line (ready for your merge, review asks
+  nobody holds) keeps it out of "Waiting on you" until the PR changes on
+  GitHub: a new review, a thread opened or resolved, CI, a conflict. It
+  used to come back two minutes later, flagged, while the PR still showed
+  `CHANGES_REQUESTED`, which stays until the reviewer reads again, often
+  hours after the asks were answered elsewhere. Each new Done also sent
+  the master one more "marked done" line for the same PR; a PR's line
+  already marked tells it once. Its ticket now waits on the reviewers,
+  not on nobody. Marks are kept two weeks instead of a day, for a
+  reviewer who takes days.
+
 ## [0.17.0] - 2026-10-08
 
 ### Added

@@ -267,10 +267,10 @@ func TestUpsertPRKeepsTheFirstSince(t *testing.T) {
 
 func TestMarks(t *testing.T) {
 	b := open(t)
-	b.Mark("/r", "worker:worker1:plan_ready:1", noon.Add(-25*time.Hour))
+	b.Mark("/r", "worker:worker1:plan_ready:1", noon.Add(-markWindow-time.Hour))
 	b.Mark("/r", "worker:worker1:plan_ready:2", noon)
 	if d, _ := b.Board("/r", noon, noon); len(d.Marks) != 1 || !d.Marks["worker:worker1:plan_ready:2"].Equal(noon) {
-		t.Errorf("marks = %v, want the last day's only", d.Marks)
+		t.Errorf("marks = %v, want the window's only", d.Marks)
 	}
 }
 

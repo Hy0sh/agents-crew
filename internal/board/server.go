@@ -99,8 +99,14 @@ func Handler(b *DB, now func() time.Time, notify func(repo, msg string) error) h
 
 // markDone tells the master, then records the mark: a mark the master
 // never heard of would hide a wait for nothing. A parked decision on the
-// user is closed with it.
+// user is closed with it. A PR's line already marked, state unchanged
+// (a page not reloaded yet, a double click), tells nobody twice.
 func markDone(b *DB, req doneRequest, at time.Time, notify func(repo, msg string) error) error {
+	if isPRWait(req.ID) {
+		if seen, err := b.Marked(req.Repo, req.ID); err != nil || seen {
+			return err
+		}
+	}
 	line := strings.Join(strings.Fields(req.Text), " ")
 	if req.Ticket != "" {
 		line = req.Ticket + " " + line

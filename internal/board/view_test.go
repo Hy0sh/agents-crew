@@ -93,6 +93,27 @@ func TestViewMarks(t *testing.T) {
 	}
 }
 
+// A PR's line marked done stays aside until the PR's state changes, and
+// its ticket then waits on the reviewers.
+func TestViewMarksAPR(t *testing.T) {
+	d := viewDay()
+	d.Parked = nil // #8 would keep SHOP-9 on the user
+	id := BuildView(d, noon).Waits[0].ID
+	d.Marks[id] = noon.Add(-time.Minute)
+	v := BuildView(d, noon.Add(time.Hour))
+	if len(v.Marked) != 1 || v.Marked[0].ID != id || len(v.Waits) != 3 {
+		t.Fatalf("an hour later: waits %+v, marked %+v", v.Waits, v.Marked)
+	}
+	if i := slices.IndexFunc(v.Tickets, func(tk Ticket) bool { return tk.Key == "SHOP-9" }); v.Tickets[i].Waiting != "reviewers" {
+		t.Errorf("SHOP-9 = %+v", v.Tickets[i])
+	}
+	d.PRs[2].Review = "COMMENTED by b · 4 threads open"
+	v = BuildView(d, noon.Add(time.Hour))
+	if len(v.Marked) != 0 || len(v.Waits) != 4 || v.Waits[0].MarkedAt != nil {
+		t.Errorf("a new thread: waits %+v, marked %+v", v.Waits, v.Marked)
+	}
+}
+
 func TestViewTickets(t *testing.T) {
 	v := BuildView(viewDay(), noon)
 	byKey := map[string]Ticket{}

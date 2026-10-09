@@ -40,5 +40,10 @@ jobs:
       - name: Vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
+      # staticcheck 0.8.1 ships an x/tools that can't read Go 1.27.2's
+      # export data: it is built with the latest x/tools instead.
+      # ponytail: back to `go run …staticcheck@latest` once a release follows.
       - name: Unused code
-        run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+        run: |
+          (cd "$(mktemp -d)" && go mod init sc && go get honnef.co/go/tools/cmd/staticcheck@latest golang.org/x/tools@latest && go build -o "$RUNNER_TEMP/staticcheck" honnef.co/go/tools/cmd/staticcheck)
+          "$RUNNER_TEMP/staticcheck" ./...
