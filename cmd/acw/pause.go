@@ -27,8 +27,17 @@ func pauseStacks(repo string, out io.Writer) error {
 // not silently replace it.
 func resumeStacks(repo string, out io.Writer) error {
 	return eachStack(repo, out, "acw resume: workers' stacks started again. The first call to a service may fail while it starts up.",
-		func(dir, branch, profile string) error { return wtm.Start(dir, branch, profile, out) })
+		func(dir, branch, profile string) error {
+			// A worker on its waiting branch has no task: it gets no stack
+			// there, its next task's switch starts one (see parkWorker).
+			if branch == "agents/"+filepath.Base(dir) {
+				return errOnWaitingBranch
+			}
+			return wtm.Start(dir, branch, profile, out)
+		})
 }
+
+var errOnWaitingBranch = errors.New("on its waiting branch")
 
 // eachStack runs step on every worker worktree, on the branch it is on
 // now (the one wtm keys its stack by: a worker moves it along with wtm
@@ -56,6 +65,10 @@ func eachStack(repo string, out io.Writer, done string, step func(dir, branch, p
 		// acw never got a stack: nothing to stop or start there. One that
 		// got one and that wtm no longer reaches is a failure: that stack
 		// may still be up, out of acw's reach.
+		if errors.Is(err, errOnWaitingBranch) {
+			fmt.Fprintf(out, "%s: on its waiting branch, left without a stack.\n", name)
+			continue
+		}
 		noStack := errors.Is(err, wtm.ErrNoStack) || errors.Is(err, wtm.ErrUnregistered)
 		if !stacked && (noStack || branch == "HEAD") {
 			fmt.Fprintf(out, "%s: no stack, skipped.\n", name)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -57,17 +58,52 @@ func TestPauseStopsEachWorkerStackAndTellsTheMaster(t *testing.T) {
 	}
 }
 
-// resume starts the stacks on the profile the swarm was launched with.
+// resume starts the stacks on the profile the swarm was launched with,
+// except a worker's on its waiting branch: it has no task, and no stack
+// there (see parkWorker).
 func TestResumeStartsEachWorkerStackOnTheRunProfile(t *testing.T) {
 	repo, calls := fakeSwarm(t, "light")
+	wt := names.WorkerWorktree(repo, 1, "20260925140000")
+	if out, err := exec.Command("git", "-C", wt, "switch", "-q", "-c", "feat/x").CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
 	if err := resumeStacks(repo, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(calls); string(got) != "start agents/worker1-20260925140000 --profile light\n" {
+	if got, _ := os.ReadFile(calls); string(got) != "start feat/x --profile light\n" {
 		t.Errorf("wtm calls = %q", got)
 	}
 	if inbox, _ := os.ReadFile(names.Inbox(repo)); !strings.Contains(string(inbox), "acw resume") {
 		t.Errorf("inbox = %q, the master should hear of the resume", inbox)
+	}
+
+	os.Remove(calls)
+	if out, err := exec.Command("git", "-C", wt, "switch", "-q", names.WorkerBranch(1, "20260925140000")).CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	var out bytes.Buffer
+	if err := resumeStacks(repo, &out); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(calls); len(got) != 0 || !strings.Contains(out.String(), "left without a stack") {
+		t.Errorf("on its waiting branch: wtm calls = %q, said %q", got, out.String())
+	}
+}
+
+// A free worker with a stack goes back to its waiting branch without
+// one: wtm switch --no-start.
+func TestParkWorkerStartsNoStack(t *testing.T) {
+	repo, calls := fakeSwarm(t, "light")
+	wt := names.WorkerWorktree(repo, 1, "20260925140000")
+	if out, err := exec.Command("git", "-C", wt, "switch", "-q", "-c", "feat/x").CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	p, _, _ := readPool(repo)
+	if err := parkWorker(p, poolWorker{Index: 1, Worktree: wt, Stacked: true, State: workerFree}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(calls); !strings.Contains(string(got), "switch agents/worker1-20260925140000 --no-start\n") {
+		t.Errorf("wtm calls = %q", got)
 	}
 }
 

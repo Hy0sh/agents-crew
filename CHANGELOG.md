@@ -6,6 +6,16 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Changed
+
+- A free worker goes back to its waiting branch without a stack (`wtm
+  switch --no-start`): the stack of its task goes down, and none comes up
+  where nobody works. Each `acw done` used to start a full stack, database
+  restore included, on the waiting branch, held until the next task
+  switched it away, on a machine already short of memory with five
+  stacks. The next task's switch starts a fresh one; `acw resume` leaves a
+  worker on its waiting branch without one.
+
 ## [0.19.1] - 2026-10-09
 
 ### Fixed

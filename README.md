@@ -257,7 +257,8 @@ workers with a stack to create it with `wtm switch`.
 
 `acw pause` stops the workers' stacks (`wtm stop`) for a break, `acw
 resume` starts them again (`wtm start`) on the profile the swarm was
-launched with. Worktrees, agents and the workspace stay as they are, and
+launched with, except a worker's on its waiting branch: it has no task to
+need one. Worktrees, agents and the workspace stay as they are, and
 the master hears of both in its inbox. Without a terminal wtm asks nothing
 and starts even when memory is tight; its warning is shown as is.
 
@@ -286,8 +287,10 @@ workerN`.
   skipped until the master moves or removes it.
 - **Ending a task frees its branch.** `acw done` frees the worker at once;
   the watcher then puts it back on its waiting branch (the one it opened
-  on) in the background, through `wtm switch` for a worker with a stack,
-  its output in the watcher's log. The branch of the task it ended is then
+  on) in the background, through `wtm switch --no-start` for a worker with
+  a stack, its output in the watcher's log: the stack of the task goes
+  down, and none comes up on the waiting branch, where nobody works. The
+  next task's switch starts a fresh one. The branch of the task it ended is then
   free for the next task on it: the review, then the fix of what the
   review found, each going to whichever worker is free, with what it needs
   in its brief. A task given `--branch` that a free worker is still on
