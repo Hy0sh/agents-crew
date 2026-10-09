@@ -223,6 +223,17 @@ func runWatch(plan watchPlan, interval time.Duration) {
 					fmt.Fprintln(os.Stderr, "message to the master:", err)
 				}
 			}
+			if merged := mergedURLs(prs.closed); len(merged) > 0 {
+				if err := withPool(plan.Repo, func(p *poolState, q *taskQueue) (bool, error) {
+					changed := false
+					for _, url := range merged {
+						changed = q.mergedPR(url) || changed
+					}
+					return changed, nil
+				}); err != nil {
+					fmt.Fprintln(os.Stderr, "merged PRs:", err)
+				}
+			}
 			heldURLs, heldBranches := heldPRs(statusDir, pool, queue)
 			held := func(pr prState) bool { return heldURLs[normalizePRURL(pr.URL)] || heldBranches[pr.Head] }
 			record("prs", func(b *board.DB) error {

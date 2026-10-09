@@ -177,7 +177,7 @@ replaces with its own (`ctx 34% · 5h 78%`) to record that usage.
 
 ```sh
 acw queue                                   # workers and queue
-acw queue add <brief-file> [--branch <b>] [--worker workerN] [--kind <kind>] [--after <id>]... [--top]
+acw queue add <brief-file> [--branch <b>] [--worker workerN] [--kind <kind>] [--after <id>]... [--after-merge <id>]... [--top]
 acw queue move <id> <position>
 acw queue remove <id>
 acw done workerN [task-id]
@@ -301,6 +301,12 @@ workerN`.
   before it. While it waits, `acw queue` shows "waiting for #N", it opens
   no worker, and any free worker takes it once unblocked. Removing a task it
   waits for holds it with that reason.
+- A task queued `--after-merge <id>` (repeatable, needs `pr-watch`) waits
+  until the PR that task ended with is merged: `acw done` keeps the
+  `pr_url` of the worker's status, and the PR watch says when it is
+  merged. That is a follow-up that builds on merged code, where `--after`
+  would let it go at the done, before the review. A task ended without a
+  PR holds what waits for its merge, and can't be named afterwards.
 
 **Opening a worker.** A task no free worker can take opens the lowest
 worker not open, up to `workers`. For a worker in the code, when the repo

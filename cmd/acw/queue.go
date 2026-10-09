@@ -36,10 +36,10 @@ func queueCommand() *cobra.Command {
 
 	var br branchRequest
 	var worker, kind string
-	var after []int
+	var after, afterMerge []int
 	var top bool
 	add := &cobra.Command{
-		Use:   "add <brief-file> [--branch <b>] [--base <ref>] [--worker workerN] [--kind <kind>] [--after <id>]... [--top]",
+		Use:   "add <brief-file> [--branch <b>] [--base <ref>] [--worker workerN] [--kind <kind>] [--after <id>]... [--after-merge <id>]... [--top]",
 		Short: "Queue a task: the brief is copied in, the file may change afterwards",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -47,7 +47,7 @@ func queueCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return queueAdd(r, args[0], br, worker, kind, after, top, time.Now(), cmd.OutOrStdout())
+			return queueAdd(r, args[0], br, worker, kind, after, afterMerge, top, time.Now(), cmd.OutOrStdout())
 		},
 	}
 	add.Flags().StringVar(&br.Branch, "branch", "", "put the worker on this branch first (a fix or a rebase on a known branch), after a git fetch")
@@ -55,6 +55,7 @@ func queueCommand() *cobra.Command {
 	add.Flags().StringVar(&worker, "worker", "", "only this worker may take it (a fix after a KO goes back to the worker that has the context)")
 	add.Flags().StringVar(&kind, "kind", "", "only the workers whose worker-overrides tasks list this kind take it (a reviewer for need-review)")
 	add.Flags().IntSliceVar(&after, "after", nil, "hold it until this task is ended with acw done (repeatable): a rebase that needs the pushed result of the task before it")
+	add.Flags().IntSliceVar(&afterMerge, "after-merge", nil, "hold it until the PR this task ended with is merged (repeatable; needs pr-watch): a follow-up that builds on the merged code")
 	add.Flags().BoolVar(&top, "top", false, "first in the queue instead of last")
 
 	move := &cobra.Command{

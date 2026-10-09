@@ -127,8 +127,12 @@ type queuedTask struct {
 	// After lists the tasks it waits for: it goes out once each is ended,
 	// neither queued nor on a busy worker (a rebase that needs the pushed
 	// result of the task before it).
-	After   []int     `json:"after,omitempty"`
-	AddedAt time.Time `json:"added_at"`
+	After []int `json:"after,omitempty"`
+	// AfterMerge lists the tasks whose PR it waits to see merged: ended
+	// is not enough when the follow-up builds on the merged code, and
+	// acw done comes before the review.
+	AfterMerge []int     `json:"after_merge,omitempty"`
+	AddedAt    time.Time `json:"added_at"`
 	// Error is why handing it out failed: it is skipped until the master
 	// moves or removes it, rather than retried every few seconds.
 	Error string `json:"error,omitempty"`
@@ -137,10 +141,15 @@ type queuedTask struct {
 type taskQueue struct {
 	NextID int          `json:"next_id"`
 	Tasks  []queuedTask `json:"tasks"`
+	// PRs is the PR each ended task left (its worker's pr_url at acw
+	// done), while a task waits for its merge; Merged, the tasks whose PR
+	// the PR watch saw merged.
+	PRs    map[int]string `json:"prs,omitempty"`
+	Merged []int          `json:"merged,omitempty"`
 }
 
-// waitingFor is what of t's After is not ended yet: still queued, or the
-// task of a busy worker.
+// waitingFor is what of t's After is not ended yet, still queued or the
+// task of a busy worker, and what of its AfterMerge has no merged PR yet.
 func waitingFor(t queuedTask, p poolState, q taskQueue) []int {
 	var out []int
 	for _, id := range t.After {
@@ -150,7 +159,26 @@ func waitingFor(t queuedTask, p poolState, q taskQueue) []int {
 			out = append(out, id)
 		}
 	}
+	for _, id := range t.AfterMerge {
+		if !slices.Contains(q.Merged, id) {
+			out = append(out, id)
+		}
+	}
 	return out
+}
+
+// mergedPR records that the PR at url was merged: the tasks that left it
+// count as merged for AfterMerge. It reports whether one did.
+func (q *taskQueue) mergedPR(url string) bool {
+	found := false
+	for id, u := range q.PRs {
+		if u == url {
+			q.Merged = append(q.Merged, id)
+			delete(q.PRs, id)
+			found = true
+		}
+	}
+	return found
 }
 
 func taskList(ids []int) string {
@@ -242,7 +270,7 @@ func workerArg(repo, arg string) (int, error) {
 }
 
 // queueAdd queues the brief at path, last, or first with top.
-func queueAdd(repo, path string, br branchRequest, worker, kind string, after []int, top bool, now time.Time, out io.Writer) error {
+func queueAdd(repo, path string, br branchRequest, worker, kind string, after, afterMerge []int, top bool, now time.Time, out io.Writer) error {
 	if err := br.check(); err != nil {
 		return err
 	}
@@ -277,8 +305,23 @@ func queueAdd(repo, path string, br branchRequest, worker, kind string, after []
 				return false, fmt.Errorf("--after %d: no task #%d was ever queued here (the last is #%d)", id, id, q.NextID)
 			}
 		}
+		// A merge only the PR watch can see; a task ended without a PR
+		// has none to wait for.
+		if len(afterMerge) > 0 && !p.Plan.PRWatch {
+			return false, errors.New("--after-merge needs pr-watch: acw learns of a merge from it")
+		}
+		for _, id := range afterMerge {
+			if id < 1 || id > q.NextID {
+				return false, fmt.Errorf("--after-merge %d: no task #%d was ever queued here (the last is #%d)", id, id, q.NextID)
+			}
+			pending := slices.ContainsFunc(q.Tasks, func(x queuedTask) bool { return x.ID == id }) ||
+				slices.ContainsFunc(p.Workers, func(w poolWorker) bool { return w.State == workerBusy && w.Task == id })
+			if _, open := q.PRs[id]; !pending && !open && !slices.Contains(q.Merged, id) {
+				return false, fmt.Errorf("--after-merge %d: task #%d ended without a PR, there is no merge to wait for", id, id)
+			}
+		}
 		q.NextID++
-		t := queuedTask{ID: q.NextID, Brief: text, Branch: br.Branch, Base: br.Base, Worker: index, Kind: kind, After: after, AddedAt: now}
+		t := queuedTask{ID: q.NextID, Brief: text, Branch: br.Branch, Base: br.Base, Worker: index, Kind: kind, After: after, AfterMerge: afterMerge, AddedAt: now}
 		if top {
 			q.Tasks = slices.Insert(q.Tasks, 0, t)
 		} else {
@@ -286,7 +329,7 @@ func queueAdd(repo, path string, br branchRequest, worker, kind string, after []
 		}
 		fmt.Fprintf(out, "task #%d queued, position %d of %d", t.ID, slices.IndexFunc(q.Tasks, func(x queuedTask) bool { return x.ID == t.ID })+1, len(q.Tasks))
 		if waits := waitingFor(t, *p, *q); len(waits) > 0 {
-			fmt.Fprintf(out, "; it waits for %s to be ended (acw done)", taskList(waits))
+			fmt.Fprintf(out, "; it waits for %s (ended with acw done, or its PR merged with --after-merge)", taskList(waits))
 		}
 		fmt.Fprintln(out, ".")
 		return true, nil
@@ -322,7 +365,7 @@ func queueRemove(repo string, id int, out io.Writer) error {
 		// What waited for it would otherwise go out without the result it
 		// waited for: it is held, for the master to move or remove.
 		for j := range q.Tasks {
-			if t := &q.Tasks[j]; t.Error == "" && slices.Contains(t.After, id) {
+			if t := &q.Tasks[j]; t.Error == "" && (slices.Contains(t.After, id) || slices.Contains(t.AfterMerge, id)) {
 				t.Error = fmt.Sprintf("the task it waited for, #%d, was removed", id)
 				fmt.Fprintf(out, "task #%d held: it waited for #%d (move it to let it go anyway, or remove it).\n", t.ID, id)
 			}
@@ -353,9 +396,40 @@ func markDone(repo string, index, task int, now time.Time) (string, int, error) 
 		msg = fmt.Sprintf("%s is free (task #%d done).", w.label(), w.Task)
 		finished = w.Task
 		w.State, w.Task, w.Since = workerFree, 0, now
+		afterMergeOf(q, finished, prURL(repo, w.label()), &msg)
 		return true, nil
 	})
 	return msg, finished, err
+}
+
+// prURL is the PR a worker's status file names, normalized, "" without.
+func prURL(repo, label string) string {
+	s, _ := readWorkerStatus(filepath.Join(names.StatusDir(repo), label+".json"))
+	if s.PRURL == "" {
+		return ""
+	}
+	return normalizePRURL(s.PRURL)
+}
+
+// afterMergeOf keeps the PR task id ended with, for a task waiting for
+// its merge, now or queued later. Without a PR, the tasks that wait for
+// it would wait forever: they are held.
+// ponytail: the PR of a task closed unmerged stays in q.PRs, a few bytes
+// each; prune when a swarm lives long enough to matter.
+func afterMergeOf(q *taskQueue, id int, url string, msg *string) {
+	if url != "" {
+		if q.PRs == nil {
+			q.PRs = map[int]string{}
+		}
+		q.PRs[id] = url
+		return
+	}
+	for j := range q.Tasks {
+		if t := &q.Tasks[j]; t.Error == "" && slices.Contains(t.AfterMerge, id) {
+			t.Error = fmt.Sprintf("#%d ended without a PR in its worker's status: no merge to wait for", id)
+			*msg += fmt.Sprintf(" Task #%d held: it waited for the merge of #%d's PR, and there is none.", t.ID, id)
+		}
+	}
 }
 
 // parking is the branch each worker is being moved off by the watcher
