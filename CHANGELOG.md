@@ -6,6 +6,8 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-09
+
 ### Added
 
 - `acw watch` starts the swarm's watcher again when it is not running,
@@ -892,7 +894,8 @@ project: 7 PRs, 3 merged. Each entry names what actually went wrong.
   anything, with a clear message and install instructions if not; `wtm` is
   checked too but stays optional.
 
-[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.20.0...HEAD
+[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.21.0...HEAD
+[0.21.0]: https://github.com/Hy0sh/agents-crew/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/Hy0sh/agents-crew/compare/v0.19.1...v0.20.0
 [0.19.1]: https://github.com/Hy0sh/agents-crew/compare/v0.19.0...v0.19.1
 [0.19.0]: https://github.com/Hy0sh/agents-crew/compare/v0.18.0...v0.19.0
