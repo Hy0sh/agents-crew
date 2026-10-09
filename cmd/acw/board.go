@@ -223,7 +223,7 @@ func parkCommand() *cobra.Command {
 				}
 				index, worker = i, label
 			}
-			kind := ""
+			kind, branch := "", ""
 			if doc != "" {
 				if worker == "" {
 					return errors.New("--doc needs --worker: parking its document frees it")
@@ -232,7 +232,7 @@ func parkCommand() *cobra.Command {
 					return err
 				}
 				s, _ := readWorkerStatus(filepath.Join(names.StatusDir(repo), worker+".json"))
-				kind = docKind(s.State)
+				kind, branch = docKind(s.State), s.Branch
 			}
 			text, err := readText(args, cmd.InOrStdin(), "question")
 			if err != nil {
@@ -240,7 +240,7 @@ func parkCommand() *cobra.Command {
 			}
 			out := cmd.OutOrStdout()
 			err = withBoard(func(b *board.DB) error {
-				id, err := b.Park(board.Parked{Repo: repo, Ticket: ticket, Worker: worker, On: on, Text: text, Kind: kind, DocPath: doc, CreatedAt: time.Now()})
+				id, err := b.Park(board.Parked{Repo: repo, Ticket: ticket, Worker: worker, On: on, Text: text, Kind: kind, DocPath: doc, Branch: branch, CreatedAt: time.Now()})
 				if err == nil {
 					fmt.Fprintf(out, "#%d parked: the user answers with \"for #%d: ...\"\n", id, id)
 				}
@@ -549,6 +549,9 @@ func renderParked(p board.Parked, full bool) string {
 	}
 	if p.DocPath != "" {
 		head += fmt.Sprintf("\n    %s, document: %s", p.Kind, p.DocPath)
+		if p.Branch != "" {
+			head += ", branch " + p.Branch
+		}
 	}
 	if !full {
 		return head + "\n    " + firstLine(p.Text) + "\n"

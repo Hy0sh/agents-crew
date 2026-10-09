@@ -248,7 +248,7 @@ func TestStartPromptParked(t *testing.T) {
 func TestParkDocument(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	repo := testSwarm(t, 2, poolWorker{Index: 1, State: workerBusy, Task: 3, Current: &queuedTask{ID: 3, Brief: "plan it"}})
-	os.WriteFile(filepath.Join(names.StatusDir(repo), "worker1.json"), []byte(`{"state":"plan_ready","tache":"SHOP-9"}`), 0o644)
+	os.WriteFile(filepath.Join(names.StatusDir(repo), "worker1.json"), []byte(`{"state":"plan_ready","tache":"SHOP-9","branch":"fix/vat"}`), 0o644)
 	doc := filepath.Join(t.TempDir(), "plan.md")
 	os.WriteFile(doc, []byte("# Plan\n"), 0o644)
 	inTree := filepath.Join(names.WorktreesDir(repo), "worker1-20261009120000", "plan.md")
@@ -283,7 +283,9 @@ func TestParkDocument(t *testing.T) {
 		t.Errorf("worker1 = %+v, want free", p.worker(1))
 	}
 	d := boardDay(t, repo, time.Now())
-	if len(d.Parked) != 1 || d.Parked[0].DocPath != doc || d.Parked[0].Kind != "plan" || d.Parked[0].Worker != "worker1" {
+	// The branch is kept: the worker is on another task by the time the
+	// user accepts, and the follow-up goes back to it.
+	if len(d.Parked) != 1 || d.Parked[0].DocPath != doc || d.Parked[0].Kind != "plan" || d.Parked[0].Worker != "worker1" || d.Parked[0].Branch != "fix/vat" {
 		t.Errorf("parked = %+v", d.Parked)
 	}
 	cmd := boardCommand()

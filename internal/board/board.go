@@ -58,6 +58,7 @@ var migrations = []string{
 	`ALTER TABLE parked ADD COLUMN kind TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE parked ADD COLUMN doc_path TEXT NOT NULL DEFAULT ''`,
 	`CREATE TABLE IF NOT EXISTS interrupted (repo TEXT PRIMARY KEY, at INTEGER, tasks TEXT)`,
+	`ALTER TABLE parked ADD COLUMN branch TEXT NOT NULL DEFAULT ''`,
 }
 
 type DB struct{ sql *sql.DB }
@@ -174,9 +175,11 @@ type Parked struct {
 	ClosedAt  *time.Time `json:"closed_at"`
 	Answer    string     `json:"answer"`
 	// Kind and DocPath are set on a document to approve (a plan, a
-	// verdict, a review draft): what it is, and the file it is in.
+	// verdict, a review draft): what it is, the file it is in, and the
+	// branch its worker was on, where the follow-up goes.
 	Kind    string `json:"kind"`
 	DocPath string `json:"doc_path"`
+	Branch  string `json:"branch"`
 	// Refused is a document the user refused on the page: still open,
 	// until the master closes it once they discussed it.
 	Refused bool `json:"refused"`
@@ -295,21 +298,21 @@ func (b *DB) UpsertPR(p PR) error {
 
 // Park records a decision put off, and returns its number.
 func (b *DB) Park(p Parked) (int64, error) {
-	res, err := b.sql.Exec(`INSERT INTO parked (repo, ticket, worker, on_whom, text, created_at, closed_at, answer, kind, doc_path) VALUES (?,?,?,?,?,?,NULL,'',?,?)`,
-		p.Repo, p.Ticket, p.Worker, p.On, p.Text, p.CreatedAt.Unix(), p.Kind, p.DocPath)
+	res, err := b.sql.Exec(`INSERT INTO parked (repo, ticket, worker, on_whom, text, created_at, closed_at, answer, kind, doc_path, branch) VALUES (?,?,?,?,?,?,NULL,'',?,?,?)`,
+		p.Repo, p.Ticket, p.Worker, p.On, p.Text, p.CreatedAt.Unix(), p.Kind, p.DocPath, p.Branch)
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
 }
 
-const parkedColumns = `id, repo, ticket, worker, on_whom, text, created_at, closed_at, answer, kind, doc_path`
+const parkedColumns = `id, repo, ticket, worker, on_whom, text, created_at, closed_at, answer, kind, doc_path, branch`
 
 func scanParked(scan func(...any) error) (Parked, error) {
 	var p Parked
 	var created int64
 	var closed sql.NullInt64
-	if err := scan(&p.ID, &p.Repo, &p.Ticket, &p.Worker, &p.On, &p.Text, &created, &closed, &p.Answer, &p.Kind, &p.DocPath); err != nil {
+	if err := scan(&p.ID, &p.Repo, &p.Ticket, &p.Worker, &p.On, &p.Text, &created, &closed, &p.Answer, &p.Kind, &p.DocPath, &p.Branch); err != nil {
 		return p, err
 	}
 	p.CreatedAt = time.Unix(created, 0)

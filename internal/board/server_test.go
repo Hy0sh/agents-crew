@@ -194,7 +194,7 @@ func TestAcceptRefuse(t *testing.T) {
 	if len(told) != 1 || !strings.Contains(told[0], "REFUSED") || !strings.Contains(told[0], "terminal") {
 		t.Errorf("told = %q", told)
 	}
-	id, _ := b.Park(Parked{Repo: "/r", Ticket: "SHOP-9", On: "me", Worker: "worker2", Text: "Approve the plan", Kind: "plan", DocPath: "/p.md", CreatedAt: noon})
+	id, _ := b.Park(Parked{Repo: "/r", Ticket: "SHOP-9", On: "me", Worker: "worker2", Text: "Approve the plan", Kind: "plan", DocPath: "/p.md", Branch: "fix/vat", CreatedAt: noon})
 	if code := answer(id, "accept"); code != http.StatusNoContent {
 		t.Fatalf("accept = %d", code)
 	}
@@ -202,7 +202,7 @@ func TestAcceptRefuse(t *testing.T) {
 	if p.ClosedAt == nil || p.Answer != "accepted" {
 		t.Errorf("accepted = %+v", p)
 	}
-	if len(told) != 2 || !strings.Contains(told[1], "ACCEPTED") || !strings.Contains(told[1], "go") || !strings.Contains(told[1], "/p.md") {
+	if len(told) != 2 || !strings.Contains(told[1], "ACCEPTED") || !strings.Contains(told[1], "go") || !strings.Contains(told[1], "/p.md") || !strings.Contains(told[1], "--branch fix/vat") {
 		t.Errorf("told = %q", told)
 	}
 	if d, _ := b.Board("/r", noon, noon); len(d.Decisions) != 1 || d.Decisions[0].Text != "accepted" || d.Decisions[0].Subject != "SHOP-9" {

@@ -226,7 +226,11 @@ func answerDoc(b *DB, req doneRequest, at time.Time, notify func(repo, msg strin
 	what += ", " + p.DocPath + ")"
 	var msg string
 	if req.Answer == "accept" {
-		msg = fmt.Sprintf("From acw board, the user ACCEPTED %s: this is their go. Queue the follow-up on its branch, with the document's path in the brief.", what)
+		next := "Queue the follow-up with the document's path in the brief."
+		if p.Branch != "" {
+			next = fmt.Sprintf("Queue the follow-up with --branch %s and the document's path in the brief.", p.Branch)
+		}
+		msg = fmt.Sprintf("From acw board, the user ACCEPTED %s: this is their go. %s", what, next)
 	} else {
 		msg = fmt.Sprintf("From acw board, the user REFUSED %s: send nothing, they will tell you why in the terminal; close it with acw board resume %d once you talked.", what, id)
 	}
