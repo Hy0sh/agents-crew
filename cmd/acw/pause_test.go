@@ -27,7 +27,7 @@ func fakeSwarm(t *testing.T, profile string) (repo, calls string) {
 	}
 	git(repo, "init", "-q")
 	git(repo, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "init")
-	git(repo, "worktree", "add", "-q", names.WorkerWorktree(repo, 1, "20260925140000"), "-b", names.WorkerBranch(1, "20260925140000"))
+	git(repo, "worktree", "add", "-q", names.WorkerWorktree(repo, "worker1", "20260925140000"), "-b", names.WorkerBranch("worker1", "20260925140000"))
 	if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestPauseStopsEachWorkerStackAndTellsTheMaster(t *testing.T) {
 // there (see parkWorker).
 func TestResumeStartsEachWorkerStackOnTheRunProfile(t *testing.T) {
 	repo, calls := fakeSwarm(t, "light")
-	wt := names.WorkerWorktree(repo, 1, "20260925140000")
+	wt := names.WorkerWorktree(repo, "worker1", "20260925140000")
 	if out, err := exec.Command("git", "-C", wt, "switch", "-q", "-c", "feat/x").CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
@@ -78,7 +78,7 @@ func TestResumeStartsEachWorkerStackOnTheRunProfile(t *testing.T) {
 	}
 
 	os.Remove(calls)
-	if out, err := exec.Command("git", "-C", wt, "switch", "-q", names.WorkerBranch(1, "20260925140000")).CombinedOutput(); err != nil {
+	if out, err := exec.Command("git", "-C", wt, "switch", "-q", names.WorkerBranch("worker1", "20260925140000")).CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
 	var out bytes.Buffer
@@ -94,7 +94,7 @@ func TestResumeStartsEachWorkerStackOnTheRunProfile(t *testing.T) {
 // one: wtm switch --no-start.
 func TestParkWorkerStartsNoStack(t *testing.T) {
 	repo, calls := fakeSwarm(t, "light")
-	wt := names.WorkerWorktree(repo, 1, "20260925140000")
+	wt := names.WorkerWorktree(repo, "worker1", "20260925140000")
 	if out, err := exec.Command("git", "-C", wt, "switch", "-q", "-c", "feat/x").CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
@@ -115,7 +115,7 @@ func TestResumeStartsAWorkerOnItsOwnProfile(t *testing.T) {
 	if err := writeJSON(names.PoolFile(repo), p); err != nil {
 		t.Fatal(err)
 	}
-	wt := names.WorkerWorktree(repo, 1, "20260925140000")
+	wt := names.WorkerWorktree(repo, "worker1", "20260925140000")
 	if out, err := exec.Command("git", "-C", wt, "switch", "-q", "-c", "feat/x").CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
@@ -152,7 +152,7 @@ func TestPauseFailsOnAStrandedStack(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(filepath.Dir(calls), "wtm"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := teardown.MarkStacked(names.WorkerWorktree(repo, 1, "20260925140000")); err != nil {
+	if err := teardown.MarkStacked(names.WorkerWorktree(repo, "worker1", "20260925140000")); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
@@ -175,7 +175,7 @@ func TestPauseWithoutASwarmRefuses(t *testing.T) {
 // none (a wtm remove by hand): then it stops counting, for good.
 func TestHeldStacksForgetsAStackWtmNoLongerHas(t *testing.T) {
 	repo, calls := fakeSwarm(t, "")
-	dir := names.WorkerWorktree(repo, 1, "20260925140000")
+	dir := names.WorkerWorktree(repo, "worker1", "20260925140000")
 	if err := teardown.MarkStacked(dir); err != nil {
 		t.Fatal(err)
 	}

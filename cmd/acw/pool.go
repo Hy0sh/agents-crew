@@ -583,7 +583,7 @@ func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, no
 				}
 				nw := poolWorker{Index: a.Worker, State: workerOpening, Stacked: a.Stacked, Since: now}
 				if p.Plan.Workers[a.Worker-1].Dir == "" {
-					nw.Worktree = names.WorkerWorktree(repo, a.Worker, now.Format("20060102150405"))
+					nw.Worktree = names.WorkerWorktree(repo, nw.label(), now.Format("20060102150405"))
 				}
 				p.Workers = append(p.Workers, nw)
 				opens = append(opens, a.Worker)

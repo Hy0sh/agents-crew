@@ -161,7 +161,7 @@ func placeWorker(repo, masterPane string, w poolWorker, cwd string) (pane, step 
 		if err := gitutil.Fetch(repo); err != nil {
 			fmt.Fprintln(os.Stderr, "git fetch:", err)
 		}
-		branch := names.WorkerBranch(w.Index, strings.TrimPrefix(filepath.Base(w.Worktree), w.label()+"-"))
+		branch := names.WorkerBranch(w.label(), strings.TrimPrefix(filepath.Base(w.Worktree), w.label()+"-"))
 		if err := gitutil.WorktreeAdd(repo, w.Worktree, branch, gitutil.DefaultBaseRef(repo)); err != nil {
 			// Best effort: git may have made the branch before failing.
 			_ = gitutil.DeleteBranch(repo, branch)

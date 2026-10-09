@@ -226,7 +226,7 @@ func releaseBranch(p poolState, holder, branch string, out io.Writer) error {
 // homeBranch is the branch a worker's worktree opened on, its waiting
 // branch.
 func homeBranch(w poolWorker) string {
-	return names.WorkerBranch(w.Index, strings.TrimPrefix(filepath.Base(w.Worktree), w.label()+"-"))
+	return names.WorkerBranch(w.label(), strings.TrimPrefix(filepath.Base(w.Worktree), w.label()+"-"))
 }
 
 // parkWorker puts a worker's worktree back on its waiting branch, so that

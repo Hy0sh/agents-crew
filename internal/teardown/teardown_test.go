@@ -28,8 +28,8 @@ func TestCleanupKeepsTheTaskBranch(t *testing.T) {
 	repo := t.TempDir()
 	git(t, repo, "init", "-q")
 	git(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
-	wt := names.WorkerWorktree(repo, 1, "20261002")
-	git(t, repo, "worktree", "add", "-q", "-b", names.WorkerBranch(1, "20261002"), wt)
+	wt := names.WorkerWorktree(repo, "worker1", "20261002")
+	git(t, repo, "worktree", "add", "-q", "-b", names.WorkerBranch("worker1", "20261002"), wt)
 	git(t, wt, "switch", "-q", "-c", "feat/task")
 	git(t, wt, "commit", "-q", "--allow-empty", "-m", "work not pushed")
 
@@ -41,7 +41,7 @@ func TestCleanupKeepsTheTaskBranch(t *testing.T) {
 	if got := git(t, repo, "log", "-1", "--format=%s", "feat/task"); got != "work not pushed" {
 		t.Errorf("feat/task head = %q, want the task's commit kept", got)
 	}
-	if got := git(t, repo, "branch", "--list", names.WorkerBranch(1, "20261002")); got != "" {
+	if got := git(t, repo, "branch", "--list", names.WorkerBranch("worker1", "20261002")); got != "" {
 		t.Errorf("acw's own branch is still there: %q", got)
 	}
 }
@@ -92,7 +92,7 @@ func TestWorktreeRetriesUnderTheAdoptedBranch(t *testing.T) {
 	if kept := Worktree(repo, wt); kept != "" || exists(wt) {
 		t.Errorf("Worktree() = %q, want the stack found under the adopted branch and the worktree removed", kept)
 	}
-	want := "remove feat/task\nremove " + names.WorkerBranch(1, "20261002") + "\n"
+	want := "remove feat/task\nremove " + names.WorkerBranch("worker1", "20261002") + "\n"
 	if got, _ := os.ReadFile(calls); string(got) != want {
 		t.Errorf("wtm calls = %q, want %q", got, want)
 	}
@@ -109,7 +109,7 @@ func TestWorktreeRemovesTheStackRunningOrNot(t *testing.T) {
 	if kept := Worktree(repo, wt); kept != "" || exists(wt) {
 		t.Fatalf("Worktree() = %q, want the stack and the worktree removed", kept)
 	}
-	if got, _ := os.ReadFile(calls); string(got) != "remove "+names.WorkerBranch(1, "20261002")+"\n" {
+	if got, _ := os.ReadFile(calls); string(got) != "remove "+names.WorkerBranch("worker1", "20261002")+"\n" {
 		t.Errorf("wtm calls = %q, want one remove and no stop first", got)
 	}
 }
@@ -195,8 +195,8 @@ func TestStopWithoutAMasterReleasesWhatItsRunLeft(t *testing.T) {
 	}
 	git(t, repo, "init", "-q")
 	git(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
-	wt := names.WorkerWorktree(repo, 1, "20261002")
-	git(t, repo, "worktree", "add", "-q", "-b", names.WorkerBranch(1, "20261002"), wt)
+	wt := names.WorkerWorktree(repo, "worker1", "20261002")
+	git(t, repo, "worktree", "add", "-q", "-b", names.WorkerBranch("worker1", "20261002"), wt)
 	if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -240,8 +240,8 @@ func workerWorktree(t *testing.T) (repo, wt string) {
 	repo = t.TempDir()
 	git(t, repo, "init", "-q")
 	git(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
-	wt = names.WorkerWorktree(repo, 1, "20261002")
-	git(t, repo, "worktree", "add", "-q", "-b", names.WorkerBranch(1, "20261002"), wt)
+	wt = names.WorkerWorktree(repo, "worker1", "20261002")
+	git(t, repo, "worktree", "add", "-q", "-b", names.WorkerBranch("worker1", "20261002"), wt)
 	return repo, wt
 }
 

@@ -98,23 +98,57 @@ func PoolLock(repo string) string {
 	return filepath.Join(StatusDir(repo), "pool.lock")
 }
 
-// WorkerWorktree is worker i's worktree for the run started at stamp.
-func WorkerWorktree(repo string, i int, stamp string) string {
-	return filepath.Join(WorktreesDir(repo), fmt.Sprintf("worker%d-%s", i, stamp))
+// WorkerWorktree is the worktree of the worker labelled label (reviewer2)
+// for the run started at stamp.
+func WorkerWorktree(repo, label, stamp string) string {
+	return filepath.Join(WorktreesDir(repo), label+"-"+stamp)
 }
 
-// WorkerBranch is the branch worker i's worktree starts on.
-func WorkerBranch(i int, stamp string) string {
-	return fmt.Sprintf("agents/worker%d-%s", i, stamp)
+// WorkerBranch is the branch a worker's worktree starts on, its waiting
+// branch.
+func WorkerBranch(label, stamp string) string {
+	return "agents/" + label + "-" + stamp
 }
 
-var workerWorktreeName = regexp.MustCompile(`^worker\d+-.+$`)
+// maxRole keeps <role><rank>-<slug> within herdr's 32 characters, with a
+// two-digit rank.
+const maxRole = 20
+
+var (
+	roleName       = regexp.MustCompile(`^[a-z](?:[a-z-]*[a-z])?$`)
+	workerLabel    = regexp.MustCompile(`^([a-z](?:[a-z-]*[a-z])?)[1-9][0-9]*$`)
+	workerWorktree = regexp.MustCompile(`^([a-z](?:[a-z-]*[a-z])?)[1-9][0-9]*-.+$`)
+)
+
+// ValidRole says role can name a role: lowercase letters and dashes, not
+// ending with a digit (its instances add their rank), not master.
+func ValidRole(role string) bool {
+	return role != "master" && len(role) <= maxRole && roleName.MatchString(role)
+}
+
+// IsWorkerLabel says s is a worker's label: a role and a rank, reviewer2.
+func IsWorkerLabel(s string) bool {
+	m := workerLabel.FindStringSubmatch(s)
+	return m != nil && ValidRole(m[1])
+}
 
 // IsWorkerWorktree reports whether a directory name under WorktreesDir is
-// one WorkerWorktree made, of any run.
+// one WorkerWorktree made, of any run and any role. A role ends with a
+// letter and the rank follows it, so the first digits end the label.
 func IsWorkerWorktree(dirName string) bool {
-	return workerWorktreeName.MatchString(dirName)
+	m := workerWorktree.FindStringSubmatch(dirName)
+	return m != nil && ValidRole(m[1])
 }
+
+// IsWorkerAgent says name is the agent of one of slug's workers.
+func IsWorkerAgent(name, slug string) bool {
+	label, ok := strings.CutSuffix(name, "-"+slug)
+	return ok && IsWorkerLabel(label)
+}
+
+// Agent is the herdr agent name of the worker labelled label in the run
+// identified by slug.
+func Agent(slug, label string) string { return label + "-" + slug }
 
 // WorkerIndex reads a worker's index from how it is named: its label
 // (worker2) or its agent name for slug (Worker(slug, 2)). ok is false for

@@ -9,10 +9,48 @@ import (
 
 var herdrNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 
+// A role names its instances: role + rank. Lowercase letters and dashes,
+// no final digit (the rank follows), not master, short enough that
+// <role><rank>-<slug> stays within herdr's 32 characters.
+func TestRoleNames(t *testing.T) {
+	for _, ok := range []string{"worker", "reviewer", "front-end", "a", "abcdefghijklmnopqrst"} {
+		if !ValidRole(ok) {
+			t.Errorf("ValidRole(%q) = false", ok)
+		}
+	}
+	for _, bad := range []string{"", "master", "Reviewer", "rev1", "-x", "x-", "re view", "rév", "abcdefghijklmnopqrstu"} {
+		if ValidRole(bad) {
+			t.Errorf("ValidRole(%q) = true", bad)
+		}
+	}
+	for _, ok := range []string{"worker1", "reviewer12", "front-end3"} {
+		if !IsWorkerLabel(ok) {
+			t.Errorf("IsWorkerLabel(%q) = false", ok)
+		}
+	}
+	for _, bad := range []string{"worker", "worker0", "worker01", "master1", "1", "reviewer-2"} {
+		if IsWorkerLabel(bad) {
+			t.Errorf("IsWorkerLabel(%q) = true", bad)
+		}
+	}
+	if !IsWorkerWorktree("reviewer1-20261009183715") || !IsWorkerWorktree("front-end3-20261009") || IsWorkerWorktree("reviewer-20261009") {
+		t.Error("IsWorkerWorktree")
+	}
+	if !IsWorkerAgent("reviewer2-aa2ce4", "aa2ce4") || IsWorkerAgent("master-aa2ce4", "aa2ce4") || IsWorkerAgent("reviewer2-ffffff", "aa2ce4") {
+		t.Error("IsWorkerAgent")
+	}
+	if Agent("aa2ce4", "reviewer2") != "reviewer2-aa2ce4" || WorkerBranch("reviewer2", "s") != "agents/reviewer2-s" {
+		t.Error("Agent/WorkerBranch")
+	}
+	if a := Agent(Slug("/some/repo"), "abcdefghijklmnopqrst99"); !herdrNamePattern.MatchString(a) {
+		t.Errorf("longest name %q is not a valid herdr agent name", a)
+	}
+}
+
 // What provisioning names, teardown must recognize: a mismatch leaves
 // real stacks orphaned by an `acw stop` that reports success.
 func TestIsWorkerWorktreeMatchesWhatWorkerWorktreeMakes(t *testing.T) {
-	if name := filepath.Base(WorkerWorktree("/repo", 12, "20260921181008")); !IsWorkerWorktree(name) {
+	if name := filepath.Base(WorkerWorktree("/repo", "worker12", "20260921181008")); !IsWorkerWorktree(name) {
 		t.Errorf("IsWorkerWorktree(%q) = false for a name WorkerWorktree made", name)
 	}
 	for _, name := range []string{"worker-nostamp", "worker1", "master", "synchronous-nibbling", ".acw-status"} {

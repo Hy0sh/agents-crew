@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -29,8 +30,9 @@ func twoWorkerSwarm(t *testing.T) (repo string, wts [2]string, git func(dir stri
 	git(remote, "commit", "-q", "--allow-empty", "-m", "init")
 	git(repo, "clone", "-q", remote, ".")
 	for i := range wts {
-		wts[i] = names.WorkerWorktree(repo, i+1, "20261008170000")
-		git(repo, "worktree", "add", "-q", wts[i], "-b", names.WorkerBranch(i+1, "20261008170000"))
+		label := fmt.Sprintf("worker%d", i+1)
+		wts[i] = names.WorkerWorktree(repo, label, "20261008170000")
+		git(repo, "worktree", "add", "-q", wts[i], "-b", names.WorkerBranch(label, "20261008170000"))
 	}
 	if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
 		t.Fatal(err)
@@ -62,7 +64,7 @@ func TestParkAndReleaseBranch(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	home1 := names.WorkerBranch(1, "20261008170000")
+	home1 := names.WorkerBranch("worker1", "20261008170000")
 
 	git(wts[0], "switch", "-q", "-c", "feat/x")
 	var out strings.Builder
@@ -114,7 +116,7 @@ func TestLeavingAndParkBeforeTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	git(wts[0], "switch", "-q", "-c", "feat/b")
-	if err := parkBeforeTask(repo, 1, io.Discard); err != nil || onBranch(t, wts[0]) != names.WorkerBranch(1, "20261008170000") {
+	if err := parkBeforeTask(repo, 1, io.Discard); err != nil || onBranch(t, wts[0]) != names.WorkerBranch("worker1", "20261008170000") {
 		t.Errorf("park before a task with no branch = %v, on %s", err, onBranch(t, wts[0]))
 	}
 
@@ -150,7 +152,7 @@ func TestParkFree(t *testing.T) {
 	inbox := filepath.Join(t.TempDir(), "inbox")
 	p := poolState{Plan: provisionPlan{Repo: repo, Inbox: inbox, Workers: []workerSpec{{Kind: "claude"}, {Kind: "claude"}}}, IdleCloseMinutes: 10,
 		Workers: []poolWorker{{Index: 1, Worktree: wts[0], State: workerFree, Since: t0}}}
-	home1 := names.WorkerBranch(1, "20261008170000")
+	home1 := names.WorkerBranch("worker1", "20261008170000")
 	mem := newPoolMemory()
 
 	git(wts[0], "switch", "-q", "-c", "feat/x")
