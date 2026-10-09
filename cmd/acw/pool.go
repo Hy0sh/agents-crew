@@ -724,13 +724,15 @@ func assignTask(repo string, plan provisionPlan, w poolWorker, t queuedTask) {
 // recoverPool undoes what a watcher that died left half done, before the
 // next one polls: a task handed to a worker that never got its brief goes
 // back first in the queue and the worker is free again; a worker caught
-// opening or closing is dropped from the pool, which opens another when
-// needed. The master hears of each.
-// ponytail: a worktree or a stack a dropped opening already made stays
-// behind, named in the message; acw stop removes it with the others.
+// opening or closing is closed, pane, worktree and stack, as far as it
+// got, and the pool opens another when needed. The master hears of each.
+// ponytail: a requeued task can meet a wtm switch the dead watcher left
+// running on that worktree, or, in the millisecond after its brief was
+// typed, go out twice; check for a running wtm there if it bites.
 func recoverPool(repo string) {
 	var told []string
 	var plan provisionPlan
+	var interrupted []poolWorker
 	err := withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
 		plan = p.Plan
 		changed := false
@@ -743,20 +745,13 @@ func recoverPool(repo string) {
 				changed = true
 			}
 		}
-		kept := p.Workers[:0]
-		for _, w := range p.Workers {
-			if w.State != workerOpening && w.State != workerClosing {
-				kept = append(kept, w)
-				continue
+		for i := range p.Workers {
+			if w := &p.Workers[i]; w.State == workerOpening || w.State == workerClosing {
+				interrupted = append(interrupted, *w)
+				w.State = workerClosing
+				changed = true
 			}
-			msg := fmt.Sprintf("%s was %s when the watcher stopped: dropped from the pool.", w.label(), w.State)
-			if w.Worktree != "" && fileExists(w.Worktree) {
-				msg += fmt.Sprintf(" Its worktree %s may hold a stack: see wtm list; acw stop removes it.", w.Worktree)
-			}
-			told = append(told, msg)
-			changed = true
 		}
-		p.Workers = kept
 		return changed, nil
 	})
 	if err != nil {
@@ -766,11 +761,9 @@ func recoverPool(repo string) {
 		fmt.Fprintln(os.Stderr, msg)
 		tell(plan, msg)
 	}
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
+	for _, w := range interrupted {
+		background(func() { closeWorker(repo, w, "it was "+w.State+" when the watcher stopped") })
+	}
 }
 
 // branchNote is the line switchWorkerBranch wrote for label, without the

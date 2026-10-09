@@ -85,7 +85,7 @@ func TestQueueAddMoveRemove(t *testing.T) {
 
 // What a dead watcher left half done is undone by the next one: a task
 // whose brief never reached its worker goes back first in the queue, the
-// worker free; a worker caught opening is dropped. The master is told.
+// worker free; a worker caught opening is closed. The master is told.
 // The field case: worker2 busy #45 without ever getting it, worker3
 // stuck opening and holding a max-stacks slot.
 func TestRecoverPool(t *testing.T) {
@@ -104,6 +104,7 @@ func TestRecoverPool(t *testing.T) {
 		t.Fatal(err)
 	}
 	recoverPool(repo)
+	inflight.Wait() // worker3's close
 	p, q, _ = readPool(repo)
 	if ids := queueIDs(t, repo); !slices.Equal(ids, []int{45, 47}) || q.Tasks[0].Brief != "health proof" {
 		t.Errorf("queue = %v, want #45 back first", ids)
@@ -117,7 +118,7 @@ func TestRecoverPool(t *testing.T) {
 	if p.worker(3) != nil {
 		t.Error("worker3, caught opening, still in the pool")
 	}
-	if inbox, _ := os.ReadFile(names.Inbox(repo)); !strings.Contains(string(inbox), "task #45 never reached worker2") || !strings.Contains(string(inbox), "worker3 was opening") {
+	if inbox, _ := os.ReadFile(names.Inbox(repo)); !strings.Contains(string(inbox), "task #45 never reached worker2") || !strings.Contains(string(inbox), "worker3 closed: it was opening when the watcher stopped") {
 		t.Errorf("inbox = %q", inbox)
 	}
 }
