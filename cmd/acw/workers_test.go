@@ -61,6 +61,25 @@ func TestResolveWorkersTasksAndKeep(t *testing.T) {
 	}
 }
 
+// A worker's own profile is the one its stack starts on; the others keep
+// the swarm's. A worker outside the code has no stack to give one.
+func TestResolveWorkersProfile(t *testing.T) {
+	opts := &startOptions{workers: 2, workerKind: "claude", overrides: map[string]config.WorkerOverride{"2": {Profile: ptr("api")}}}
+	got, err := resolveWorkers(opts, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := provisionPlan{Profile: "light", Workers: got}
+	if plan.profileOf(1) != "light" || plan.profileOf(2) != "api" || plan.profileOf(9) != "light" {
+		t.Errorf("profiles = %q, %q, %q", plan.profileOf(1), plan.profileOf(2), plan.profileOf(9))
+	}
+	dir := t.TempDir()
+	opts.overrides = map[string]config.WorkerOverride{"2": {Profile: ptr("api"), Dir: &dir}}
+	if _, err := resolveWorkers(opts, t.TempDir()); err == nil || !strings.Contains(err.Error(), "no stack") {
+		t.Errorf("profile on a worker outside the code = %v", err)
+	}
+}
+
 func TestResolveWorkersRejectsIndexesThatNameNoWorker(t *testing.T) {
 	for _, key := range []string{"0", "3", "a", "-1"} {
 		opts := &startOptions{workers: 2, workerKind: "claude", overrides: map[string]config.WorkerOverride{key: {}}}

@@ -287,7 +287,7 @@ func switchWorkerBranch(repo string, t clearTarget, br branchRequest, out io.Wri
 		if step.create {
 			from = base
 		}
-		err = wtm.Switch(wt, br.Branch, from, p.Plan.Profile, out)
+		err = wtm.Switch(wt, br.Branch, from, p.Plan.profileOf(t.index), out)
 	} else {
 		err = gitutil.Switch(wt, br.Branch, base, step.create)
 	}

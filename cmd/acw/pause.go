@@ -59,7 +59,9 @@ func eachStack(repo string, out io.Writer, done string, step func(dir, branch, p
 		case branch == "HEAD" && stacked:
 			err = errors.New(teardown.Repair(dir, branch, nil))
 		case branch != "HEAD":
-			err = step(dir, branch, p.Plan.Profile)
+			index := 0
+			fmt.Sscanf(name, "worker%d-", &index)
+			err = step(dir, branch, p.Plan.profileOf(index))
 		}
 		// A worker beyond max-stacks, or whose adopt failed, has a worktree
 		// acw never got a stack: nothing to stop or start there. One that

@@ -662,7 +662,7 @@ rather than by number, and kept open:
 
 ```json
 "worker-overrides": {
-  "5": { "model": "opus", "prompt": "~/.config/acw/reviewer.md", "tasks": ["need-review"], "keep": true },
+  "5": { "model": "opus", "prompt": "~/.config/acw/reviewer.md", "tasks": ["need-review"], "keep": true, "profile": "api" },
   "6": { "model": "opus", "dir": "~/notes/some-project", "tasks": ["analysis"] }
 }
 ```
@@ -679,6 +679,12 @@ rather than by number, and kept open:
   being idle, so the first review does not wait for a worktree and a
   stack. It is on top of `min-workers`, and its stack holds a `max-stacks`
   slot the whole time.
+- `profile` is the wtm stack profile this worker starts on instead of the
+  swarm's (`wtm project profiles <project>` lists them): a reviewer of
+  backend changes on `db` and `backend` only holds less memory than a
+  full stack. acw uses it at the opening, at each task's switch and at
+  `acw resume`, and the master's brief tells it, for the switch the worker
+  runs itself. A worker with `dir` has no stack, and is refused one.
 - Like any overridden worker, it otherwise only takes what is sent to it
   with `--worker`.
 

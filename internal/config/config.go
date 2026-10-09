@@ -80,6 +80,9 @@ type WorkerOverride struct {
 	// Keep opens the worker with the swarm and never closes it for being
 	// idle: a reviewer is there when the first review comes.
 	Keep *bool `json:"keep,omitempty"`
+	// Profile is the wtm stack profile this worker starts on instead of
+	// the swarm's: a reviewer of backend changes needs no frontend.
+	Profile *string `json:"profile,omitempty"`
 }
 
 type file struct {

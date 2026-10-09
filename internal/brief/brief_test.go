@@ -258,8 +258,11 @@ func TestBuildWithoutOverridesHasNoOverrideSection(t *testing.T) {
 func TestBuildWorkerOverrides(t *testing.T) {
 	p := params("claude", 3, 3)
 	p.Workers[0] = Worker{Kind: "claude", Model: "opus", Prompt: "You plan, you do not code.\n", Overridden: true}
-	p.Workers[2] = Worker{Kind: "codex", Model: "gpt-5-codex", Prompt: "You verify.", Overridden: true}
+	p.Workers[2] = Worker{Kind: "codex", Model: "gpt-5-codex", Prompt: "You verify.", Overridden: true, Profile: "api"}
 	got := Build(p)
+	if line := lineWith(got, "worker3-testslug runs on"); !strings.Contains(line, "api stack profile") || !strings.Contains(line, "`--profile api`") {
+		t.Errorf("worker3 line = %q; must give the master its stack profile", line)
+	}
 
 	for _, want := range []string{
 		"worker1-testslug runs on claude opus",

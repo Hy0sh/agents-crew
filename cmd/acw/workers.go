@@ -28,6 +28,18 @@ type workerSpec struct {
 	// it open for the life of the swarm.
 	Tasks []string `json:"tasks,omitempty"`
 	Keep  bool     `json:"keep,omitempty"`
+	// Profile is its own wtm stack profile, "" for the swarm's (see
+	// provisionPlan.profileOf).
+	Profile string `json:"profile,omitempty"`
+}
+
+// profileOf is the wtm stack profile worker index starts on: its own, or
+// the swarm's.
+func (p provisionPlan) profileOf(index int) string {
+	if index >= 1 && index <= len(p.Workers) && p.Workers[index-1].Profile != "" {
+		return p.Workers[index-1].Profile
+	}
+	return p.Profile
 }
 
 // takes says whether a worker of spec w may get t without being named by
@@ -87,6 +99,12 @@ func resolveWorkers(opts *startOptions, repo string) ([]workerSpec, error) {
 			w.Tasks = append(w.Tasks, k)
 		}
 		w.Keep = o.Keep != nil && *o.Keep
+		if o.Profile != nil {
+			if w.Dir != "" {
+				return nil, fmt.Errorf("worker-overrides %s: profile: a worker outside the code (dir) has no stack", key)
+			}
+			w.Profile = *o.Profile
+		}
 	}
 	return workers, nil
 }
@@ -107,7 +125,7 @@ func distinctKinds(workers []workerSpec) []string {
 func briefWorkers(workers []workerSpec) []brief.Worker {
 	out := make([]brief.Worker, len(workers))
 	for i, w := range workers {
-		out[i] = brief.Worker{Kind: w.Kind, Model: w.Model, Prompt: w.Prompt, Overridden: w.Overridden, Dir: w.Dir, Tasks: w.Tasks, Keep: w.Keep}
+		out[i] = brief.Worker{Kind: w.Kind, Model: w.Model, Prompt: w.Prompt, Overridden: w.Overridden, Dir: w.Dir, Tasks: w.Tasks, Keep: w.Keep, Profile: w.Profile}
 	}
 	return out
 }
