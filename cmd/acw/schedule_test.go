@@ -250,6 +250,40 @@ func TestScheduleMinWorkers(t *testing.T) {
 	}
 }
 
+// The race seen in the field: worker1 just freed on feat/b, its agent not
+// ready yet, a task --branch feat/b queued first. It waits for worker1,
+// which gets nothing else; it used to go to worker2, which then took
+// feat/b back from worker1 while worker1 was handed the next task.
+// A holder that can't take the task is parked first; a dirty one can't
+// be, and the task goes on.
+func TestScheduleKeepsABranchForItsFreeHolder(t *testing.T) {
+	p := testPool(3, 3, free(1, t0), free(2, t0))
+	polls := readyAll(2)
+	polls[1] = workerPoll{Clean: true, Branch: "feat/b", Home: "agents/worker1-a"}
+	q := tasks(queuedTask{ID: 35, Branch: "feat/b"}, queuedTask{ID: 31, Branch: "feat/c"})
+	if got, want := schedule(p, q, polls, t0), []poolAction{{Kind: actAssign, Worker: 2, Task: 31}}; !slices.Equal(got, want) {
+		t.Errorf("holder not ready = %+v, want %+v: #35 waits for worker1", got, want)
+	}
+
+	h := polls[1]
+	h.Ready = true
+	polls[1] = h
+	if got, want := schedule(p, q, polls, t0), []poolAction{{Kind: actAssign, Worker: 1, Task: 35}, {Kind: actAssign, Worker: 2, Task: 31}}; !slices.Equal(got, want) {
+		t.Errorf("holder ready = %+v, want %+v", got, want)
+	}
+
+	forOther := tasks(queuedTask{ID: 35, Branch: "feat/b", Worker: 2})
+	if got, want := schedule(p, forOther, polls, t0), []poolAction{{Kind: actPark, Worker: 1}}; !slices.Equal(got, want) {
+		t.Errorf("holder can't take it = %+v, want %+v: parked first, #35 waits", got, want)
+	}
+
+	h.Clean = false
+	polls[1] = h
+	if got, want := schedule(p, tasks(queuedTask{ID: 35, Branch: "feat/b"}), polls, t0), []poolAction{{Kind: actAssign, Worker: 1, Task: 35}}; !slices.Equal(got, want) {
+		t.Errorf("dirty holder = %+v, want %+v", got, want)
+	}
+}
+
 // A free worker left on its task's branch: a task for that branch goes to
 // it, before a lower free worker; without one it goes back to its waiting
 // branch, unless dirty or a queued task is for that branch; while it is

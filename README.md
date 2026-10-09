@@ -290,9 +290,10 @@ workerN`.
   its output in the watcher's log. The branch of the task it ended is then
   free for the next task on it: the review, then the fix of what the
   review found, each going to whichever worker is free, with what it needs
-  in its brief. A task given `--branch` goes first to the free worker
-  still on that branch, which moves nothing, and a worker a queued task
-  waits for on its branch stays there. A worker with uncommitted changes
+  in its brief. A task given `--branch` that a free worker is still on
+  waits for that worker, which moves nothing, even while its agent is not
+  ready yet; one that worker can't take (another `--kind`, `--worker`
+  naming someone else) waits until it is parked. A worker with uncommitted changes
   is not moved. A task given `--branch` that another free worker still
   holds takes it back; a busy worker keeps its own.
 - A task queued `--after <id>` (repeatable) waits until each of those tasks

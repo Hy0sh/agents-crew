@@ -17,8 +17,8 @@ import (
 //     one the config set apart (worker-overrides), which only takes the
 //     tasks named for it;
 //   - a free worker gets the first task it may take, if its agent is
-//     ready for one; a task on a branch goes first to the free worker
-//     already on it;
+//     ready for one; a task on a branch a clean free worker is on waits
+//     for that worker, or, if it can't take it, for it to be parked;
 //   - a free worker left on its task's branch goes back to its waiting
 //     branch, unless a queued task is for that branch; a task waits
 //     while its branch is being left;
@@ -71,6 +71,26 @@ type workerPoll struct {
 // offHome says a worker's worktree is on a branch other than its waiting
 // one.
 func (w workerPoll) offHome() bool { return w.Branch != "" && w.Branch != w.Home }
+
+// freeHolder is the free worker whose worktree is on branch, nil for
+// none or for no branch.
+func freeHolder(p poolState, polls map[int]workerPoll, branch string) *poolWorker {
+	if branch == "" {
+		return nil
+	}
+	for i, w := range p.Workers {
+		if w.State == workerFree && polls[w.Index].Branch == branch {
+			return &p.Workers[i]
+		}
+	}
+	return nil
+}
+
+// canTake says worker w, of spec s, may be given t: the one it names, or
+// any it takes.
+func canTake(s workerSpec, w poolWorker, t queuedTask) bool {
+	return t.Worker == w.Index || t.Worker == 0 && s.takes(t)
+}
 
 func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time) []poolAction {
 	var actions []poolAction
@@ -126,6 +146,22 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 		}) {
 			continue
 		}
+		// Its branch is held by a clean free worker: the task is for that
+		// one, once ready; if it can't take it, it goes back to its waiting
+		// branch first (see the parking below). Handed to another worker,
+		// the branch would be taken back from one the next poll may give
+		// another task, and the two would race on its worktree. A dirty
+		// holder can't be moved: the task goes on, and is held with why.
+		if h := freeHolder(p, polls, t.Branch); h != nil && polls[h.Index].Clean {
+			if canTake(spec(h.Index), *h, t) {
+				// Kept for it: neither parked nor closed while it gets ready.
+				if ready(*h) {
+					actions = append(actions, poolAction{Kind: actAssign, Worker: h.Index, Task: t.ID})
+				}
+				taken[h.Index] = true
+			}
+			continue
+		}
 		if t.Worker != 0 {
 			if w := p.worker(t.Worker); w == nil {
 				if canOpen(t.Worker) {
@@ -137,14 +173,7 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 			}
 			continue
 		}
-		// The worker already on the task's branch first: no switch.
-		i := slices.IndexFunc(p.Workers, func(w poolWorker) bool {
-			return t.Branch != "" && polls[w.Index].Branch == t.Branch && ready(w) && spec(w.Index).takes(t)
-		})
-		if i < 0 {
-			i = slices.IndexFunc(p.Workers, func(w poolWorker) bool { return ready(w) && spec(w.Index).takes(t) })
-		}
-		if i >= 0 {
+		if i := slices.IndexFunc(p.Workers, func(w poolWorker) bool { return ready(w) && spec(w.Index).takes(t) }); i >= 0 {
 			w := p.Workers[i]
 			taken[w.Index] = true
 			actions = append(actions, poolAction{Kind: actAssign, Worker: w.Index, Task: t.ID})
@@ -205,8 +234,8 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 	}
 
 	// A free worker left on its task's branch goes back to its waiting
-	// branch, unless a queued task is for that branch: it may get it.
-	// Neither one is closed this poll.
+	// branch, unless a queued task it can take is for that branch: it
+	// may get it. Neither one is closed this poll.
 	for _, w := range p.Workers {
 		poll := polls[w.Index]
 		if w.State != workerFree || taken[w.Index] {
@@ -216,7 +245,9 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 			taken[w.Index] = true
 			continue
 		}
-		if !poll.offHome() || !poll.Clean || slices.ContainsFunc(q.Tasks, func(t queuedTask) bool { return t.Error == "" && t.Branch == poll.Branch }) {
+		if !poll.offHome() || !poll.Clean || slices.ContainsFunc(q.Tasks, func(t queuedTask) bool {
+			return t.Error == "" && t.Branch == poll.Branch && canTake(spec(w.Index), w, t)
+		}) {
 			continue
 		}
 		taken[w.Index] = true
