@@ -335,6 +335,17 @@ type prFate struct {
 	Fate string
 }
 
+// mergedURLs is the normalized URLs of the merged PRs of closed.
+func mergedURLs(closed []prFate) []string {
+	var out []string
+	for _, c := range closed {
+		if c.Fate == "merged" {
+			out = append(out, normalizePRURL(c.PR.URL))
+		}
+	}
+	return out
+}
+
 // newPRWatcher follows repo, "host/owner/name", through gh.
 func newPRWatcher(repo string) *prWatcher {
 	host, repo, _ := strings.Cut(repo, "/")

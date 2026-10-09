@@ -6,6 +6,15 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `acw queue add --after-merge <id>` (repeatable, needs `pr-watch`) holds
+  a task until the PR that task ended with is merged. `--after` lets it go
+  at `acw done`, which the master runs before the review, so a follow-up
+  that builds on the merged code could start on code not merged yet.
+  `acw done` keeps the PR of the worker's status; a task ended without
+  one holds what waits for its merge.
+
 ## [0.18.0] - 2026-10-09
 
 ### Added

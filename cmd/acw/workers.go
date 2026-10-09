@@ -203,4 +203,7 @@ type provisionPlan struct {
 	// SwitchAllowed is set when wtm has switch: the workers with a stack
 	// may run it without a prompt.
 	SwitchAllowed bool `json:"switch_allowed,omitempty"`
+	// PRWatch is set when the watcher follows the PRs: it is what tells
+	// acw a task's PR was merged (see queuedTask.AfterMerge).
+	PRWatch bool `json:"pr_watch,omitempty"`
 }
