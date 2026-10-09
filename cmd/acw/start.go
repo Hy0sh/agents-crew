@@ -157,6 +157,9 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		}
 		firstPrompt = masterKickoff
 	}
+	if handoff := handoffPrompt(repo, time.Now()); handoff != "" {
+		firstPrompt += "\n\n" + handoff
+	}
 	if err := herdr.AgentStart(masterName, opts.masterKind, masterPane, masterArgs(opts.masterKind, opts.masterModel, self, inboxWatch, briefPath, opts.masterAutocompact)...); err != nil {
 		return fmt.Errorf("herdr agent start master: %w", explainStart(err, masterDir))
 	}

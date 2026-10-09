@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS decisions (repo TEXT, at INTEGER, worker TEXT, subjec
 CREATE TABLE IF NOT EXISTS watchers (repo TEXT PRIMARY KEY, seen INTEGER);
 CREATE TABLE IF NOT EXISTS parked (id INTEGER PRIMARY KEY, repo TEXT, ticket TEXT, worker TEXT, on_whom TEXT, text TEXT, created_at INTEGER, closed_at INTEGER, answer TEXT);
 CREATE TABLE IF NOT EXISTS marks (repo TEXT, item TEXT, at INTEGER);
+CREATE TABLE IF NOT EXISTS handoffs (id INTEGER PRIMARY KEY, repo TEXT, text TEXT, created_at INTEGER, used_at INTEGER);
 CREATE INDEX IF NOT EXISTS handled_day ON handled (repo, at);
 CREATE INDEX IF NOT EXISTS decisions_day ON decisions (repo, at);`
 
@@ -347,6 +348,35 @@ func (b *DB) CloseParked(id int64, answer string, at time.Time) (Parked, error) 
 		return p, fmt.Errorf("#%d was already closed on %s, with: %s", id, p.ClosedAt.Local().Format("02/01 15:04"), p.Answer)
 	}
 	return p, nil
+}
+
+// AddHandoff keeps the handoff a master leaves for the next one on repo.
+func (b *DB) AddHandoff(repo, text string, at time.Time) error {
+	_, err := b.sql.Exec(`INSERT INTO handoffs (repo, text, created_at, used_at) VALUES (?,?,?,NULL)`, repo, text, at.Unix())
+	return err
+}
+
+// HandoffSince says a handoff was left on repo at since or after.
+func (b *DB) HandoffSince(repo string, since time.Time) (bool, error) {
+	var n int
+	err := b.sql.QueryRow(`SELECT count(*) FROM handoffs WHERE repo = ? AND created_at >= ?`, repo, since.Unix()).Scan(&n)
+	return n > 0, err
+}
+
+// TakeHandoff returns repo's latest handoff not handed to a master yet,
+// and marks every waiting one used: an older one is superseded. ok is
+// false without any.
+func (b *DB) TakeHandoff(repo string, at time.Time) (text string, created time.Time, ok bool, err error) {
+	var unix int64
+	err = b.sql.QueryRow(`SELECT text, created_at FROM handoffs WHERE repo = ? AND used_at IS NULL ORDER BY id DESC LIMIT 1`, repo).Scan(&text, &unix)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", time.Time{}, false, nil
+	}
+	if err != nil {
+		return "", time.Time{}, false, err
+	}
+	_, err = b.sql.Exec(`UPDATE handoffs SET used_at = ? WHERE repo = ? AND used_at IS NULL`, at.Unix(), repo)
+	return text, time.Unix(unix, 0), err == nil, err
 }
 
 // markWindow is how far back marks are read: a PR's mark holds until its

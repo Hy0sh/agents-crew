@@ -6,6 +6,16 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `acw stop` asks the running master for its handoff before tearing the
+  swarm down: once the master is idle, acw asks it, and waits up to
+  `--handoff-wait` (5 min) for `acw board handoff`, which keeps it in the
+  board base. The next `acw start` on the repo puts it in the new
+  master's first prompt, with the decisions still parked, and marks it
+  used. What was pending used to go through a file the user kept by
+  hand. `--no-handoff` stops without asking.
+
 ## [0.17.1] - 2026-10-09
 
 ### Security
