@@ -167,8 +167,41 @@ func withBoard(f func(*board.DB) error) error {
 // acw board park puts a decision off until someone answers: the client, a
 // third party, or the user (--on me). It lives in the base, so the master
 // finds it again after a reset or in the next swarm, by its number.
+// docKind is what a worker stopped in state waits approval of.
+func docKind(state string) string {
+	switch state {
+	case "plan_ready":
+		return "plan"
+	case "verdict_ready":
+		return "verdict"
+	case "review_ready":
+		return "review draft"
+	}
+	return "document"
+}
+
+// checkDocPath refuses a document the user could not read later: not an
+// absolute path to a file, or under the repo's worktrees dir, where the
+// worktrees and the status dir go at acw stop.
+func checkDocPath(repo, path string) error {
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("--doc %s: give the absolute path", path)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("--doc: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("--doc %s: not a file", path)
+	}
+	if rel, err := filepath.Rel(names.WorktreesDir(repo), path); err == nil && !strings.HasPrefix(rel, "..") {
+		return fmt.Errorf("--doc %s: inside a worktree or the status dir, both gone at acw stop: have the worker write it outside the repo (e.g. ~/.claude/plans)", path)
+	}
+	return nil
+}
+
 func parkCommand() *cobra.Command {
-	var ticket, on, worker string
+	var ticket, on, worker, doc string
 	var repoOf func() (string, error)
 	cmd := &cobra.Command{
 		Use:   "park [question...]",
@@ -181,30 +214,49 @@ func parkCommand() *cobra.Command {
 			if on == "" {
 				return errors.New("--on: who the answer is waited from (client, me, a name)")
 			}
+			index := 0
 			if worker != "" {
-				_, label, err := workerName(repo, worker)
+				i, label, err := workerName(repo, worker)
 				if err != nil {
 					return err
 				}
-				worker = label
+				index, worker = i, label
+			}
+			kind := ""
+			if doc != "" {
+				if worker == "" {
+					return errors.New("--doc needs --worker: parking its document frees it")
+				}
+				if err := checkDocPath(repo, doc); err != nil {
+					return err
+				}
+				s, _ := readWorkerStatus(filepath.Join(names.StatusDir(repo), worker+".json"))
+				kind = docKind(s.State)
 			}
 			text, err := readText(args, cmd.InOrStdin(), "question")
 			if err != nil {
 				return err
 			}
-			return withBoard(func(b *board.DB) error {
-				id, err := b.Park(board.Parked{Repo: repo, Ticket: ticket, Worker: worker, On: on, Text: text, CreatedAt: time.Now()})
+			out := cmd.OutOrStdout()
+			err = withBoard(func(b *board.DB) error {
+				id, err := b.Park(board.Parked{Repo: repo, Ticket: ticket, Worker: worker, On: on, Text: text, Kind: kind, DocPath: doc, CreatedAt: time.Now()})
 				if err == nil {
-					fmt.Fprintf(cmd.OutOrStdout(), "#%d parked: the user answers with \"for #%d: ...\"\n", id, id)
+					fmt.Fprintf(out, "#%d parked: the user answers with \"for #%d: ...\"\n", id, id)
 				}
 				return err
 			})
+			if err != nil || doc == "" {
+				return err
+			}
+			// The user may take days to read it: the worker waits on nothing.
+			return finishWorker(repo, index, worker, 0, out)
 		},
 	}
 	repoOf = repoFlag(cmd)
 	cmd.Flags().StringVar(&ticket, "ticket", "", "the ticket key it belongs to")
 	cmd.Flags().StringVar(&on, "on", "", "who the answer is waited from: client, me (the user), or a name")
 	cmd.Flags().StringVar(&worker, "worker", "", "the worker it came from, by its name (worker2, reviewer1)")
+	cmd.Flags().StringVar(&doc, "doc", "", "a document to approve (plan, verdict, review draft): its absolute path, outside the repo's worktrees; the user reads it on acw board, and the worker is freed")
 	return cmd
 }
 
@@ -453,6 +505,12 @@ func renderParked(p board.Parked, full bool) string {
 	}
 	if p.ClosedAt != nil {
 		head += fmt.Sprintf(" · closed %s: %s", p.ClosedAt.Local().Format("02/01 15:04"), p.Answer)
+	}
+	if p.Refused {
+		head += " · refused by the user, to discuss"
+	}
+	if p.DocPath != "" {
+		head += fmt.Sprintf("\n%s, document: %s", p.Kind, p.DocPath)
 	}
 	return head + "\n" + p.Text + "\n"
 }

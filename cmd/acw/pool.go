@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Hy0sh/agents-crew/internal/board"
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
@@ -465,6 +466,26 @@ func markDone(repo string, index, task int, now time.Time) (string, int, error) 
 		return true, nil
 	})
 	return msg, finished, err
+}
+
+// finishWorker is acw done: ends the task of worker index (task, when not
+// 0, must be the one it is on), records it on the board, says what came
+// of it. The worktree is the watcher's: it puts the freed worker back on
+// its waiting branch, outside the master's turn (see schedule).
+func finishWorker(repo string, index int, label string, task int, out io.Writer) error {
+	msg, finished, err := markDone(repo, index, task, time.Now())
+	if err != nil {
+		return err
+	}
+	if finished != 0 {
+		s, _ := readWorkerStatus(filepath.Join(names.StatusDir(repo), label+".json"))
+		record("done", func(b *board.DB) error {
+			return b.AddHandled(board.Handled{Repo: repo, At: time.Now(), Worker: label, Task: finished,
+				Subject: s.Tache, Summary: s.Summary, PRURL: s.PRURL, Outcome: s.State})
+		})
+	}
+	fmt.Fprintln(out, msg)
+	return nil
 }
 
 // prURL is the PR a worker's status file names, normalized, "" without.

@@ -445,22 +445,7 @@ func main() {
 					return fmt.Errorf("%q is not a task id", args[1])
 				}
 			}
-			// The worktree is the watcher's: it puts the freed worker back on
-			// its waiting branch, outside the master's turn (see schedule).
-			msg, finished, err := markDone(repo, index, task, time.Now())
-			if err != nil {
-				return err
-			}
-			if finished != 0 {
-				label := doneLabel
-				s, _ := readWorkerStatus(filepath.Join(names.StatusDir(repo), label+".json"))
-				record("done", func(b *board.DB) error {
-					return b.AddHandled(board.Handled{Repo: repo, At: time.Now(), Worker: label, Task: finished,
-						Subject: s.Tache, Summary: s.Summary, PRURL: s.PRURL, Outcome: s.State})
-				})
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), msg)
-			return nil
+			return finishWorker(repo, index, doneLabel, task, cmd.OutOrStdout())
 		},
 	}
 	doneRepo = repoFlag(done)

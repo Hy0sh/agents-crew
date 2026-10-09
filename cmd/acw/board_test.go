@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Hy0sh/agents-crew/internal/board"
+	"github.com/Hy0sh/agents-crew/internal/names"
 )
 
 func boardDay(t *testing.T, repo string, day time.Time) board.Day {
@@ -218,6 +219,71 @@ func TestHandoffReachesTheNextMaster(t *testing.T) {
 	}
 	if got := handoffPrompt(repo, time.Now()); strings.Contains(got, "PR #12") || !strings.Contains(got, "SHOP-9") {
 		t.Errorf("second start = %q, want the parked ones only", got)
+	}
+}
+
+// A document to approve is parked with its path and kind, and frees its
+// worker: the user may take days to read it. A path the worker loses at
+// acw stop, relative or missing, is refused, and nothing is parked.
+func TestParkDocument(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	repo := testSwarm(t, 2, poolWorker{Index: 1, State: workerBusy, Task: 3, Current: &queuedTask{ID: 3, Brief: "plan it"}})
+	os.WriteFile(filepath.Join(names.StatusDir(repo), "worker1.json"), []byte(`{"state":"plan_ready","tache":"SHOP-9"}`), 0o644)
+	doc := filepath.Join(t.TempDir(), "plan.md")
+	os.WriteFile(doc, []byte("# Plan\n"), 0o644)
+	inTree := filepath.Join(names.WorktreesDir(repo), "worker1-20261009120000", "plan.md")
+	os.MkdirAll(filepath.Dir(inTree), 0o755)
+	os.WriteFile(inTree, []byte("x"), 0o644)
+	run := func(args ...string) (string, error) {
+		t.Helper()
+		cmd := boardCommand()
+		var out strings.Builder
+		cmd.SetOut(&out)
+		cmd.SetIn(strings.NewReader("Approve the plan"))
+		cmd.SetArgs(append([]string{"park", "--repo", repo, "--ticket", "SHOP-9", "--on", "me"}, args...))
+		err := cmd.Execute()
+		return out.String(), err
+	}
+	for _, bad := range [][]string{
+		{"--worker", "worker1", "--doc", "plan.md"},
+		{"--worker", "worker1", "--doc", filepath.Join(t.TempDir(), "gone.md")},
+		{"--worker", "worker1", "--doc", t.TempDir()},
+		{"--worker", "worker1", "--doc", inTree},
+		{"--doc", doc},
+	} {
+		if _, err := run(bad...); err == nil {
+			t.Errorf("park %v accepted", bad)
+		}
+	}
+	out, err := run("--worker", "worker1", "--doc", doc)
+	if err != nil || !strings.Contains(out, "#1 parked") || !strings.Contains(out, "worker1 is free") {
+		t.Fatalf("park --doc = %q, %v", out, err)
+	}
+	if p, _, _ := readPool(repo); p.worker(1).State != workerFree {
+		t.Errorf("worker1 = %+v, want free", p.worker(1))
+	}
+	d := boardDay(t, repo, time.Now())
+	if len(d.Parked) != 1 || d.Parked[0].DocPath != doc || d.Parked[0].Kind != "plan" || d.Parked[0].Worker != "worker1" {
+		t.Errorf("parked = %+v", d.Parked)
+	}
+	cmd := boardCommand()
+	var shown strings.Builder
+	cmd.SetOut(&shown)
+	cmd.SetArgs([]string{"parked", "1"})
+	cmd.Execute()
+	if !strings.Contains(shown.String(), "document: "+doc) {
+		t.Errorf("parked 1 = %q, want the document's path", shown.String())
+	}
+	if out, err := run("--worker", "worker1", "--doc", doc); err != nil || !strings.Contains(out, "already free") {
+		t.Errorf("park --doc of a free worker = %q, %v; want parked, already free", out, err)
+	}
+}
+
+func TestDocKind(t *testing.T) {
+	for state, want := range map[string]string{"plan_ready": "plan", "verdict_ready": "verdict", "review_ready": "review draft", "coding": "document"} {
+		if got := docKind(state); got != want {
+			t.Errorf("docKind(%q) = %q, want %q", state, got, want)
+		}
 	}
 }
 
