@@ -115,10 +115,14 @@ func TestResumeStartsAWorkerOnItsOwnProfile(t *testing.T) {
 	if err := writeJSON(names.PoolFile(repo), p); err != nil {
 		t.Fatal(err)
 	}
+	wt := names.WorkerWorktree(repo, 1, "20260925140000")
+	if out, err := exec.Command("git", "-C", wt, "switch", "-q", "-c", "feat/x").CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
 	if err := resumeStacks(repo, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(calls); string(got) != "start agents/worker1-20260925140000 --profile api\n" {
+	if got, _ := os.ReadFile(calls); string(got) != "start feat/x --profile api\n" {
 		t.Errorf("wtm calls = %q", got)
 	}
 }
