@@ -112,7 +112,8 @@ func runWatch(plan watchPlan, interval time.Duration) {
 		var labels []string
 		agentNames := map[string]string{}
 		for _, pw := range pool.Workers {
-			label, name := pw.label(), names.Worker(slug, pw.Index)
+			label := pw.label()
+			name := names.Agent(slug, label)
 			labels = append(labels, label)
 			a, ok := herdr.FindAgent(agents, name)
 			if !ok {
@@ -151,7 +152,7 @@ func runWatch(plan watchPlan, interval time.Duration) {
 		var rows []board.Worker
 		var prRows []board.PR
 		for _, pw := range pool.Workers {
-			a, found := herdr.FindAgent(agents, names.Worker(slug, pw.Index))
+			a, found := herdr.FindAgent(agents, names.Agent(slug, pw.label()))
 			s, _ := readWorkerStatus(filepath.Join(statusDir, pw.label()+".json"))
 			row := boardWorker(plan.Repo, pw, a.Status, s, now)
 			if found {

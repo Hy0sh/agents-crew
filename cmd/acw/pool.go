@@ -344,17 +344,14 @@ func queueAdd(repo, path string, o addOptions, now time.Time, out io.Writer) err
 		}
 	}
 	return withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
-		if index > len(p.Plan.Workers) {
-			return false, fmt.Errorf("worker%d is beyond this swarm's %d workers", index, len(p.Plan.Workers))
-		}
 		// A kind no worker takes would wait forever; a worker named with
 		// --worker must take the kind it is given.
 		if kind != "" {
 			if !slices.ContainsFunc(p.Plan.Workers, func(w workerSpec) bool { return slices.Contains(w.Tasks, kind) }) {
-				return false, fmt.Errorf("--kind %s: no worker takes it; list it under tasks in a worker-overrides entry", kind)
+				return false, fmt.Errorf("--kind %s: no worker takes it; list it under a role's tasks", kind)
 			}
 			if index != 0 && !slices.Contains(p.Plan.Workers[index-1].Tasks, kind) {
-				return false, fmt.Errorf("--kind %s: worker%d does not take it", kind, index)
+				return false, fmt.Errorf("--kind %s: %s does not take it", kind, p.Plan.labelOf(index))
 			}
 		}
 		// Only a task that was queued can be waited for: one already ended
@@ -443,7 +440,7 @@ func markDone(repo string, index, task int, now time.Time) (string, int, error) 
 	err := withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
 		w := p.worker(index)
 		if w == nil {
-			return false, fmt.Errorf("worker%d is not open", index)
+			return false, fmt.Errorf("%s is not open", p.Plan.labelOf(index))
 		}
 		if w.State != workerBusy {
 			msg = fmt.Sprintf("%s is already %s.", w.label(), w.State)
@@ -544,7 +541,7 @@ func pollWorkers(p poolState, agents []herdr.Agent, statusDir string, now time.T
 		}
 		spec := p.Plan.Workers[w.Index-1]
 		var poll workerPoll
-		if a, ok := herdr.FindAgent(agents, names.Worker(slug, w.Index)); ok && (a.Status == "idle" || a.Status == "done") {
+		if a, ok := herdr.FindAgent(agents, names.Agent(slug, w.label())); ok && (a.Status == "idle" || a.Status == "done") {
 			_, err := os.Stat(filepath.Join(statusDir, w.label()+".usage.json"))
 			poll.Ready = spec.Kind != "claude" || err == nil
 		} else if ok && (a.Status == "working" || a.Status == "blocked") {
@@ -842,7 +839,7 @@ func renderQueue(now time.Time, p poolState, q taskQueue) string {
 	for i, t := range q.Tasks {
 		fmt.Fprintf(&b, "  %d. #%d  %s", i+1, t.ID, firstLine(t.Brief))
 		if t.Worker != 0 {
-			fmt.Fprintf(&b, " · for worker%d", t.Worker)
+			fmt.Fprintf(&b, " · for %s", p.Plan.labelOf(t.Worker))
 		}
 		if t.Kind != "" {
 			fmt.Fprintf(&b, " · kind %s", t.Kind)

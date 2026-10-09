@@ -427,7 +427,7 @@ func main() {
 
 	var doneRepo func() (string, error)
 	done := &cobra.Command{
-		Use:   "done workerN [task-id]",
+		Use:   "done <worker> [task-id]",
 		Short: "Mark a worker's task as finished: acw gives it the next one, or closes it",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -435,7 +435,7 @@ func main() {
 			if err != nil {
 				return err
 			}
-			index, err := workerArg(repo, args[0])
+			index, doneLabel, err := workerName(repo, args[0])
 			if err != nil {
 				return err
 			}
@@ -452,7 +452,7 @@ func main() {
 				return err
 			}
 			if finished != 0 {
-				label := fmt.Sprintf("worker%d", index)
+				label := doneLabel
 				s, _ := readWorkerStatus(filepath.Join(names.StatusDir(repo), label+".json"))
 				record("done", func(b *board.DB) error {
 					return b.AddHandled(board.Handled{Repo: repo, At: time.Now(), Worker: label, Task: finished,

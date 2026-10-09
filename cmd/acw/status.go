@@ -33,8 +33,22 @@ type statusRow struct {
 	Busy string
 }
 
-// maxWorkers bounds the scan for workers in collectStatus.
+// maxWorkers bounds the scan for workers in collectStatus when the pool
+// can't be read.
 const maxWorkers = 64
+
+// statusLabels are the names of repo's workers, its slots'. Without a
+// readable pool (a swarm half gone), the names workers had before roles.
+func statusLabels(repo string) []string {
+	if p, err := readPoolFile(repo); err == nil {
+		return p.Plan.labels()
+	}
+	labels := make([]string, maxWorkers)
+	for i := range labels {
+		labels[i] = fmt.Sprintf("worker%d", i+1)
+	}
+	return labels
+}
 
 func renderStatus(now time.Time, rows []statusRow, unread int, lastAt time.Time, watcher bool) string {
 	var b strings.Builder
@@ -106,7 +120,7 @@ func collectStatus(repo string) (rows []statusRow, unread int, lastAt time.Time,
 	if err != nil {
 		return nil, 0, time.Time{}, fmt.Errorf("herdr agent list: %w", err)
 	}
-	rows = scanWorkers(statusDir, agents, names.Slug(repo))
+	rows = scanWorkers(statusDir, agents, names.Slug(repo), statusLabels(repo))
 	for i, r := range rows {
 		if r.Name != "" {
 			if screen, err := herdr.AgentScreen(r.Name); err == nil {
@@ -134,15 +148,14 @@ func watcherRunning(repo string) bool {
 	return syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil
 }
 
-// scanWorkers reads every worker index that has an agent or a status
-// file. It does not stop at a gap: a worker that failed to start leaves
-// one, and those after it are still running.
-func scanWorkers(statusDir string, agents []herdr.Agent, slug string) []statusRow {
+// scanWorkers reads every worker named in labels that has an agent or a
+// status file. It does not stop at a gap: a worker that failed to start
+// leaves one, and those after it are still running.
+func scanWorkers(statusDir string, agents []herdr.Agent, slug string, labels []string) []statusRow {
 	var rows []statusRow
-	for i := 1; i <= maxWorkers; i++ {
-		label := fmt.Sprintf("worker%d", i)
+	for _, label := range labels {
 		statusPath := filepath.Join(statusDir, label+".json")
-		agent, running := herdr.FindAgent(agents, names.Worker(slug, i))
+		agent, running := herdr.FindAgent(agents, names.Agent(slug, label))
 		_, statErr := os.Stat(statusPath)
 		if !running && statErr != nil {
 			continue

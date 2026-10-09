@@ -63,9 +63,9 @@ func TestReadNotesMissingFileWarnsAndGoesOn(t *testing.T) {
 func TestWriteSystemPrompts(t *testing.T) {
 	dir := t.TempDir()
 	workers := []workerSpec{
-		{Kind: "claude"},
-		{Kind: "claude", Prompt: "You verify.", PromptPath: "/cfg/verifier.md"},
-		{Kind: "codex", Prompt: "You verify.", PromptPath: "/cfg/verifier.md"},
+		{Kind: "claude", Role: "worker", Rank: 1},
+		{Kind: "claude", Role: "worker", Rank: 2, Prompt: "You verify.", PromptPath: "/cfg/verifier.md"},
+		{Kind: "codex", Role: "worker", Rank: 3, Prompt: "You verify.", PromptPath: "/cfg/verifier.md"},
 	}
 	if err := writeSystemPrompts(dir, "- rule one\n", workers); err != nil {
 		t.Fatal(err)
@@ -93,7 +93,7 @@ func TestWriteSystemPrompts(t *testing.T) {
 // reset before each task would wipe it from a brief.
 func TestWriteSystemPromptsAlwaysCarryTheRole(t *testing.T) {
 	dir := t.TempDir()
-	workers := []workerSpec{{Kind: "claude"}, {Kind: "claude"}}
+	workers := []workerSpec{{Kind: "claude", Role: "worker", Rank: 1}, {Kind: "claude", Role: "worker", Rank: 2}}
 	if err := writeSystemPrompts(dir, "  \n", workers); err != nil {
 		t.Fatal(err)
 	}

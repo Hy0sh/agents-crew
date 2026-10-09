@@ -58,13 +58,29 @@ func TestScanWorkersSkipsGaps(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "worker3.json"), []byte(`{"state":"in_progress"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "reviewer1.json"), []byte(`{"state":"reviewing"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	agents := []herdr.Agent{{Name: "worker1-abc123", Status: "idle"}, {Name: "worker4-abc123", Status: "working"}}
 	var labels []string
-	for _, r := range scanWorkers(dir, agents, "abc123") {
+	for _, r := range scanWorkers(dir, agents, "abc123", []string{"worker1", "worker2", "worker3", "worker4", "reviewer1"}) {
 		labels = append(labels, r.Label)
 	}
-	if !slices.Equal(labels, []string{"worker1", "worker3", "worker4"}) {
-		t.Errorf("scanWorkers() = %v, want worker1, worker3, worker4 past the gap at 2", labels)
+	if !slices.Equal(labels, []string{"worker1", "worker3", "worker4", "reviewer1"}) {
+		t.Errorf("scanWorkers() = %v, want worker1, worker3, worker4 past the gap at 2, then reviewer1", labels)
+	}
+}
+
+// Every name the worker shows goes through its role's label.
+func TestRoleNamesEverywhere(t *testing.T) {
+	plan := provisionPlan{Workers: []workerSpec{{Role: "worker", Rank: 1}, {Role: "reviewer", Rank: 1}}}
+	w := poolWorker{Index: 2, Label: plan.Workers[1].label(), Worktree: names.WorkerWorktree("/r", "reviewer1", "20261009")}
+	if homeBranch(w) != "agents/reviewer1-20261009" {
+		t.Errorf("homeBranch = %q", homeBranch(w))
+	}
+	q := taskQueue{Tasks: []queuedTask{{ID: 7, Brief: "x", Worker: 2}}}
+	if got := renderQueue(t0, poolState{Plan: plan}, q); !strings.Contains(got, "for reviewer1") {
+		t.Errorf("queue = %s", got)
 	}
 }
 

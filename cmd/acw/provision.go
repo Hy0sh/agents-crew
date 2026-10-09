@@ -37,8 +37,8 @@ func openWorker(repo string, index int) {
 	}
 	slug := names.Slug(repo)
 	masterName := names.Master(slug)
-	label := pw.label()               // cosmetic pane label, kept short
-	name := names.Worker(slug, index) // actual herdr agent name, unique per repo
+	label := pw.label()              // pane label, kept short
+	name := names.Agent(slug, label) // herdr agent name, unique per repo
 	w := plan.Workers[index-1]
 	fail := func(step string, err error, pane string) {
 		fmt.Fprintf(os.Stderr, "%s: %s: %v\n", name, step, err)

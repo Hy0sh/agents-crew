@@ -10,7 +10,7 @@ import (
 func testPool(n, maxStacks int, open ...poolWorker) poolState {
 	specs := make([]workerSpec, n)
 	for i := range specs {
-		specs[i] = workerSpec{Kind: "claude"}
+		specs[i] = workerSpec{Kind: "claude", Role: "worker", Rank: i + 1}
 	}
 	return poolState{
 		Plan:             provisionPlan{Stacks: true, MaxStacks: maxStacks, Workers: specs},

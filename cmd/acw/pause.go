@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/teardown"
@@ -59,8 +61,9 @@ func eachStack(repo string, out io.Writer, done string, step func(dir, branch, p
 		case branch == "HEAD" && stacked:
 			err = errors.New(teardown.Repair(dir, branch, nil))
 		case branch != "HEAD":
-			index := 0
-			fmt.Sscanf(name, "worker%d-", &index)
+			// The worktree is <label>-<stamp>: the slot whose label it
+			// starts with, dash included, so worker1 never takes worker12's.
+			index := slices.IndexFunc(p.Plan.Workers, func(w workerSpec) bool { return strings.HasPrefix(name, w.label()+"-") }) + 1
 			err = step(dir, branch, p.Plan.profileOf(index))
 		}
 		// A worker beyond max-stacks, or whose adopt failed, has a worktree

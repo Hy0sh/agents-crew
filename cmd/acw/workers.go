@@ -147,6 +147,15 @@ func (p provisionPlan) slotOf(arg, slug string) (index int, label string, err er
 	return 0, "", fmt.Errorf("%q is not a worker of this swarm (%s, or its herdr name <name>-%s); the worker and what follows are separate arguments", arg, strings.Join(p.labels(), ", "), slug)
 }
 
+// labelOf is slot index's name, or the index's legacy one outside the
+// slots.
+func (p provisionPlan) labelOf(index int) string {
+	if index >= 1 && index <= len(p.Workers) {
+		return p.Workers[index-1].label()
+	}
+	return fmt.Sprintf("worker%d", index)
+}
+
 // labels are the names of the swarm's workers, in slot order.
 func (p provisionPlan) labels() []string {
 	out := make([]string, len(p.Workers))
@@ -214,7 +223,7 @@ func writeSystemPrompts(statusDir, notes string, workers []workerSpec) error {
 		if w.Kind != "claude" {
 			continue
 		}
-		label := fmt.Sprintf("worker%d", i+1)
+		label := w.label()
 		content := systemPrompt(workerRole(label, filepath.Join(statusDir, label+".json")), notes, w.Prompt)
 		path := filepath.Join(statusDir, label+".system.md")
 		if err := os.WriteFile(path, []byte(content+"\n"), 0o644); err != nil {
