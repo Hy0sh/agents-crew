@@ -66,6 +66,12 @@ type workerPoll struct {
 	// Parking is set while the watcher puts it back on Home, or after
 	// that failed on this same Branch: not Ready, and not moved again.
 	Parking bool
+	// Active is set while its agent works although the pool has it free
+	// (a task given by acw tell, with no watcher to hand it out);
+	// LastTurn is its last end of turn. Its idle time counts from the
+	// later of that and the moment it was freed.
+	Active   bool
+	LastTurn time.Time
 }
 
 // offHome says a worker's worktree is on a branch other than its waiting
@@ -135,15 +141,39 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 		}
 	}
 
+	// A clean free worker on the branch of a task further down the queue is
+	// kept for that one: given an earlier task elsewhere, it would leave
+	// the branch, and the task on it would wait for its switch, then for
+	// another worker to switch back to it.
+	reserved := map[int]bool{}
 	for _, t := range q.Tasks {
 		if t.Error != "" || len(waitingFor(t, p, q)) > 0 {
 			continue
 		}
-		// Its branch is being left by a worker going back to its waiting
-		// branch: next poll, once it is free.
-		if t.Branch != "" && slices.ContainsFunc(p.Workers, func(w poolWorker) bool {
-			return polls[w.Index].Parking && polls[w.Index].Branch == t.Branch
-		}) {
+		if h := freeHolder(p, polls, t.Branch); h != nil && polls[h.Index].Clean && canTake(spec(h.Index), *h, t) {
+			reserved[h.Index] = true
+		}
+	}
+	claimed := map[string]bool{} // branches given a task this poll
+	assign := func(w int, t queuedTask) {
+		taken[w] = true
+		actions = append(actions, poolAction{Kind: actAssign, Worker: w, Task: t.ID})
+		if t.Branch != "" {
+			claimed[t.Branch] = true
+		}
+	}
+	for _, t := range q.Tasks {
+		if t.Error != "" || len(waitingFor(t, p, q)) > 0 {
+			continue
+		}
+		// Its branch is being left by a worker (back to its waiting
+		// branch, or off to its next task), is another busy worker's task
+		// branch, or went to a task earlier in this poll: it waits for it
+		// to be free rather than fail on it and be held.
+		if t.Branch != "" && (claimed[t.Branch] || slices.ContainsFunc(p.Workers, func(w poolWorker) bool {
+			return polls[w.Index].Parking && polls[w.Index].Branch == t.Branch ||
+				w.State == workerBusy && (w.TaskBranch == t.Branch || polls[w.Index].Branch == t.Branch)
+		})) {
 			continue
 		}
 		// Its branch is held by a clean free worker: the task is for that
@@ -156,7 +186,7 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 			if canTake(spec(h.Index), *h, t) {
 				// Kept for it: neither parked nor closed while it gets ready.
 				if ready(*h) {
-					actions = append(actions, poolAction{Kind: actAssign, Worker: h.Index, Task: t.ID})
+					assign(h.Index, t)
 				}
 				taken[h.Index] = true
 			}
@@ -168,15 +198,12 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 					openWorker(t.Worker)
 				}
 			} else if ready(*w) {
-				taken[w.Index] = true
-				actions = append(actions, poolAction{Kind: actAssign, Worker: w.Index, Task: t.ID})
+				assign(w.Index, t)
 			}
 			continue
 		}
-		if i := slices.IndexFunc(p.Workers, func(w poolWorker) bool { return ready(w) && spec(w.Index).takes(t) }); i >= 0 {
-			w := p.Workers[i]
-			taken[w.Index] = true
-			actions = append(actions, poolAction{Kind: actAssign, Worker: w.Index, Task: t.ID})
+		if i := slices.IndexFunc(p.Workers, func(w poolWorker) bool { return ready(w) && !reserved[w.Index] && spec(w.Index).takes(t) }); i >= 0 {
+			assign(p.Workers[i].Index, t)
 			continue
 		}
 		// A task of a kind waits for a worker that takes it: one coming
@@ -268,7 +295,11 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 		if spec(w.Index).Kind != "claude" && w.Used {
 			limit = 0
 		}
-		if now.Sub(w.Since) < limit {
+		since := w.Since
+		if t := polls[w.Index].LastTurn; t.After(since) {
+			since = t
+		}
+		if polls[w.Index].Active || now.Sub(since) < limit {
 			continue
 		}
 		kind := actClose

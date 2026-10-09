@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -272,29 +271,32 @@ func modelArgs(model string) []string {
 
 // launchBackgroundWatch starts acw's watcher (see runWatch) as a detached
 // copy of this same binary, so it keeps running, and opening workers,
-// after this process execs into the Herdr TUI.
+// after this process execs into the Herdr TUI. The plan goes through a
+// file in the status dir, kept for acw watch: on the command line, its
+// commands (the master's __inbox-next among them) made the watcher a
+// match for a `pkill -f` aimed at them, which killed it without a word.
 func launchBackgroundWatch(plan watchPlan) error {
-	return launchDetached(fmt.Sprintf("acw-watch-%s.log", plan.Stamp), watchUse, plan)
+	if err := writeJSON(names.WatchPlan(plan.Repo), plan); err != nil {
+		return err
+	}
+	return launchDetached(fmt.Sprintf("acw-watch-%s.log", plan.Stamp), watchUse, names.WatchPlan(plan.Repo))
 }
 
-// launchDetached starts this same binary as `<use> <plan as JSON>` in its
-// own session, logging to logName in the temp dir, and does not wait: it
+// launchDetached starts this same binary as `<use> <arg>` in its own
+// session, logging to logName in the temp dir, appended to: a watcher
+// started again keeps the log of the one before. It does not wait: it
 // must keep running after this process execs into herdr.
-func launchDetached(logName, use string, plan any) error {
+func launchDetached(logName, use, arg string) error {
 	self, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	planJSON, err := json.Marshal(plan)
-	if err != nil {
-		return err
-	}
-	logFile, err := os.Create(filepath.Join(os.TempDir(), logName))
+	logFile, err := os.OpenFile(filepath.Join(os.TempDir(), logName), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return err
 	}
 
-	cmd := exec.Command(self, use, string(planJSON))
+	cmd := exec.Command(self, use, arg)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

@@ -87,7 +87,10 @@ func dispatchByHand(repo, arg, briefPath string, br branchRequest, out io.Writer
 			if w.State != from {
 				return false, fmt.Errorf("worker%d is %s, not %s", index, w.State, from)
 			}
-			w.State, w.Task, w.Since, w.Used = to, 0, time.Now(), true
+			w.State, w.Task, w.Since, w.Used, w.TaskBranch = to, 0, time.Now(), true, ""
+			if to == workerBusy {
+				w.TaskBranch = br.Branch
+			}
 			return true, nil
 		})
 	}
@@ -119,8 +122,29 @@ func dispatchWorker(repo, arg, text string, br branchRequest, out io.Writer) err
 	}
 	if br.Branch != "" {
 		steps.branch = func(t clearTarget) error { return switchWorkerBranch(repo, t, br, out) }
+	} else {
+		// A task with no branch has the worker cut its own, from where it
+		// is: left on a task's branch, it would leave that branch mid-turn
+		// with its stack still indexed there, under a task queued for it.
+		// Back on its waiting branch first, without a stack.
+		steps.branch = func(t clearTarget) error { return parkBeforeTask(repo, t.index, out) }
 	}
 	return steps.run()
+}
+
+// parkBeforeTask puts worker index back on its waiting branch, if it is
+// not there, before a task with no branch. A worktree with changes can't
+// be moved: the worker starts from where it is, as it always did, rather
+// than every task with no branch being held on it.
+func parkBeforeTask(repo string, index int, out io.Writer) error {
+	p, _, err := readPool(repo)
+	if err != nil {
+		return err
+	}
+	if w := p.worker(index); w != nil && (w.Worktree == "" || gitutil.Clean(w.Worktree)) {
+		return parkWorker(p, *w, out)
+	}
+	return nil
 }
 
 // branchRequest is dispatch's --branch and --base. An empty Branch leaves

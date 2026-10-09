@@ -70,12 +70,19 @@ func runWatch(plan watchPlan, interval time.Duration) {
 	tellHeld := map[string]bool{}
 	// Held until every opening, close and dispatch it started is over:
 	// acw stop waits for it, so none of them runs during its teardown.
+	locked := false
 	if lock, err := os.OpenFile(names.WatchLock(plan.Repo), os.O_CREATE|os.O_RDWR, 0o644); err == nil {
 		if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err == nil {
 			defer lock.Close()
+			locked = true
 		}
 	}
 	defer inflight.Wait()
+	// With the lock held, no other watcher runs: whatever is half done in
+	// the pool of this run was left by one that died.
+	if locked && ownsRun(plan.Repo, plan.Stamp) {
+		recoverPool(plan.Repo)
+	}
 	boardLast := map[string]board.Worker{}
 	var prsWritten, beaten time.Time
 	for {

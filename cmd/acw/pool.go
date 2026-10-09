@@ -55,6 +55,13 @@ type poolWorker struct {
 	// Used is set once it got a task: a kind acw cannot reset between
 	// tasks closes as soon as it is free again, not right after opening.
 	Used bool `json:"used,omitempty"`
+	// TaskBranch is the --branch of the task it is busy with: a task on
+	// the same branch waits for that one to end (see schedule).
+	TaskBranch string `json:"task_branch,omitempty"`
+	// Dispatching is the task being handed to it, until its brief is
+	// typed: a watcher that dies in between leaves it busy with a task it
+	// never got, which the next watcher puts back (see recoverPool).
+	Dispatching *queuedTask `json:"dispatching,omitempty"`
 }
 
 func (w poolWorker) label() string { return fmt.Sprintf("worker%d", w.Index) }
@@ -404,7 +411,7 @@ func markDone(repo string, index, task int, now time.Time) (string, int, error) 
 		}
 		msg = fmt.Sprintf("%s is free (task #%d done).", w.label(), w.Task)
 		finished = w.Task
-		w.State, w.Task, w.Since = workerFree, 0, now
+		w.State, w.Task, w.Since, w.TaskBranch, w.Dispatching = workerFree, 0, now, "", nil
 		afterMergeOf(q, finished, prURL(repo, w.label()), &msg)
 		return true, nil
 	})
@@ -455,10 +462,14 @@ type poolMemory struct {
 	// from its goroutine, hence mu.
 	mu                  sync.Mutex
 	parking, parkFailed map[int]string
+	// leaving is the branch each worker is leaving for the task it was
+	// just given (see runPool): its stack stays indexed there until its
+	// switch is over, and a task on that branch would fail on it.
+	leaving map[int]string
 }
 
 func newPoolMemory() *poolMemory {
-	return &poolMemory{dirtyTold: map[int]bool{}, parking: map[int]string{}, parkFailed: map[int]string{}}
+	return &poolMemory{dirtyTold: map[int]bool{}, parking: map[int]string{}, parkFailed: map[int]string{}, leaving: map[int]string{}}
 }
 
 // pollWorkers reads what schedule needs about each free worker: whether
@@ -471,6 +482,21 @@ func pollWorkers(p poolState, agents []herdr.Agent, statusDir string, now time.T
 	idle := time.Duration(p.IdleCloseMinutes) * time.Minute
 	for _, w := range p.Workers {
 		if w.State != workerFree {
+			// The branch it is on, which a task with no --branch had it cut
+			// itself, or the one it is still leaving for its new task: a
+			// task on it waits (see schedule).
+			var poll workerPoll
+			if w.Worktree != "" {
+				poll.Branch, _ = gitutil.CurrentBranch(w.Worktree)
+			}
+			mem.mu.Lock()
+			if from := mem.leaving[w.Index]; from != "" {
+				poll.Branch, poll.Parking = from, true
+			}
+			mem.mu.Unlock()
+			if poll.Branch != "" {
+				polls[w.Index] = poll
+			}
 			continue
 		}
 		spec := p.Plan.Workers[w.Index-1]
@@ -478,14 +504,25 @@ func pollWorkers(p poolState, agents []herdr.Agent, statusDir string, now time.T
 		if a, ok := herdr.FindAgent(agents, names.Worker(slug, w.Index)); ok && (a.Status == "idle" || a.Status == "done") {
 			_, err := os.Stat(filepath.Join(statusDir, w.label()+".usage.json"))
 			poll.Ready = spec.Kind != "claude" || err == nil
+		} else if ok && (a.Status == "working" || a.Status == "blocked") {
+			poll.Active = true
+		}
+		if info, err := os.Stat(filepath.Join(statusDir, w.label()+".turn")); err == nil {
+			poll.LastTurn = info.ModTime()
 		}
 		if w.Worktree != "" {
 			poll.Home = homeBranch(w)
 			poll.Branch, _ = gitutil.CurrentBranch(w.Worktree)
 		}
 		mem.mu.Lock()
-		if from := mem.parking[w.Index]; from != "" {
+		from := mem.parking[w.Index]
+		if from == "" {
+			from = mem.leaving[w.Index]
+		}
+		if from != "" {
 			// Mid-switch, git may already say Home: the branch left counts.
+			// leaving too: a done without a task id can free a worker its
+			// new task is still switching.
 			poll.Branch, poll.Parking, poll.Ready = from, true, false
 		} else if mem.parkFailed[w.Index] != "" && mem.parkFailed[w.Index] == poll.Branch {
 			poll.Parking, poll.Ready = true, false
@@ -537,7 +574,8 @@ func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, no
 				}
 				t := q.Tasks[i]
 				q.Tasks = slices.Delete(q.Tasks, i, i+1)
-				w.State, w.Task, w.Since, w.Used = workerBusy, t.ID, now, true
+				w.State, w.Task, w.Since, w.Used, w.TaskBranch = workerBusy, t.ID, now, true, t.Branch
+				w.Dispatching = &t
 				assigns = append(assigns, assignment{*w, t})
 			case actOpen:
 				if w != nil {
@@ -578,7 +616,20 @@ func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, no
 		return
 	}
 	for _, a := range assigns {
-		background(func() { assignTask(repo, p.Plan, a.w, a.t) })
+		from := polls[a.w.Index].Branch
+		if from == "" || from == a.t.Branch {
+			background(func() { assignTask(repo, p.Plan, a.w, a.t) })
+			continue
+		}
+		mem.mu.Lock()
+		mem.leaving[a.w.Index] = from
+		mem.mu.Unlock()
+		background(func() {
+			assignTask(repo, p.Plan, a.w, a.t)
+			mem.mu.Lock()
+			delete(mem.leaving, a.w.Index)
+			mem.mu.Unlock()
+		})
 	}
 	for _, index := range opens {
 		background(func() { openWorker(repo, index) })
@@ -642,6 +693,14 @@ func assignTask(repo string, plan provisionPlan, w poolWorker, t queuedTask) {
 	var steps bytes.Buffer
 	err := dispatchWorker(repo, w.label(), t.Brief, branchRequest{Branch: t.Branch, Base: t.Base}, io.MultiWriter(os.Stderr, &steps))
 	if err == nil {
+		_ = withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
+			pw := p.worker(w.Index)
+			if pw == nil || pw.Dispatching == nil || pw.Dispatching.ID != t.ID {
+				return false, nil
+			}
+			pw.Dispatching = nil
+			return true, nil
+		})
 		msg := fmt.Sprintf("task #%d → %s: %s", t.ID, w.label(), firstLine(t.Brief))
 		// What the branch step found (caught up with origin, local commits)
 		// is for the master, not only the watcher's log.
@@ -654,12 +713,57 @@ func assignTask(repo string, plan provisionPlan, w poolWorker, t queuedTask) {
 	t.Error = err.Error()
 	_ = withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
 		if pw := p.worker(w.Index); pw != nil && pw.State == workerBusy && pw.Task == t.ID {
-			pw.State, pw.Task, pw.Since = workerFree, 0, time.Now()
+			pw.State, pw.Task, pw.Since, pw.TaskBranch, pw.Dispatching = workerFree, 0, time.Now(), "", nil
 		}
 		q.Tasks = slices.Insert(q.Tasks, 0, t)
 		return true, nil
 	})
 	tell(plan, fmt.Sprintf("task #%d could not be given to %s, held first in the queue: %v. Fix the cause, then acw queue move %d 1 (or remove it).", t.ID, w.label(), err, t.ID))
+}
+
+// recoverPool undoes what a watcher that died left half done, before the
+// next one polls: a task handed to a worker that never got its brief goes
+// back first in the queue and the worker is free again; a worker caught
+// opening or closing is closed, pane, worktree and stack, as far as it
+// got, and the pool opens another when needed. The master hears of each.
+// ponytail: a requeued task can meet a wtm switch the dead watcher left
+// running on that worktree, or, in the millisecond after its brief was
+// typed, go out twice; check for a running wtm there if it bites.
+func recoverPool(repo string) {
+	var told []string
+	var plan provisionPlan
+	var interrupted []poolWorker
+	err := withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
+		plan = p.Plan
+		changed := false
+		for i := range p.Workers {
+			w := &p.Workers[i]
+			if w.State == workerBusy && w.Dispatching != nil && w.Dispatching.ID == w.Task {
+				q.Tasks = slices.Insert(q.Tasks, 0, *w.Dispatching)
+				told = append(told, fmt.Sprintf("task #%d never reached %s (the watcher stopped while handing it out): back first in the queue, %s free again.", w.Task, w.label(), w.label()))
+				w.State, w.Task, w.Since, w.TaskBranch, w.Dispatching = workerFree, 0, time.Now(), "", nil
+				changed = true
+			}
+		}
+		for i := range p.Workers {
+			if w := &p.Workers[i]; w.State == workerOpening || w.State == workerClosing {
+				interrupted = append(interrupted, *w)
+				w.State = workerClosing
+				changed = true
+			}
+		}
+		return changed, nil
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "recovering the pool:", err)
+	}
+	for _, msg := range told {
+		fmt.Fprintln(os.Stderr, msg)
+		tell(plan, msg)
+	}
+	for _, w := range interrupted {
+		background(func() { closeWorker(repo, w, "it was "+w.State+" when the watcher stopped") })
+	}
 }
 
 // branchNote is the line switchWorkerBranch wrote for label, without the
@@ -705,6 +809,15 @@ func renderQueue(now time.Time, p poolState, q taskQueue) string {
 		}
 		if waits := waitingFor(t, p, q); len(waits) > 0 {
 			fmt.Fprintf(&b, " · waiting for %s", taskList(waits))
+		}
+		if i := slices.IndexFunc(p.Workers, func(w poolWorker) bool {
+			if t.Branch == "" || w.State != workerBusy {
+				return false
+			}
+			on, _ := gitutil.CurrentBranch(w.Worktree)
+			return w.TaskBranch == t.Branch || w.Worktree != "" && on == t.Branch
+		}); i >= 0 {
+			fmt.Fprintf(&b, " · waiting for %s to end #%d on that branch", p.Workers[i].label(), p.Workers[i].Task)
 		}
 		fmt.Fprintf(&b, " · queued %s", age(now, t.AddedAt))
 		if t.Error != "" {

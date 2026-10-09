@@ -12,6 +12,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -208,13 +210,40 @@ func repoFlag(cmd *cobra.Command) func() (string, error) {
 	return func() (string, error) { return repoOrCwd(repo) }
 }
 
-// decodePlan reads the JSON plan a detached acw is started with.
-func decodePlan[T any](arg, what string) (T, error) {
-	var plan T
-	if err := json.Unmarshal([]byte(arg), &plan); err != nil {
-		return plan, fmt.Errorf("unreadable %s plan: %w", what, err)
+// readWatchPlan reads the plan file the watcher is started with (see
+// launchBackgroundWatch).
+func readWatchPlan(path string) (watchPlan, error) {
+	var plan watchPlan
+	content, err := os.ReadFile(path)
+	if err == nil {
+		err = json.Unmarshal(content, &plan)
+	}
+	if err != nil {
+		return plan, fmt.Errorf("unreadable watcher plan: %w", err)
 	}
 	return plan, nil
+}
+
+// restartWatcher starts the watcher of repo's swarm again from its kept
+// plan, when none runs: one killed (a stray pkill, a crash) used to leave
+// the queue undispatched until acw stop took the whole swarm down.
+func restartWatcher(repo string, out io.Writer) error {
+	if watcherRunning(repo) {
+		fmt.Fprintln(out, "the watcher is running: nothing to do.")
+		return nil
+	}
+	plan, err := readWatchPlan(names.WatchPlan(repo))
+	if errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("no watcher plan in %s: this swarm was started by an acw older than the one that keeps it; acw stop then acw start", names.StatusDir(repo))
+	}
+	if err != nil {
+		return err
+	}
+	if err := launchBackgroundWatch(plan); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "watcher started again, its log: %s\n", filepath.Join(os.TempDir(), fmt.Sprintf("acw-watch-%s.log", plan.Stamp)))
+	return nil
 }
 
 // withWtm runs a stack command on the swarm of the current directory,
@@ -484,11 +513,11 @@ func main() {
 
 	// Internal: acw's watcher, detached by runStart (see runWatch).
 	watch := &cobra.Command{
-		Use:    watchUse + " <plan-json>",
+		Use:    watchUse + " <plan-file>",
 		Hidden: true,
 		Args:   cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			plan, err := decodePlan[watchPlan](args[0], "watcher")
+			plan, err := readWatchPlan(args[0])
 			if err != nil {
 				return err
 			}
@@ -496,6 +525,21 @@ func main() {
 			return nil
 		},
 	}
+
+	var watchRepo func() (string, error)
+	restartWatch := &cobra.Command{
+		Use:   "watch",
+		Short: "Start the swarm's watcher again when it is not running, without touching the swarm",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repo, err := watchRepo()
+			if err != nil {
+				return err
+			}
+			return restartWatcher(repo, cmd.OutOrStdout())
+		},
+	}
+	watchRepo = repoFlag(restartWatch)
 
 	// Internal: what the master runs in the background (see nextInbox).
 	inboxNext := &cobra.Command{
@@ -527,7 +571,7 @@ func main() {
 		},
 	}
 
-	root.AddCommand(stop, status, queue, done, projectCommand(), boardCommand(), tell, clearCmd, dispatch, pause, resume, watch, inboxWatch, inboxNext, turnEnd, statusLine)
+	root.AddCommand(stop, status, queue, done, projectCommand(), boardCommand(), tell, clearCmd, dispatch, pause, resume, restartWatch, watch, inboxWatch, inboxNext, turnEnd, statusLine)
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)

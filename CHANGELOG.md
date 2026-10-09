@@ -6,6 +6,37 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `acw watch` starts the swarm's watcher again when it is not running,
+  from its plan kept in the status directory, without touching the swarm.
+  A dead watcher used to leave the queue undispatched until `acw stop`
+  took everything down.
+
+### Fixed
+
+- A branch gets one task at a time, and none while it is held or being
+  left. A task on it waits for the busy worker on it (on its task's
+  `--branch`, or one it cut itself) to end its task, for a worker given
+  another task to finish switching off it (its wtm stack stays indexed
+  there until then), and for a task handed out on it in the same poll.
+  Each case used to send the task to another worker, where it failed on
+  "checked out by workerN" or "already has a stack" and was held for the
+  master to move by hand. A clean free worker on the branch of a queued
+  task it can take is kept for that task, and a task with no `--branch`
+  first puts a clean worker back on its waiting branch, so it never
+  leaves a task's branch mid-turn.
+- The watcher's plan is no longer on its command line: it carried the
+  master's `__inbox-next` command, and a `pkill -f '__inbox-next'` meant
+  for a doubled inbox listener killed the watcher without a word.
+- A watcher that starts puts back what a dead one left half done: a task
+  whose brief never reached its worker goes back first in the queue, the
+  worker free; a worker caught opening or closing is dropped from the
+  pool, and no longer holds a `max-stacks` slot for good.
+- A free worker whose agent works (a task given with `acw tell` while the
+  watcher was down) is no longer closed for being idle, and its idle time
+  counts from its last end of turn. One was closed mid-task.
+
 ## [0.20.0] - 2026-10-09
 
 ### Added
