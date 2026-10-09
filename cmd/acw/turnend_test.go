@@ -68,6 +68,32 @@ func TestStatusDeltaKeepsUnchangedTurnsQuiet(t *testing.T) {
 	}
 }
 
+// The master's word answers a *_ready: the state goes back to working,
+// the rest of the file and its mtime stay; any other state is left alone.
+func TestMarkToldClearsReady(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "worker1.json")
+	if err := os.WriteFile(path, []byte(`{"state": "plan_ready", "summary": "plan in 3 steps"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	written := time.Date(2026, 10, 9, 9, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(path, written, written); err != nil {
+		t.Fatal(err)
+	}
+	markTold(dir, "worker1")
+	s, mtime := readWorkerStatus(path)
+	if s.State != "working" || s.Summary != "plan in 3 steps" || !mtime.Equal(written) {
+		t.Errorf("after markTold = %+v, mtime %v", s, mtime)
+	}
+	if err := os.WriteFile(path, []byte(`{"state": "coding"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	markTold(dir, "worker1")
+	if s, _ := readWorkerStatus(path); s.State != "coding" {
+		t.Errorf("coding became %q", s.State)
+	}
+}
+
 // A message the master left goes to the worker as the Stop hook's block
 // decision, instead of a ping: the turn goes on with it. The turn end
 // that follows is its answer, and reaches the master.

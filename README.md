@@ -113,7 +113,7 @@ the terminal too.
 | `acw pause` / `acw resume` | stop / restart the workers' stacks | you |
 | `acw project create\|edit [dir]` | write the repo's config entry | you |
 | `acw board` | local page of what waits on you, ticket by ticket | you |
-| `acw board decision\|park\|parked\|resume\|handoff [--repo <dir>] ...` | record a decision, put one off, list or close the ones put off, leave the next master a handoff | master |
+| `acw board decision\|park\|parked\|edit\|resume\|handoff [--repo <dir>] ...` | record a decision, put one off, list the ones put off, change who one waits on, close one, leave the next master a handoff | master |
 
 A `claude` master is started allowed to run `status`, `queue`, `done`,
 `tell` and its `board` commands without a prompt, and nothing broader (see
@@ -417,6 +417,7 @@ broader:
                "Bash(<acw> tell:*)" "Bash(<acw> board decision:*)"
                "Bash(<acw> board park:*)" "Bash(<acw> board parked:*)"
                "Bash(<acw> board resume:*)" "Bash(<acw> board handoff:*)"
+               "Bash(<acw> board edit:*)"
 ```
 
 The two inbox commands only when it reads an inbox. A master of another
@@ -802,6 +803,7 @@ and keep the variables you need:
 | `{{.ParkCommand}}` | `acw board park --repo <repo>`, fully written, to follow with `--ticket`, `--on` and the question on stdin: puts a decision off, prints its number |
 | `{{.ParkedCommand}}` | `acw board parked --repo <repo>`, fully written: lists the parked decisions, or prints one given its number |
 | `{{.ResumeCommand}}` | `acw board resume`, fully written, to follow with a number and the answer on stdin: closes a parked decision |
+| `{{.ReassignCommand}}` | `acw board edit`, fully written, to follow with a number and `--on <who>`: changes who a parked decision waits on |
 | `{{.SwitchCommand}}` | `wtm switch` when acw found it (wtm 0.26.0 or later) and the workers in the code get a stack; empty otherwise |
 | `{{.PRWatch}}` | `true` when `pr-watch` is on: the master receives `PR #…` lines for the PRs that changed |
 
@@ -845,7 +847,8 @@ the master write.
   after 2 minutes, red after 10. A page that only reloads can't tell a
   quiet swarm from a dead watcher.
 - **Waiting on you**, oldest first: a worker in a `*_ready` state (a plan,
-  a verdict or a review draft to approve), a worker's `blocked_on`, a
+  a verdict or a review draft to approve) once its turn is over (the
+  master's next message to it sets it back to `working`), a worker's `blocked_on`, a
   worker stopped on a prompt, a PR approved and green waiting for your
   merge, a PR with review asks that no busy worker and no queued task
   holds, and the decisions parked on you. The last two need the PR watch;
@@ -874,7 +877,9 @@ client, a third party or a gesture of yours with `acw board park --ticket
 on stdin) and frees the worker. Its number holds from one swarm to the
 next. `acw board parked` lists them; when the answer comes, tell the
 master "for #7: <answer>", and it closes it with `acw board resume 7`,
-which records the answer as a decision.
+which records the answer as a decision. `acw board edit 7 --on client`
+changes who it waits on: only the ones parked on you show as waiting on
+you.
 
 A repo picker and a day picker read the history: a past day shows the
 tickets it touched and their decisions. Everything lives in one SQLite base,

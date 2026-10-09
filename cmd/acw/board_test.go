@@ -63,6 +63,14 @@ func TestBoardWorkerState(t *testing.T) {
 	if got := boardWorker("/r", pw, "working", s, now); got.State != "coding" {
 		t.Errorf("busy = %q, want the worker's state", got.State)
 	}
+	// A *_ready waits on the user once the turn is over only.
+	s.State = "verdict_ready"
+	if got := boardWorker("/r", pw, "working", s, now); got.State != "working" {
+		t.Errorf("ready while working = %q, want working", got.State)
+	}
+	if got := boardWorker("/r", pw, "idle", s, now); got.State != "verdict_ready" {
+		t.Errorf("ready once idle = %q", got.State)
+	}
 	pw.State = workerFree
 	if got := boardWorker("/r", pw, "idle", s, now); got.State != "free" || got.Subject != "" {
 		t.Errorf("free = %+v, want no subject", got)
@@ -241,11 +249,26 @@ func TestParkAndResume(t *testing.T) {
 	if out, _ := run("", "parked", "#1"); !strings.Contains(out, "2. the new one") {
 		t.Errorf("parked #1 = %q, want all of it", out)
 	}
-	if out, err := run("the old one", "resume", "1"); err != nil || !strings.Contains(out, "#1 closed") {
+	if out, err := run("", "edit", "1", "--on", "me", "--repo", repo); err != nil || !strings.Contains(out, "#1 now waits on me") {
+		t.Fatalf("edit = %q, %v", out, err)
+	}
+	if out, _ := run("", "parked", "--repo", repo); !strings.Contains(out, "waits on me") {
+		t.Errorf("parked after edit = %q", out)
+	}
+	if _, err := run("", "edit", "1"); err == nil {
+		t.Error("edit without --on accepted")
+	}
+	if _, err := run("the old one", "resume", "1", "--repo", t.TempDir()); err == nil || !strings.Contains(err.Error(), "belongs to") {
+		t.Errorf("resume from another repo = %v, want refused", err)
+	}
+	if out, err := run("the old one", "resume", "1", "--repo", repo); err != nil || !strings.Contains(out, "#1 closed") {
 		t.Fatalf("resume = %q, %v", out, err)
 	}
 	if _, err := run("the new one", "resume", "1"); err == nil || !strings.Contains(err.Error(), "the old one") {
 		t.Errorf("second resume = %v", err)
+	}
+	if _, err := run("", "edit", "1", "--on", "client"); err == nil || !strings.Contains(err.Error(), "already closed") {
+		t.Errorf("edit of a closed one = %v", err)
 	}
 	d := boardDay(t, repo, time.Now())
 	if len(d.Decisions) != 1 || d.Decisions[0].Text != "the old one" || d.Decisions[0].Subject != "SHOP-7" || !strings.Contains(d.Decisions[0].Why, "#1") {

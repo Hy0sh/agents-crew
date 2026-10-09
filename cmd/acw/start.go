@@ -113,6 +113,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		ParkCommand:      shellWord(self) + " board park --repo " + shellWord(repo),
 		ParkedCommand:    shellWord(self) + " board parked --repo " + shellWord(repo),
 		ResumeCommand:    shellWord(self) + " board resume",
+		ReassignCommand:  shellWord(self) + " board edit",
 		SwitchCommand:    switchCommand,
 		PRWatch:          prWatchRepo != "",
 	})

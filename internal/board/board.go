@@ -379,6 +379,23 @@ func (b *DB) TakeHandoff(repo string, at time.Time) (text string, created time.T
 	return text, time.Unix(unix, 0), err == nil, err
 }
 
+// SetParkedOn changes who parked decision id waits on. One closed is
+// refused: its answer is in.
+func (b *DB) SetParkedOn(id int64, on string) (Parked, error) {
+	res, err := b.sql.Exec(`UPDATE parked SET on_whom = ? WHERE id = ? AND closed_at IS NULL`, on, id)
+	if err != nil {
+		return Parked{}, err
+	}
+	p, err := b.GetParked(id)
+	if err != nil {
+		return p, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return p, fmt.Errorf("#%d was already closed on %s, with: %s", id, p.ClosedAt.Local().Format("02/01 15:04"), p.Answer)
+	}
+	return p, nil
+}
+
 // markWindow is how far back marks are read: a PR's mark holds until its
 // state changes, and a reviewer can take days to come back.
 const markWindow = 14 * 24 * time.Hour
