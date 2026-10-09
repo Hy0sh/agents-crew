@@ -28,13 +28,13 @@ func boardDay(t *testing.T, repo string, day time.Time) board.Day {
 // Text as arguments or on stdin, like acw tell; an empty one is refused.
 func TestAddDecision(t *testing.T) {
 	repo, now := t.TempDir(), time.Now()
-	if err := addDecision(repo, "worker2", "SHOP-151", "accounting reconciles per line", []string{"VAT", "per", "line"}, strings.NewReader(""), now); err != nil {
+	if err := addDecision(board.Decision{Repo: repo, At: now, Worker: "worker2", Subject: "SHOP-151", Why: "accounting reconciles per line"}, []string{"VAT", "per", "line"}, strings.NewReader("")); err != nil {
 		t.Fatal(err)
 	}
-	if err := addDecision(repo, "", "", "", nil, strings.NewReader("#418 stays stacked\n"), now); err != nil {
+	if err := addDecision(board.Decision{Repo: repo, At: now}, nil, strings.NewReader("#418 stays stacked\n")); err != nil {
 		t.Fatal(err)
 	}
-	if err := addDecision(repo, "", "", "", nil, strings.NewReader("  \n"), now); err == nil {
+	if err := addDecision(board.Decision{Repo: repo, At: now}, nil, strings.NewReader("  \n")); err == nil {
 		t.Error("an empty decision should be refused")
 	}
 	d := boardDay(t, repo, now)

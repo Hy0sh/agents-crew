@@ -441,20 +441,31 @@ func afterMergeOf(q *taskQueue, id int, url string, msg *string) {
 	}
 }
 
-// parking is the branch each worker is being moved off by the watcher
-// (see runPool), or failed to be moved off: an entry for another branch
-// than the worker's current one is stale.
-var parking = struct {
-	sync.Mutex
-	from   map[int]string
-	failed map[int]string
-}{from: map[int]string{}, failed: map[int]string{}}
+// poolMemory is what the watcher remembers of the pool from one poll to
+// the next, and nowhere else: lost with the watcher, it costs at most a
+// message told twice or a park tried again.
+type poolMemory struct {
+	// dirtyTold keeps the master from hearing about the same dirty
+	// worktree every poll, stacksTold about the same short floor.
+	dirtyTold  map[int]bool
+	stacksTold bool
+	// parking is the branch each worker is being moved off (see runPool),
+	// parkFailed the one it failed to be moved off: an entry for another
+	// branch than the worker's current one is stale. parkFree writes them
+	// from its goroutine, hence mu.
+	mu                  sync.Mutex
+	parking, parkFailed map[int]string
+}
+
+func newPoolMemory() *poolMemory {
+	return &poolMemory{dirtyTold: map[int]bool{}, parking: map[int]string{}, parkFailed: map[int]string{}}
+}
 
 // pollWorkers reads what schedule needs about each free worker: whether
 // its agent can take a brief, the branch it is on, and, once it could be
 // closed or must go back to its waiting branch, whether its worktree is
 // clean (a git status, so only then).
-func pollWorkers(p poolState, agents []herdr.Agent, statusDir string, now time.Time) map[int]workerPoll {
+func pollWorkers(p poolState, agents []herdr.Agent, statusDir string, now time.Time, mem *poolMemory) map[int]workerPoll {
 	polls := map[int]workerPoll{}
 	slug := names.Slug(p.Plan.Repo)
 	idle := time.Duration(p.IdleCloseMinutes) * time.Minute
@@ -472,14 +483,14 @@ func pollWorkers(p poolState, agents []herdr.Agent, statusDir string, now time.T
 			poll.Home = homeBranch(w)
 			poll.Branch, _ = gitutil.CurrentBranch(w.Worktree)
 		}
-		parking.Lock()
-		if from := parking.from[w.Index]; from != "" {
+		mem.mu.Lock()
+		if from := mem.parking[w.Index]; from != "" {
 			// Mid-switch, git may already say Home: the branch left counts.
 			poll.Branch, poll.Parking, poll.Ready = from, true, false
-		} else if parking.failed[w.Index] != "" && parking.failed[w.Index] == poll.Branch {
+		} else if mem.parkFailed[w.Index] != "" && mem.parkFailed[w.Index] == poll.Branch {
 			poll.Parking, poll.Ready = true, false
 		}
-		parking.Unlock()
+		mem.mu.Unlock()
 		if now.Sub(w.Since) >= idle || spec.Kind != "claude" || poll.offHome() {
 			poll.Clean = w.Worktree == "" || gitutil.Clean(w.Worktree)
 		}
@@ -491,18 +502,17 @@ func pollWorkers(p poolState, agents []herdr.Agent, statusDir string, now time.T
 // runPool applies one poll's schedule: the pool and queue change under
 // the lock, checked again there, then the slow part of each action runs
 // in its own goroutine (a dispatch waits for a reset, an opening for a
-// stack). dirtyTold keeps the master from hearing about the same dirty
-// worktree every poll, stacksTold about the same short floor.
-func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, now time.Time, dirtyTold map[int]bool, stacksTold *bool) {
+// stack). mem is what it remembers between polls (see poolMemory).
+func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, now time.Time, mem *poolMemory) {
 	actions := schedule(p, q, polls, now)
 	full := slices.ContainsFunc(actions, func(a poolAction) bool { return a.Kind == actStacksFull })
-	if full && !*stacksTold {
+	if full && !mem.stacksTold {
 		tell(p.Plan, stacksFullMessage(p))
 	}
-	*stacksTold = full
-	for index := range dirtyTold {
+	mem.stacksTold = full
+	for index := range mem.dirtyTold {
 		if w := p.worker(index); w == nil || w.State != workerFree {
-			delete(dirtyTold, index)
+			delete(mem.dirtyTold, index)
 		}
 	}
 	if len(actions) == 0 {
@@ -546,8 +556,8 @@ func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, no
 				w.State = workerClosing
 				closes = append(closes, *w)
 			case actDirty:
-				if w != nil && !dirtyTold[a.Worker] {
-					dirtyTold[a.Worker] = true
+				if w != nil && !mem.dirtyTold[a.Worker] {
+					mem.dirtyTold[a.Worker] = true
 					tell(p.Plan, fmt.Sprintf("%s has been free for a while but its worktree has changes: acw keeps it open. Have them committed or dropped; it closes once its worktree is clean.", w.label()))
 				}
 				continue
@@ -575,10 +585,10 @@ func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, no
 	}
 	for _, w := range parks {
 		from := polls[w.Index].Branch
-		parking.Lock()
-		parking.from[w.Index] = from
-		parking.Unlock()
-		background(func() { parkFree(p, w, from) })
+		mem.mu.Lock()
+		mem.parking[w.Index] = from
+		mem.mu.Unlock()
+		background(func() { mem.parkFree(p, w, from) })
 	}
 	for _, w := range closes {
 		why := fmt.Sprintf("free for %d min with nothing queued for it", p.IdleCloseMinutes)
@@ -592,16 +602,16 @@ func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, no
 // parkFree puts a free worker back on its waiting branch, its wtm output
 // in the watcher's log. A failure is told to the master once: the worker
 // is not moved again while it stays on that branch.
-func parkFree(p poolState, w poolWorker, from string) {
+func (mem *poolMemory) parkFree(p poolState, w poolWorker, from string) {
 	err := parkWorker(p, w, os.Stderr)
-	parking.Lock()
-	delete(parking.from, w.Index)
+	mem.mu.Lock()
+	delete(mem.parking, w.Index)
 	if err != nil {
-		parking.failed[w.Index] = from
+		mem.parkFailed[w.Index] = from
 	} else {
-		delete(parking.failed, w.Index)
+		delete(mem.parkFailed, w.Index)
 	}
-	parking.Unlock()
+	mem.mu.Unlock()
 	if err != nil {
 		tell(p.Plan, fmt.Sprintf("%s is free but stays on %s: %v", w.label(), from, err))
 	}
