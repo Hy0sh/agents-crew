@@ -55,11 +55,24 @@ func TestScheduleAssignsInOrderThenOpens(t *testing.T) {
 	}
 }
 
-// reviewerPool is n general workers whose last one only takes need-review
-// tasks, kept open when keep is set.
+// reviewerPool is n-1 general workers and a reviewer, role reviewer, that
+// only takes need-review tasks, its role's min 1 when keep is set.
 func reviewerPool(n int, keep bool, open ...poolWorker) poolState {
 	p := testPool(n, n, open...)
-	p.Plan.Workers[n-1] = workerSpec{Kind: "claude", Overridden: true, Tasks: []string{"need-review"}, Keep: keep}
+	p.Plan.Workers[n-1] = workerSpec{Kind: "claude", Role: "reviewer", Rank: 1, Overridden: true, Tasks: []string{"need-review"}}
+	if keep {
+		p.Plan.Workers[n-1].Min = 1
+	}
+	return p
+}
+
+// withMin sets the min of every slot of role in p.
+func withMin(p poolState, role string, min int) poolState {
+	for i := range p.Plan.Workers {
+		if p.Plan.Workers[i].Role == role {
+			p.Plan.Workers[i].Min = min
+		}
+	}
 	return p
 }
 
@@ -88,22 +101,51 @@ func TestScheduleKinds(t *testing.T) {
 	}
 }
 
-// A kept worker opens with the swarm, outside the floor, and is never
-// closed for being idle.
+// A role's min opens its workers with the swarm, each role counted apart,
+// and never closes them for being idle.
 func TestScheduleKeep(t *testing.T) {
 	got := schedule(reviewerPool(3, true), taskQueue{}, nil, t0)
 	if want := []poolAction{{Kind: actOpen, Worker: 3, Stacked: true}}; !slices.Equal(got, want) {
 		t.Errorf("nothing queued = %+v, want %+v", got, want)
 	}
-	p := reviewerPool(3, true, free(1, t0), free(3, t0))
-	p.MinWorkers = 1
+	p := withMin(reviewerPool(3, true, free(1, t0), free(3, t0)), "worker", 1)
 	if got := schedule(p, taskQueue{}, readyAll(1, 3), t0.Add(time.Hour)); len(got) != 0 {
-		t.Errorf("idle an hour = %+v, want worker1 kept by the floor and worker3 by keep", got)
+		t.Errorf("idle an hour = %+v, want worker1 kept by its role's min and reviewer1 by its own", got)
 	}
-	p.MinWorkers = 0
+	p = withMin(p, "worker", 0)
 	got = schedule(p, taskQueue{}, readyAll(1, 3), t0.Add(time.Hour))
 	if want := []poolAction{{Kind: actClose, Worker: 1}}; !slices.Equal(got, want) {
-		t.Errorf("no floor = %+v, want %+v", got, want)
+		t.Errorf("worker min 0 = %+v, want %+v", got, want)
+	}
+}
+
+// Roles worker (max 2, min 1), front (max 1, no tasks), reviewer (max 2,
+// min 1, need-review): floors by role, the first generalist role in order
+// for a task with no kind, idle close down to each role's min.
+func rolePool(open ...poolWorker) poolState {
+	return poolState{Plan: provisionPlan{Stacks: true, MaxStacks: 9, Workers: []workerSpec{
+		{Kind: "claude", Role: "worker", Rank: 1, Min: 1}, {Kind: "claude", Role: "worker", Rank: 2, Min: 1},
+		{Kind: "claude", Role: "front", Rank: 1},
+		{Kind: "claude", Role: "reviewer", Rank: 1, Min: 1, Tasks: []string{"need-review"}, Overridden: true},
+		{Kind: "claude", Role: "reviewer", Rank: 2, Min: 1, Tasks: []string{"need-review"}, Overridden: true},
+	}}, IdleCloseMinutes: 10, Workers: open}
+}
+
+func TestScheduleRoles(t *testing.T) {
+	got := schedule(rolePool(), taskQueue{}, nil, t0)
+	if want := []poolAction{{Kind: actOpen, Worker: 1, Stacked: true}, {Kind: actOpen, Worker: 4, Stacked: true}}; !slices.Equal(got, want) {
+		t.Errorf("floors = %+v, want %+v", got, want)
+	}
+	p := rolePool(poolWorker{Index: 1, State: workerBusy, Task: 1}, poolWorker{Index: 4, State: workerFree, Since: t0})
+	got = schedule(p, tasks(queuedTask{ID: 2}), readyAll(4), t0)
+	if !slices.Contains(got, poolAction{Kind: actOpen, Worker: 2, Stacked: true}) || slices.ContainsFunc(got, func(a poolAction) bool { return a.Worker == 3 }) {
+		t.Errorf("untyped task = %+v, want worker2 opened, not front1", got)
+	}
+	old := t0.Add(-time.Hour)
+	p = rolePool(poolWorker{Index: 1, State: workerFree, Since: old}, poolWorker{Index: 2, State: workerFree, Since: old}, poolWorker{Index: 4, State: workerFree, Since: old})
+	got = schedule(p, taskQueue{}, readyAll(1, 2, 4), t0)
+	if want := []poolAction{{Kind: actClose, Worker: 1}}; !slices.Equal(got, want) {
+		t.Errorf("idle close = %+v, want %+v: worker down to its min 1, reviewer1 kept", got, want)
 	}
 }
 
@@ -241,30 +283,28 @@ func TestScheduleClosesAnUnresettableWorkerAfterItsTask(t *testing.T) {
 	}
 }
 
-// min-workers opens general-purpose workers with nothing queued and keeps
-// them open past idle-close-minutes.
+// A role's min opens its workers with nothing queued and keeps them open
+// past idle-close-minutes.
 func TestScheduleMinWorkers(t *testing.T) {
-	p := testPool(3, 3)
-	p.MinWorkers = 2
+	p := withMin(testPool(3, 3), "worker", 2)
 	got := schedule(p, taskQueue{}, nil, t0)
 	want := []poolAction{{Kind: actOpen, Worker: 1, Stacked: true}, {Kind: actOpen, Worker: 2, Stacked: true}}
 	if !slices.Equal(got, want) {
 		t.Errorf("schedule() = %+v, want %+v", got, want)
 	}
 
-	// max-stacks short of min-workers: the floor is not met, and said so.
-	p = testPool(3, 2)
-	p.MinWorkers, p.Held = 3, 1
+	// max-stacks short of a min: the floor is not met, and said so.
+	p = withMin(testPool(3, 2), "worker", 3)
+	p.Held = 1
 	want = []poolAction{{Kind: actOpen, Worker: 1, Stacked: true}, {Kind: actStacksFull}}
 	if got := schedule(p, taskQueue{}, nil, t0); !slices.Equal(got, want) {
 		t.Errorf("schedule() = %+v, want %+v", got, want)
 	}
 
 	old := t0.Add(-time.Hour)
-	p = testPool(3, 3, free(1, old), free(2, old), free(3, old))
-	p.MinWorkers = 2
+	p = withMin(testPool(3, 3, free(1, old), free(2, old), free(3, old)), "worker", 2)
 	if got := schedule(p, taskQueue{}, readyAll(1, 2, 3), t0); !slices.Equal(got, []poolAction{{Kind: actClose, Worker: 1}}) {
-		t.Errorf("schedule() = %+v, want one close, down to min-workers", got)
+		t.Errorf("schedule() = %+v, want one close, down to the role's min", got)
 	}
 }
 

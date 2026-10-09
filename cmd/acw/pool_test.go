@@ -356,9 +356,9 @@ func TestRenderQueue(t *testing.T) {
 // after it was met in between.
 func TestRunPoolTellsAShortFloorOnce(t *testing.T) {
 	repo := testSwarm(t, 3)
-	p := testPool(3, 2)
+	p := withMin(testPool(3, 2), "worker", 3)
 	p.Plan.Repo, p.Plan.Inbox = repo, names.Inbox(repo)
-	p.MinWorkers, p.Held = 3, 2
+	p.Held = 2
 	mem := newPoolMemory()
 	poll := func() {
 		runPool(repo, p, taskQueue{}, nil, t0, mem)
@@ -372,9 +372,9 @@ func TestRunPoolTellsAShortFloorOnce(t *testing.T) {
 	if n := count(); n != 1 {
 		t.Fatalf("told %d times, want once", n)
 	}
-	p.MinWorkers = 0
+	p = withMin(p, "worker", 0)
 	poll()
-	p.MinWorkers = 3
+	p = withMin(p, "worker", 3)
 	poll()
 	if n := count(); n != 2 {
 		t.Errorf("told %d times, want twice: the floor was met in between", n)

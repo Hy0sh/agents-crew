@@ -172,7 +172,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	}
 
 	plan := provisionPlan{Repo: repo, MasterPane: masterPane, Stamp: stamp, Stacks: stacks, MaxStacks: maxStacks, Profile: opts.profile, Workers: workers, Inbox: inbox, SwitchAllowed: switchCommand != "", PRWatch: prWatchRepo != ""}
-	pool := poolState{Plan: plan, MinWorkers: opts.minWorkers, IdleCloseMinutes: opts.idleCloseMinutes}
+	pool := poolState{Plan: plan, IdleCloseMinutes: opts.idleCloseMinutes}
 	if err := writeJSON(names.PoolFile(repo), pool); err != nil {
 		return err
 	}

@@ -79,7 +79,7 @@ func (w poolWorker) label() string {
 // poolState is pool.json.
 type poolState struct {
 	Plan             provisionPlan `json:"plan"`
-	MinWorkers       int           `json:"min_workers"`
+	MinWorkers       int           `json:"min_workers,omitempty"` // read from a pool written before roles only (see normalizeLegacy)
 	IdleCloseMinutes int           `json:"idle_close_minutes"`
 	Workers          []poolWorker  `json:"workers"`
 	// Held is how many stacks still take room with no open worker: kept
@@ -710,9 +710,9 @@ func (mem *poolMemory) parkFree(p poolState, w poolWorker, from string) {
 
 // stacksFullMessage tells the master why fewer than min-workers are open.
 func stacksFullMessage(p poolState) string {
-	msg := fmt.Sprintf("acw keeps fewer than min-workers (%d) open: max-stacks (%d) is reached", p.MinWorkers, p.Plan.MaxStacks)
+	msg := fmt.Sprintf("acw keeps fewer workers open than the roles' min: max-stacks (%d) is reached", p.Plan.MaxStacks)
 	if p.Held == 0 {
-		return msg + ". Tell me: max-stacks is below min-workers."
+		return msg + ". Tell me: max-stacks is below the sum of the roles' min."
 	}
 	return msg + fmt.Sprintf(", %d of them by worktrees no open worker holds (left by an earlier run). Tell me: `wtm list` in %s shows them, and `wtm remove <branch>` frees the ones no longer needed.", p.Held, p.Plan.Repo)
 }
