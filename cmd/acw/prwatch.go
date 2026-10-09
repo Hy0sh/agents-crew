@@ -328,6 +328,11 @@ type prWatcher struct {
 	// closed is what the last poll learned of PRs gone from the search:
 	// merged, closed, back to draft. For the board.
 	closed []prFate
+	// fetchDrafts searches the user's draft PRs, for the board only: the
+	// master hears nothing of them. drafts is the last poll's, nil when
+	// that search failed.
+	fetchDrafts func() ([]byte, error)
+	drafts      []prState
 }
 
 type prFate struct {
@@ -354,6 +359,10 @@ func newPRWatcher(repo string) *prWatcher {
 		fetch: func() ([]byte, error) {
 			return gh("api", "graphql", "--hostname", host, "-f", "query="+prSearchQuery,
 				"-f", "q=repo:"+repo+" is:pr is:open author:@me draft:false")
+		},
+		fetchDrafts: func() ([]byte, error) {
+			return gh("api", "graphql", "--hostname", host, "-f", "query="+prSearchQuery,
+				"-f", "q=repo:"+repo+" is:pr is:open author:@me draft:true")
 		},
 		fate: func(number int) (string, error) {
 			data, err := gh("api", "graphql", "--hostname", host, "-f", "query="+prFateQuery,
@@ -386,9 +395,27 @@ func gh(args ...string) ([]byte, error) {
 	return out, nil
 }
 
+func (p *prWatcher) pollDrafts() {
+	p.drafts = nil
+	if p.fetchDrafts == nil {
+		return
+	}
+	data, err := p.fetchDrafts()
+	var drafts []prState
+	if err == nil {
+		_, drafts, err = parsePRSearch(data)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "PR watch, drafts:", err)
+		return
+	}
+	p.drafts = append([]prState{}, drafts...)
+}
+
 // poll runs one cycle and returns the lines for the master, none when
 // nothing changed. owners maps a PR url to its worker (see prOwners).
 func (p *prWatcher) poll(owners map[string]string) []string {
+	p.pollDrafts()
 	data, err := p.fetch()
 	var viewer string
 	var cur []prState

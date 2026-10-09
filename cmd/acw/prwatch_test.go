@@ -254,6 +254,35 @@ func TestPRWatcherPoll(t *testing.T) {
 	}
 }
 
+// The user's drafts come from their own search, for the board only: the
+// master hears nothing of them. A failed search leaves them unknown (nil),
+// so the board keeps the last ones rather than dropping them.
+func TestPRWatcherDrafts(t *testing.T) {
+	fail := false
+	p := &prWatcher{
+		fetch: func() ([]byte, error) { return searchResponse(prNode(1, "MERGEABLE")), nil },
+		fate:  func(int) (string, error) { return "", nil },
+		fetchDrafts: func() ([]byte, error) {
+			if fail {
+				return nil, errors.New("HTTP 502")
+			}
+			return searchResponse(prNode(7, "MERGEABLE")), nil
+		},
+	}
+	p.poll(nil)
+	if got := p.poll(nil); got != nil {
+		t.Errorf("poll = %q, want nothing for the master", got)
+	}
+	if len(p.drafts) != 1 || p.drafts[0].Number != 7 {
+		t.Errorf("drafts = %+v, want #7", p.drafts)
+	}
+	fail = true
+	p.poll(nil)
+	if p.drafts != nil {
+		t.Errorf("drafts after a failed search = %+v, want unknown", p.drafts)
+	}
+}
+
 func TestPRWatcherFateUnknown(t *testing.T) {
 	responses := [][]byte{searchResponse(prNode(1, "MERGEABLE")), searchResponse()}
 	i := 0

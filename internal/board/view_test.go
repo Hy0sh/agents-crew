@@ -77,6 +77,19 @@ func TestViewWaits(t *testing.T) {
 	}
 }
 
+// The user's draft PRs are theirs to read; a ticket with only a draft is
+// at the draft stage, not finished.
+func TestViewDraftPR(t *testing.T) {
+	d := Day{Live: true, PRs: []PR{{Number: 21, URL: "https://github.com/o/r/pull/21", Title: "SHOP-9 VAT rounding", Status: "draft", UpdatedAt: noon}}}
+	v := BuildView(d, noon)
+	if len(v.Waits) != 1 || v.Waits[0].Text != "Read your draft PR #21" || v.Waits[0].URL != "https://github.com/o/r/pull/21" || v.Waits[0].Detail != "SHOP-9 VAT rounding" {
+		t.Errorf("waits = %+v", v.Waits)
+	}
+	if len(v.Tickets) != 1 || v.Tickets[0].Phase != "draft PR" || len(v.Done) != 0 {
+		t.Errorf("tickets = %+v, done = %+v; want SHOP-9 at draft PR", v.Tickets, v.Done)
+	}
+}
+
 // A parked document reads as what to read, from its row: its worker is
 // free by then. Refused, it stays, flagged.
 func TestViewParkedDocument(t *testing.T) {

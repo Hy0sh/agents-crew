@@ -279,6 +279,12 @@ func userWaits(d Day, workerKey, prKeyByURL map[string]string) []Wait {
 			out = append(out, w)
 		}
 	}
+	for _, p := range d.PRs {
+		if p.Status == "draft" {
+			out = append(out, Wait{ID: fmt.Sprintf("pr-draft:%d", p.Number), Ticket: prKeyByURL[p.URL], Text: fmt.Sprintf("Read your draft PR #%d", p.Number),
+				Who: p.Worker, Detail: p.Title, URL: p.URL, Since: p.UpdatedAt})
+		}
+	}
 	for _, p := range d.Parked {
 		if p.On != "me" {
 			continue
@@ -315,8 +321,12 @@ func firstLine(s string) string {
 
 // phase is where a ticket stands: the furthest stage that applies.
 func phase(t Ticket, workers []Worker) string {
-	var anyOpen, ready, asks bool
+	var anyOpen, ready, asks, draft bool
 	for _, p := range t.PRs {
+		if p.Status == "draft" {
+			draft = true
+			continue
+		}
 		if !isOpen(p) {
 			continue
 		}
@@ -325,12 +335,11 @@ func phase(t Ticket, workers []Worker) string {
 		asks = asks || strings.Contains(p.Review, "CHANGES_REQUESTED") || strings.Contains(p.Review, "threads open")
 	}
 	states := map[string]bool{}
-	draft := false
 	for _, w := range workers {
 		if slices.Contains(t.Workers, w.Worker) {
 			states[w.State] = true
 			if w.PRURL != "" && !slices.ContainsFunc(t.PRs, func(p PR) bool { return p.URL == w.PRURL }) {
-				draft = true // the PR watch leaves drafts out
+				draft = true // a draft a busy worker holds is not on the board
 			}
 		}
 	}
