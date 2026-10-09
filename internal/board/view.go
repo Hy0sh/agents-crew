@@ -46,6 +46,11 @@ type Wait struct {
 	Since  time.Time `json:"since"`
 	// MarkedAt is set on a line marked done whose wait is still there.
 	MarkedAt *time.Time `json:"marked_at"`
+	// Doc is a parked document to read (GET /api/parked/<id>/doc), with
+	// accept and refuse in place of done; Refused, one the user refused,
+	// waiting for the master to discuss it.
+	Doc     bool `json:"doc"`
+	Refused bool `json:"refused"`
 }
 
 // Ticket is a ticket key and what the swarm holds of it.
@@ -274,11 +279,23 @@ func userWaits(d Day, workerKey, prKeyByURL map[string]string) []Wait {
 			out = append(out, w)
 		}
 	}
-	for _, p := range d.Parked {
-		if p.On == "me" {
-			out = append(out, Wait{ID: fmt.Sprintf("parked:%d", p.ID), Ticket: p.Ticket, Text: firstLine(p.Text),
-				Who: fmt.Sprintf("parked #%d", p.ID), Detail: p.Text, Since: p.CreatedAt})
+	for _, p := range d.PRs {
+		if p.Status == "draft" {
+			out = append(out, Wait{ID: fmt.Sprintf("pr-draft:%d", p.Number), Ticket: prKeyByURL[p.URL], Text: fmt.Sprintf("Read your draft PR #%d", p.Number),
+				Who: p.Worker, Detail: p.Title, URL: p.URL, Since: p.UpdatedAt})
 		}
+	}
+	for _, p := range d.Parked {
+		if p.On != "me" {
+			continue
+		}
+		w := Wait{ID: fmt.Sprintf("parked:%d", p.ID), Ticket: p.Ticket, Text: firstLine(p.Text),
+			Who: fmt.Sprintf("parked #%d", p.ID), Detail: p.Text, Since: p.CreatedAt, Refused: p.Refused}
+		if p.DocPath != "" {
+			// From the row: its worker was freed when it was parked.
+			w.Text, w.Doc = "Read "+p.Worker+"'s "+p.Kind, true
+		}
+		out = append(out, w)
 	}
 	slices.SortStableFunc(out, func(a, b Wait) int { return a.Since.Compare(b.Since) })
 	return out
@@ -304,8 +321,12 @@ func firstLine(s string) string {
 
 // phase is where a ticket stands: the furthest stage that applies.
 func phase(t Ticket, workers []Worker) string {
-	var anyOpen, ready, asks bool
+	var anyOpen, ready, asks, draft bool
 	for _, p := range t.PRs {
+		if p.Status == "draft" {
+			draft = true
+			continue
+		}
 		if !isOpen(p) {
 			continue
 		}
@@ -314,12 +335,11 @@ func phase(t Ticket, workers []Worker) string {
 		asks = asks || strings.Contains(p.Review, "CHANGES_REQUESTED") || strings.Contains(p.Review, "threads open")
 	}
 	states := map[string]bool{}
-	draft := false
 	for _, w := range workers {
 		if slices.Contains(t.Workers, w.Worker) {
 			states[w.State] = true
 			if w.PRURL != "" && !slices.ContainsFunc(t.PRs, func(p PR) bool { return p.URL == w.PRURL }) {
-				draft = true // the PR watch leaves drafts out
+				draft = true // a draft a busy worker holds is not on the board
 			}
 		}
 	}

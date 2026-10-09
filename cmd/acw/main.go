@@ -331,26 +331,20 @@ func main() {
 	root.Flags().BoolVar(&opts.prWatch, "pr-watch", false, "follow your open non-draft pull requests on this repo and tell the master what changed on them; needs gh, logged in (per-project: pr-watch)")
 	root.Flags().StringVar(&opts.briefPath, "brief", "", "path to a custom master brief template (Go text/template), variables in the README; default: built-in template (per-project: brief)")
 
-	var noHandoff bool
-	var handoffWait time.Duration
 	stop := &cobra.Command{
 		Use:   "stop",
-		Short: "Have the master leave its handoff, then tear down the running swarm (environments, status files, Herdr workspace)",
+		Short: "Tear down the running swarm (environments, status files, Herdr workspace), keeping its tasks for the next master",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := preflight.CheckStop(); err != nil {
 				return err
 			}
-			if !noHandoff {
-				cwd, err := os.Getwd()
-				if err != nil {
-					return err
-				}
-				self, err := os.Executable()
-				if err != nil {
-					return err
-				}
-				askHandoff(cwd, self, handoffWait, cmd.OutOrStdout())
+			cwd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			if err := saveInterrupted(cwd, cmd.OutOrStdout()); err != nil {
+				return err
 			}
 			if err := teardown.Run(); err != nil {
 				return err
@@ -362,8 +356,6 @@ func main() {
 			return nil
 		},
 	}
-	stop.Flags().BoolVar(&noHandoff, "no-handoff", false, "stop without asking the master for its handoff")
-	stop.Flags().DurationVar(&handoffWait, "handoff-wait", 5*time.Minute, "how long to wait for the master's handoff")
 
 	var statusRepo func() (string, error)
 	status := &cobra.Command{
@@ -445,22 +437,7 @@ func main() {
 					return fmt.Errorf("%q is not a task id", args[1])
 				}
 			}
-			// The worktree is the watcher's: it puts the freed worker back on
-			// its waiting branch, outside the master's turn (see schedule).
-			msg, finished, err := markDone(repo, index, task, time.Now())
-			if err != nil {
-				return err
-			}
-			if finished != 0 {
-				label := doneLabel
-				s, _ := readWorkerStatus(filepath.Join(names.StatusDir(repo), label+".json"))
-				record("done", func(b *board.DB) error {
-					return b.AddHandled(board.Handled{Repo: repo, At: time.Now(), Worker: label, Task: finished,
-						Subject: s.Tache, Summary: s.Summary, PRURL: s.PRURL, Outcome: s.State})
-				})
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), msg)
-			return nil
+			return finishWorker(repo, index, doneLabel, task, cmd.OutOrStdout())
 		},
 	}
 	doneRepo = repoFlag(done)

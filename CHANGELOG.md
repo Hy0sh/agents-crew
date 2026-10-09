@@ -6,6 +6,32 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `acw board park --doc <path>`: a worker's plan, verdict or review draft is
+  parked on you with its file's path, and the worker is freed at once. The
+  board shows "Read <worker>'s plan", opening the document rendered from
+  the file in a dialog, with Accept (your go, recorded) and Refuse (the
+  master waits for you in the terminal; the item stays open, marked).
+- Workers write such a document outside the repo and name it in a new
+  status field, `doc_path`.
+- `acw stop` keeps the busy workers' tasks and the queue in the board's
+  base; the next `acw start` gives them to the new master with the parked
+  decisions.
+- Your draft PRs show on the board as reading to do (with the PR watch).
+
+### Changed
+
+- The master can no longer enter plan mode (`EnterPlanMode`,
+  `ExitPlanMode` disallowed).
+- A ticket whose only PR is a draft is at the "draft PR" stage, not
+  finished.
+
+### Removed
+
+- The handoff: `acw stop` no longer asks the master for one,
+  `--no-handoff`, `--handoff-wait` and `acw board handoff` are gone.
+
 ## [0.22.0] - 2026-10-09
 
 ### Added

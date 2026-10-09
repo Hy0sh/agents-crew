@@ -254,7 +254,18 @@ func runWatch(plan watchPlan, interval time.Duration) {
 						return err
 					}
 				}
-				return nil
+				if prs.drafts == nil {
+					return nil
+				}
+				// A draft a busy worker is still writing is not yet the
+				// user's to read.
+				var drafts []board.PR
+				for _, pr := range prs.drafts {
+					if !held(pr) {
+						drafts = append(drafts, boardPR(plan.Repo, pr, owners[normalizePRURL(pr.URL)], "draft", false, now))
+					}
+				}
+				return b.SetDrafts(plan.Repo, drafts)
 			})
 		}
 		pool.Held = heldStacks(plan.Repo, pool)

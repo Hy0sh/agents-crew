@@ -86,7 +86,7 @@ func masterArgs(kind, model, exe, inboxWatch, briefPath string, autocompact int)
 		args = append(args, "--autocompact", strconv.Itoa(autocompact))
 	}
 	args = append(args, "--append-system-prompt-file", briefPath,
-		"--disallowedTools", "Edit", "Write", "NotebookEdit")
+		"--disallowedTools", "Edit", "Write", "NotebookEdit", "EnterPlanMode", "ExitPlanMode")
 	args = append(args, "--allowedTools")
 	if inboxWatch != "" {
 		args = append(args,
@@ -102,7 +102,6 @@ func masterArgs(kind, model, exe, inboxWatch, briefPath string, autocompact int)
 		"Bash("+shellWord(exe)+" board park:*)",
 		"Bash("+shellWord(exe)+" board parked:*)",
 		"Bash("+shellWord(exe)+" board resume:*)",
-		"Bash("+shellWord(exe)+" board handoff:*)",
 		"Bash("+shellWord(exe)+" board edit:*)")
 }
 

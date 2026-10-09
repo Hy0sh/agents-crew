@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Hy0sh/agents-crew/internal/board"
+	"github.com/Hy0sh/agents-crew/internal/names"
 )
 
 func boardDay(t *testing.T, repo string, day time.Time) board.Day {
@@ -188,36 +189,129 @@ func TestHeldPRs(t *testing.T) {
 	}
 }
 
-// A handoff left with acw board handoff reaches the next master's first
-// prompt once, the latest one, with the decisions still parked; nothing
-// left gives no prompt.
-func TestHandoffReachesTheNextMaster(t *testing.T) {
+// acw stop keeps what the workers were on and what was queued, and ends
+// the pool in the same lock: nothing queued after is lost unseen. A stop
+// run again finds no pool and keeps what the first one saved.
+func TestSaveInterrupted(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	repo := t.TempDir()
-	if got := handoffPrompt(repo, time.Now()); got != "" {
-		t.Errorf("nothing left = %q", got)
-	}
-	for _, text := range []string{"old handoff", "SHOP-7: waits on staging, PR #12 green"} {
-		cmd := boardCommand()
-		cmd.SetOut(io.Discard)
-		cmd.SetIn(strings.NewReader(text))
-		cmd.SetArgs([]string{"handoff", "--repo", repo})
-		if err := cmd.Execute(); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := withBoard(func(b *board.DB) error {
-		_, err := b.Park(board.Parked{Repo: repo, Ticket: "SHOP-9", On: "client", Text: "Which address?", CreatedAt: time.Now()})
-		return err
-	}); err != nil {
+	repo := testSwarm(t, 2,
+		poolWorker{Index: 1, State: workerBusy, Task: 3, Label: "worker1", Current: &queuedTask{ID: 3, Brief: "fix the VAT rounding", Branch: "fix/vat"}},
+		poolWorker{Index: 2, State: workerFree, Label: "worker2"})
+	os.WriteFile(filepath.Join(names.StatusDir(repo), "worker1.json"), []byte(`{"state":"coding","summary":"half way","pr_url":"https://github.com/o/r/pull/12"}`), 0o644)
+	writeJSON(names.QueueFile(repo), taskQueue{NextID: 5, Tasks: []queuedTask{{ID: 4, Brief: "review #12", Kind: "need-review", After: []int{3}}}})
+	if err := saveInterrupted(repo, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	got := handoffPrompt(repo, time.Now())
-	if !strings.Contains(got, "PR #12 green") || strings.Contains(got, "old handoff") || !strings.Contains(got, "#1 SHOP-9 · waits on client") {
-		t.Errorf("first start = %q", got)
+	if _, err := os.Stat(names.PoolFile(repo)); err == nil {
+		t.Error("pool.json still there: a task could still be queued")
 	}
-	if got := handoffPrompt(repo, time.Now()); strings.Contains(got, "PR #12") || !strings.Contains(got, "SHOP-9") {
-		t.Errorf("second start = %q, want the parked ones only", got)
+	if err := saveInterrupted(repo, io.Discard); err != nil {
+		t.Fatalf("second stop = %v", err)
+	}
+	got, delivered := startPrompt(repo)
+	for _, want := range []string{"fix the VAT rounding", "worker1", "fix/vat", "pull/12", "half way", "review #12", "queued", "--kind need-review"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("start prompt lacks %q:\n%s", want, got)
+		}
+	}
+	delivered()
+	if got, _ := startPrompt(repo); got != "" {
+		t.Errorf("after delivery = %q, want nothing", got)
+	}
+}
+
+// The next master's first prompt has the decisions still parked, a
+// document's path and a refusal included; nothing left gives no prompt.
+func TestStartPromptParked(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	repo := t.TempDir()
+	if got, _ := startPrompt(repo); got != "" {
+		t.Errorf("nothing left = %q", got)
+	}
+	withBoard(func(b *board.DB) error {
+		b.Park(board.Parked{Repo: repo, Ticket: "SHOP-9", On: "client", Text: "Which address?", CreatedAt: time.Now()})
+		id, _ := b.Park(board.Parked{Repo: repo, Ticket: "SHOP-7", On: "me", Worker: "worker2", Text: "Approve the plan", Kind: "plan", DocPath: "/plans/p.md", CreatedAt: time.Now()})
+		_, err := b.RefuseParked(id)
+		return err
+	})
+	got, _ := startPrompt(repo)
+	for _, want := range []string{"#1 SHOP-9 · waits on client", "/plans/p.md", "refused"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("start prompt lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+// A document to approve is parked with its path and kind, and frees its
+// worker: the user may take days to read it. A path the worker loses at
+// acw stop, relative or missing, is refused, and nothing is parked.
+func TestParkDocument(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	repo := testSwarm(t, 2, poolWorker{Index: 1, State: workerBusy, Task: 3, Current: &queuedTask{ID: 3, Brief: "plan it"}})
+	os.WriteFile(filepath.Join(names.StatusDir(repo), "worker1.json"), []byte(`{"state":"plan_ready","tache":"SHOP-9","branch":"fix/vat"}`), 0o644)
+	doc := filepath.Join(t.TempDir(), "plan.md")
+	os.WriteFile(doc, []byte("# Plan\n"), 0o644)
+	inTree := filepath.Join(names.WorktreesDir(repo), "worker1-20261009120000", "plan.md")
+	os.MkdirAll(filepath.Dir(inTree), 0o755)
+	os.WriteFile(inTree, []byte("x"), 0o644)
+	run := func(args ...string) (string, error) {
+		t.Helper()
+		cmd := boardCommand()
+		var out strings.Builder
+		cmd.SetOut(&out)
+		cmd.SetIn(strings.NewReader("Approve the plan"))
+		cmd.SetArgs(append([]string{"park", "--repo", repo, "--ticket", "SHOP-9", "--on", "me"}, args...))
+		err := cmd.Execute()
+		return out.String(), err
+	}
+	for _, bad := range [][]string{
+		{"--worker", "worker1", "--doc", "plan.md"},
+		{"--worker", "worker1", "--doc", filepath.Join(t.TempDir(), "gone.md")},
+		{"--worker", "worker1", "--doc", t.TempDir()},
+		{"--worker", "worker1", "--doc", inTree},
+		{"--doc", doc},
+		{"--worker", "worker1", "--doc", doc, "--on", "client"}, // only the user reads documents on the page
+	} {
+		if _, err := run(bad...); err == nil {
+			t.Errorf("park %v accepted", bad)
+		}
+	}
+	out, err := run("--worker", "worker1", "--doc", doc)
+	if err != nil || !strings.Contains(out, "#1 parked") || !strings.Contains(out, "worker1 is free") {
+		t.Fatalf("park --doc = %q, %v", out, err)
+	}
+	if p, _, _ := readPool(repo); p.worker(1).State != workerFree {
+		t.Errorf("worker1 = %+v, want free", p.worker(1))
+	}
+	d := boardDay(t, repo, time.Now())
+	// The branch is kept: the worker is on another task by the time the
+	// user accepts, and the follow-up goes back to it.
+	if len(d.Parked) != 1 || d.Parked[0].DocPath != doc || d.Parked[0].Kind != "plan" || d.Parked[0].Worker != "worker1" || d.Parked[0].Branch != "fix/vat" {
+		t.Errorf("parked = %+v", d.Parked)
+	}
+	cmd := boardCommand()
+	var shown strings.Builder
+	cmd.SetOut(&shown)
+	cmd.SetArgs([]string{"parked", "1"})
+	cmd.Execute()
+	if !strings.Contains(shown.String(), "document: "+doc) {
+		t.Errorf("parked 1 = %q, want the document's path", shown.String())
+	}
+	if out, err := run("--worker", "worker1", "--doc", doc); err != nil || !strings.Contains(out, "already free") {
+		t.Errorf("park --doc of a free worker = %q, %v; want parked, already free", out, err)
+	}
+	// Parked, then its worker can't be freed (closed meanwhile): no error,
+	// or the master would park it a second time.
+	if out, err := run("--worker", "worker2", "--doc", doc); err != nil || !strings.Contains(out, "#3 parked") || !strings.Contains(out, "worker2") {
+		t.Errorf("park --doc of a closed worker = %q, %v; want parked, a warning", out, err)
+	}
+}
+
+func TestDocKind(t *testing.T) {
+	for state, want := range map[string]string{"plan_ready": "plan", "verdict_ready": "verdict", "review_ready": "review draft", "coding": "document"} {
+		if got := docKind(state); got != want {
+			t.Errorf("docKind(%q) = %q, want %q", state, got, want)
+		}
 	}
 }
 

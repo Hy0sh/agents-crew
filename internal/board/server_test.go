@@ -3,8 +3,10 @@ package board
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -116,6 +118,101 @@ func TestDoneClosesAParkedDecision(t *testing.T) {
 	}
 	if p, _ := b.GetParked(id); p.ClosedAt == nil {
 		t.Errorf("parked = %+v, want closed", p)
+	}
+}
+
+// A parked document is read from its file when asked, rendered; raw HTML
+// and script links are dropped; a file gone, too big or not text says so.
+func TestParkedDoc(t *testing.T) {
+	b, h := handler(t)
+	dir := t.TempDir()
+	write := func(name, content string) string {
+		path := dir + "/" + name
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	park := func(path string) string {
+		id, _ := b.Park(Parked{Repo: "/r", On: "me", Worker: "worker2", Text: "Approve", Kind: "plan", DocPath: path, CreatedAt: noon})
+		return "/api/parked/" + strconv.FormatInt(id, 10) + "/doc"
+	}
+	type doc struct{ HTML, Path, Error string }
+	read := func(target string) (doc, int) {
+		w := get(t, h, "127.0.0.1:1", target)
+		var d doc
+		json.Unmarshal(w.Body.Bytes(), &d)
+		return d, w.Code
+	}
+	plan := write("plan.md", "# Plan\n\n- step one\n\n| Step | Risk |\n|---|---|\n| migration | low |\n\n<script>alert(1)</script>\n\n[x](javascript:alert(1))\n")
+	d, code := read(park(plan))
+	if code != 200 || !strings.Contains(d.HTML, "<h1>Plan</h1>") || !strings.Contains(d.HTML, "<li>step one</li>") || !strings.Contains(d.HTML, "<td>migration</td>") || d.Path != plan {
+		t.Errorf("doc = %d %+v", code, d)
+	}
+	if strings.Contains(d.HTML, "<script") || strings.Contains(d.HTML, "javascript:") {
+		t.Errorf("doc kept something unsafe: %s", d.HTML)
+	}
+	for name, target := range map[string]string{
+		"gone":     park(dir + "/gone.md"),
+		"too big":  park(write("big.md", strings.Repeat("a", maxDoc+1))),
+		"not text": park(write("bin.md", "\xff\xfe\x00")),
+	} {
+		if d, code := read(target); code != 200 || d.Error == "" || d.HTML != "" {
+			t.Errorf("%s = %d %+v, want an error to show", name, code, d)
+		}
+	}
+	// A markdown image in a document loads nothing from outside.
+	if csp := get(t, h, "127.0.0.1:1", "/").Header().Get("Content-Security-Policy"); csp != "img-src 'self' data:" {
+		t.Errorf("page CSP = %q", csp)
+	}
+	noDoc, _ := b.Park(Parked{Repo: "/r", On: "client", Text: "x", CreatedAt: noon})
+	for _, target := range []string{"/api/parked/999/doc", "/api/parked/" + strconv.FormatInt(noDoc, 10) + "/doc"} {
+		if _, code := read(target); code != http.StatusNotFound {
+			t.Errorf("%s = %d, want 404", target, code)
+		}
+	}
+}
+
+// Accept is the user's go: the master is told so, the decision closed
+// and recorded. Refuse tells the master to wait for the user, and leaves
+// it open, marked. A second answer to a closed one is refused.
+func TestAcceptRefuse(t *testing.T) {
+	b := open(t)
+	var told []string
+	h := Handler(b, func() time.Time { return noon }, func(repo, msg string) error { told = append(told, msg); return nil })
+	answer := func(id int64, answer string) int {
+		body := fmt.Sprintf(`{"repo": "/r", "id": "parked:%d", "ticket": "SHOP-9", "text": "Read worker2's plan", "answer": %q}`, id, answer)
+		return post(t, h, "127.0.0.1:1", doneHeaders, body).Code
+	}
+	refusedID, _ := b.Park(Parked{Repo: "/r", Ticket: "SHOP-9", On: "me", Worker: "worker2", Text: "Approve the plan", Kind: "plan", DocPath: "/p.md", CreatedAt: noon})
+	if code := answer(refusedID, "refuse"); code != http.StatusNoContent {
+		t.Fatalf("refuse = %d", code)
+	}
+	if p, _ := b.GetParked(refusedID); p.ClosedAt != nil || !p.Refused {
+		t.Errorf("refused = %+v, want open, refused", p)
+	}
+	if len(told) != 1 || !strings.Contains(told[0], "REFUSED") || !strings.Contains(told[0], "terminal") {
+		t.Errorf("told = %q", told)
+	}
+	id, _ := b.Park(Parked{Repo: "/r", Ticket: "SHOP-9", On: "me", Worker: "worker2", Text: "Approve the plan", Kind: "plan", DocPath: "/p.md", Branch: "fix/vat", CreatedAt: noon})
+	if code := answer(id, "accept"); code != http.StatusNoContent {
+		t.Fatalf("accept = %d", code)
+	}
+	p, _ := b.GetParked(id)
+	if p.ClosedAt == nil || p.Answer != "accepted" {
+		t.Errorf("accepted = %+v", p)
+	}
+	if len(told) != 2 || !strings.Contains(told[1], "ACCEPTED") || !strings.Contains(told[1], "go") || !strings.Contains(told[1], "/p.md") || !strings.Contains(told[1], "--branch fix/vat") {
+		t.Errorf("told = %q", told)
+	}
+	if d, _ := b.Board("/r", noon, noon); len(d.Decisions) != 1 || d.Decisions[0].Text != "accepted" || d.Decisions[0].Subject != "SHOP-9" {
+		t.Errorf("decisions = %+v", d.Decisions)
+	}
+	if code := answer(id, "refuse"); code == http.StatusNoContent {
+		t.Error("refusing an accepted one went through")
+	}
+	if code := answer(id, "maybe"); code != http.StatusBadRequest {
+		t.Errorf("unknown answer = %d, want 400", code)
 	}
 }
 

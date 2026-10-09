@@ -284,3 +284,60 @@ func TestSameAtTimeOrderedByRowid(t *testing.T) {
 		t.Errorf("decisions = %+v, want second first", d.Decisions)
 	}
 }
+
+// A parked document keeps its kind and path; refused, it stays open,
+// marked, until closed; a closed one can't be refused.
+func TestParkedDocumentRefused(t *testing.T) {
+	b := open(t)
+	id, _ := b.Park(Parked{Repo: "/r", Ticket: "SHOP-9", Worker: "worker2", On: "me", Text: "Approve the plan", Kind: "plan", DocPath: "/plans/p.md", CreatedAt: noon})
+	p, err := b.RefuseParked(id)
+	if err != nil || !p.Refused || p.ClosedAt != nil || p.Kind != "plan" || p.DocPath != "/plans/p.md" {
+		t.Fatalf("RefuseParked = %+v, %v", p, err)
+	}
+	if got, _ := b.OpenParked("/r"); len(got) != 1 || !got[0].Refused {
+		t.Errorf("open after refuse = %+v", got)
+	}
+	if p, _ := b.CloseParked(id, "reworked plan agreed", noon); p.Refused {
+		t.Errorf("closed still refused: %+v", p)
+	}
+	if _, err := b.RefuseParked(id); err == nil {
+		t.Error("refusing a closed one went through")
+	}
+}
+
+// The interrupted tasks of a stop replace the previous ones, except an
+// empty snapshot (a second stop after a failed one), which keeps them.
+func TestInterrupted(t *testing.T) {
+	b := open(t)
+	if _, _, ok, err := b.Interrupted("/r"); ok || err != nil {
+		t.Fatalf("before any = %v, %v", ok, err)
+	}
+	b.SaveInterrupted("/r", noon, []byte(`[1]`), false)
+	b.SaveInterrupted("/r", noon.Add(time.Hour), []byte(`[2]`), false)
+	b.SaveInterrupted("/r", noon.Add(2*time.Hour), []byte(`[]`), true)
+	tasks, at, ok, err := b.Interrupted("/r")
+	if err != nil || !ok || string(tasks) != `[2]` || !at.Equal(noon.Add(time.Hour)) {
+		t.Fatalf("Interrupted = %s, %v, %v, %v", tasks, at, ok, err)
+	}
+	b.DeleteInterrupted("/r")
+	if _, _, ok, _ := b.Interrupted("/r"); ok {
+		t.Error("still there after delete")
+	}
+}
+
+// Each poll's drafts replace the repo's draft rows; a PR no longer a
+// draft (open now) is left alone.
+func TestSetDrafts(t *testing.T) {
+	b := open(t)
+	b.SetDrafts("/r", []PR{{Repo: "/r", Number: 1, Title: "one", UpdatedAt: noon}, {Repo: "/r", Number: 2, UpdatedAt: noon}})
+	b.UpsertPR(PR{Repo: "/r", Number: 2, Status: "open", UpdatedAt: noon})
+	b.SetDrafts("/r", []PR{{Repo: "/r", Number: 3, UpdatedAt: noon}})
+	d, _ := b.Board("/r", noon, noon)
+	got := map[int]string{}
+	for _, p := range d.PRs {
+		got[p.Number] = p.Status
+	}
+	if len(got) != 2 || got[2] != "open" || got[3] != "draft" {
+		t.Errorf("prs = %v, want 2 open and 3 draft", got)
+	}
+}
