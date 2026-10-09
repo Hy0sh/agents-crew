@@ -303,7 +303,8 @@ func writeJSON(path string, v any) error {
 	return writeAtomic(path, append(content, '\n'), 0o644)
 }
 
-// workerArg turns worker3, or its herdr name, into 3 (see clearLabel).
+// workerArg turns a worker's name, or its herdr name, into its slot (see
+// provisionPlan.slotOf).
 func workerArg(repo, arg string) (int, error) {
 	index, _, err := workerName(repo, arg)
 	return index, err

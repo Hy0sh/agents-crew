@@ -77,7 +77,7 @@ func TestBuildMinWorkersAtStartup(t *testing.T) {
 	}
 	p.MinWorkers = 2
 	got := Build(p)
-	if !strings.Contains(got, "The first 2 workers are opening") || !strings.Contains(got, "keeps 2 open with nothing queued") {
+	if !strings.Contains(got, "2 workers, the roles' min, are opening") || strings.Contains(got, "The first 2") || !strings.Contains(got, "keeps 2 open with nothing queued") {
 		t.Error("with min-workers the brief should say they are opening and stay open")
 	}
 }

@@ -189,7 +189,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 
 	success = true
 	fmt.Fprintf(out, "→ master (%s) ready, you can talk to it now. Up to %d worker(s) (%s), %d opened at once, the others as tasks are queued.\n",
-		brief.DescribeAgent(opts.masterKind, opts.masterModel), len(workers), describeWorkers(workers), opts.minWorkers)
+		brief.DescribeAgent(opts.masterKind, opts.masterModel), len(workers), describeWorkers(workers), minOpen(workers))
 
 	// Replace this process with the Herdr TUI, attaching to the workspace just built.
 	return syscall.Exec(mustLookPath("herdr"), []string{"herdr"}, os.Environ())

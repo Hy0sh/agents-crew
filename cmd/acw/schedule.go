@@ -41,7 +41,7 @@ const (
 	actOpen
 	actClose
 	actDirty      // free long enough to close, but its worktree has changes
-	actStacksFull // min-workers not met: max-stacks is reached
+	actStacksFull // a role's min not met: max-stacks is reached
 	actPark       // free, clean, off its waiting branch: back on it
 )
 

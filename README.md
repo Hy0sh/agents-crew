@@ -698,8 +698,8 @@ role's name is its workers' name everywhere: `reviewer1`, `reviewer2`.
   the brief says which ones do, and the master watches the others.
 - **Without `roles`**, `workers` and `min-workers` make one role, `worker`:
   a config without roles runs as before, its workers named `worker1`…
-- Refused at launch: `roles` together with `workers` or `min-workers` (in
-  the entry, or a preset over it), a role without `max`, `min` above
+- Refused at launch: `roles` together with `workers` or `min-workers` in
+  the same entry or the same preset, a role without `max`, `min` above
   `max`, a bad role name, an unknown key, and a `prompt` that can't be
   read: a worker meant to verify that silently becomes a generic one
   would skew every dispatch. `worker-overrides`, which roles replace, is

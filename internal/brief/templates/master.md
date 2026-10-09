@@ -81,6 +81,6 @@ END OF REPO RULES>>>
 
 {{.Roles}}
 
-{{end}}Startup: do not go looking for anything yourself (no task search, no backlog). Wait until I explicitly tell you which tasks to handle and how to split them between the workers. {{if .MinWorkers}}The first {{.MinWorkers}} workers are opening in the background (worktree + environment); the others{{else}}No worker is open yet: they{{end}} open as you queue tasks. acw tells you here when one is ready, and gives it a task by itself: no need to call on them.
+{{end}}Startup: do not go looking for anything yourself (no task search, no backlog). Wait until I explicitly tell you which tasks to handle and how to split them between the workers. {{if .MinWorkers}}{{.MinWorkers}} workers, the roles' min, are opening in the background (worktree + environment); the others{{else}}No worker is open yet: they{{end}} open as you queue tasks. acw tells you here when one is ready, and gives it a task by itself: no need to call on them.
 
 Do not code yourself: your job is dispatch, supervision, reporting. The status point rhythm above is not a formality, it is what lets you follow several tasks in parallel without ever forcing me to step into a pane.
