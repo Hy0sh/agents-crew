@@ -116,7 +116,7 @@ const maxRole = 20
 var (
 	roleName       = regexp.MustCompile(`^[a-z](?:[a-z-]*[a-z])?$`)
 	workerLabel    = regexp.MustCompile(`^([a-z](?:[a-z-]*[a-z])?)[1-9][0-9]*$`)
-	workerWorktree = regexp.MustCompile(`^([a-z](?:[a-z-]*[a-z])?)[1-9][0-9]*-.+$`)
+	workerWorktree = regexp.MustCompile(`^([a-z](?:[a-z-]*[a-z])?)[1-9][0-9]*-[0-9]{14}$`)
 )
 
 // ValidRole says role can name a role: lowercase letters and dashes, not
@@ -132,8 +132,9 @@ func IsWorkerLabel(s string) bool {
 }
 
 // IsWorkerWorktree reports whether a directory name under WorktreesDir is
-// one WorkerWorktree made, of any run and any role. A role ends with a
-// letter and the rank follows it, so the first digits end the label.
+// one WorkerWorktree made, of any run and any role: a label, then the
+// run's 14-digit stamp, so a worktree of the user's own (fix1-login) is
+// never taken for one.
 func IsWorkerWorktree(dirName string) bool {
 	m := workerWorktree.FindStringSubmatch(dirName)
 	return m != nil && ValidRole(m[1])

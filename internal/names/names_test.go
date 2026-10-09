@@ -34,8 +34,15 @@ func TestRoleNames(t *testing.T) {
 			t.Errorf("IsWorkerLabel(%q) = true", bad)
 		}
 	}
-	if !IsWorkerWorktree("reviewer1-20261009183715") || !IsWorkerWorktree("front-end3-20261009") || IsWorkerWorktree("reviewer-20261009") {
+	if !IsWorkerWorktree("reviewer1-20261009183715") || !IsWorkerWorktree("front-end3-20261009183715") || IsWorkerWorktree("reviewer-20261009183715") {
 		t.Error("IsWorkerWorktree")
+	}
+	// A worktree acw didn't make, named like one but without its stamp,
+	// is never a worker's: acw stop would remove it.
+	for _, mine := range []string{"fix1-login", "pr12-review", "issue42-x", "reviewer1-2026"} {
+		if IsWorkerWorktree(mine) {
+			t.Errorf("IsWorkerWorktree(%q) = true", mine)
+		}
 	}
 	if !IsWorkerAgent("reviewer2-aa2ce4", "aa2ce4") || IsWorkerAgent("master-aa2ce4", "aa2ce4") || IsWorkerAgent("reviewer2-ffffff", "aa2ce4") {
 		t.Error("IsWorkerAgent")
