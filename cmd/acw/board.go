@@ -228,6 +228,9 @@ func parkCommand() *cobra.Command {
 				if worker == "" {
 					return errors.New("--doc needs --worker: parking its document frees it")
 				}
+				if on != "me" {
+					return errors.New("--doc goes with --on me: only the user reads documents, on acw board")
+				}
 				if err := checkDocPath(repo, doc); err != nil {
 					return err
 				}
@@ -250,7 +253,11 @@ func parkCommand() *cobra.Command {
 				return err
 			}
 			// The user may take days to read it: the worker waits on nothing.
-			return finishWorker(repo, index, worker, 0, out)
+			// It is parked already: an error here would have it parked twice.
+			if err := finishWorker(repo, index, worker, 0, out); err != nil {
+				fmt.Fprintf(out, "warning: %s not freed: %v\n", worker, err)
+			}
+			return nil
 		},
 	}
 	repoOf = repoFlag(cmd)

@@ -270,6 +270,7 @@ func TestParkDocument(t *testing.T) {
 		{"--worker", "worker1", "--doc", t.TempDir()},
 		{"--worker", "worker1", "--doc", inTree},
 		{"--doc", doc},
+		{"--worker", "worker1", "--doc", doc, "--on", "client"}, // only the user reads documents on the page
 	} {
 		if _, err := run(bad...); err == nil {
 			t.Errorf("park %v accepted", bad)
@@ -298,6 +299,11 @@ func TestParkDocument(t *testing.T) {
 	}
 	if out, err := run("--worker", "worker1", "--doc", doc); err != nil || !strings.Contains(out, "already free") {
 		t.Errorf("park --doc of a free worker = %q, %v; want parked, already free", out, err)
+	}
+	// Parked, then its worker can't be freed (closed meanwhile): no error,
+	// or the master would park it a second time.
+	if out, err := run("--worker", "worker2", "--doc", doc); err != nil || !strings.Contains(out, "#3 parked") || !strings.Contains(out, "worker2") {
+		t.Errorf("park --doc of a closed worker = %q, %v; want parked, a warning", out, err)
 	}
 }
 
