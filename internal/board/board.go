@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -54,6 +55,9 @@ var migrations = []string{
 	`ALTER TABLE prs ADD COLUMN since_hole INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE watchers ADD COLUMN queue INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE watchers ADD COLUMN inbox INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE parked ADD COLUMN kind TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE parked ADD COLUMN doc_path TEXT NOT NULL DEFAULT ''`,
+	`CREATE TABLE IF NOT EXISTS interrupted (repo TEXT PRIMARY KEY, at INTEGER, tasks TEXT)`,
 }
 
 type DB struct{ sql *sql.DB }
@@ -169,7 +173,17 @@ type Parked struct {
 	CreatedAt time.Time  `json:"created_at"`
 	ClosedAt  *time.Time `json:"closed_at"`
 	Answer    string     `json:"answer"`
+	// Kind and DocPath are set on a document to approve (a plan, a
+	// verdict, a review draft): what it is, and the file it is in.
+	Kind    string `json:"kind"`
+	DocPath string `json:"doc_path"`
+	// Refused is a document the user refused on the page: still open,
+	// until the master closes it once they discussed it.
+	Refused bool `json:"refused"`
 }
+
+// refused is the answer of a parked document refused but still open.
+const refused = "refused"
 
 type Handled struct {
 	Repo    string    `json:"-"`
@@ -281,21 +295,21 @@ func (b *DB) UpsertPR(p PR) error {
 
 // Park records a decision put off, and returns its number.
 func (b *DB) Park(p Parked) (int64, error) {
-	res, err := b.sql.Exec(`INSERT INTO parked (repo, ticket, worker, on_whom, text, created_at, closed_at, answer) VALUES (?,?,?,?,?,?,NULL,'')`,
-		p.Repo, p.Ticket, p.Worker, p.On, p.Text, p.CreatedAt.Unix())
+	res, err := b.sql.Exec(`INSERT INTO parked (repo, ticket, worker, on_whom, text, created_at, closed_at, answer, kind, doc_path) VALUES (?,?,?,?,?,?,NULL,'',?,?)`,
+		p.Repo, p.Ticket, p.Worker, p.On, p.Text, p.CreatedAt.Unix(), p.Kind, p.DocPath)
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
 }
 
-const parkedColumns = `id, repo, ticket, worker, on_whom, text, created_at, closed_at, answer`
+const parkedColumns = `id, repo, ticket, worker, on_whom, text, created_at, closed_at, answer, kind, doc_path`
 
 func scanParked(scan func(...any) error) (Parked, error) {
 	var p Parked
 	var created int64
 	var closed sql.NullInt64
-	if err := scan(&p.ID, &p.Repo, &p.Ticket, &p.Worker, &p.On, &p.Text, &created, &closed, &p.Answer); err != nil {
+	if err := scan(&p.ID, &p.Repo, &p.Ticket, &p.Worker, &p.On, &p.Text, &created, &closed, &p.Answer, &p.Kind, &p.DocPath); err != nil {
 		return p, err
 	}
 	p.CreatedAt = time.Unix(created, 0)
@@ -303,6 +317,7 @@ func scanParked(scan func(...any) error) (Parked, error) {
 		t := time.Unix(closed.Int64, 0)
 		p.ClosedAt = &t
 	}
+	p.Refused = p.ClosedAt == nil && p.Answer == refused
 	return p, nil
 }
 
@@ -377,6 +392,77 @@ func (b *DB) TakeHandoff(repo string, at time.Time) (text string, created time.T
 	}
 	_, err = b.sql.Exec(`UPDATE handoffs SET used_at = ? WHERE repo = ? AND used_at IS NULL`, at.Unix(), repo)
 	return text, time.Unix(unix, 0), err == nil, err
+}
+
+// RefuseParked marks open parked document id refused: it stays open, on
+// the user's list, until the master closes it. One closed is refused.
+func (b *DB) RefuseParked(id int64) (Parked, error) {
+	res, err := b.sql.Exec(`UPDATE parked SET answer = ? WHERE id = ? AND closed_at IS NULL`, refused, id)
+	if err != nil {
+		return Parked{}, err
+	}
+	p, err := b.GetParked(id)
+	if err != nil {
+		return p, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return p, fmt.Errorf("#%d was already closed on %s, with: %s", id, p.ClosedAt.Local().Format("02/01 15:04"), p.Answer)
+	}
+	return p, nil
+}
+
+// SaveInterrupted keeps the tasks acw stop found on repo's workers and
+// queue, for the next master. empty keeps what an earlier stop saved: a
+// stop run again after a failed one finds nothing left.
+func (b *DB) SaveInterrupted(repo string, at time.Time, tasks []byte, empty bool) error {
+	if empty {
+		return nil
+	}
+	_, err := b.sql.Exec(`INSERT INTO interrupted (repo, at, tasks) VALUES (?,?,?)
+		ON CONFLICT (repo) DO UPDATE SET at=excluded.at, tasks=excluded.tasks`, repo, at.Unix(), string(tasks))
+	return err
+}
+
+// Interrupted reads what SaveInterrupted kept for repo; ok is false
+// without any.
+func (b *DB) Interrupted(repo string) (tasks []byte, at time.Time, ok bool, err error) {
+	var text string
+	var unix int64
+	err = b.sql.QueryRow(`SELECT tasks, at FROM interrupted WHERE repo = ?`, repo).Scan(&text, &unix)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, time.Time{}, false, nil
+	}
+	if err != nil {
+		return nil, time.Time{}, false, err
+	}
+	return []byte(text), time.Unix(unix, 0), true, nil
+}
+
+// DeleteInterrupted drops repo's interrupted tasks, once a master got them.
+func (b *DB) DeleteInterrupted(repo string) error {
+	_, err := b.sql.Exec(`DELETE FROM interrupted WHERE repo = ?`, repo)
+	return err
+}
+
+// SetDrafts makes drafts repo's draft PRs: each is written with status
+// draft, and a draft row not among them is gone (closed, or marked ready:
+// then the PR watch writes it again as open).
+func (b *DB) SetDrafts(repo string, drafts []PR) error {
+	numbers := make([]any, 0, len(drafts)+1)
+	numbers = append(numbers, repo)
+	for _, p := range drafts {
+		p.Repo, p.Status = repo, "draft"
+		if err := b.UpsertPR(p); err != nil {
+			return err
+		}
+		numbers = append(numbers, p.Number)
+	}
+	query := `DELETE FROM prs WHERE repo = ? AND status = 'draft'`
+	if len(drafts) > 0 {
+		query += ` AND number NOT IN (?` + strings.Repeat(",?", len(drafts)-1) + `)`
+	}
+	_, err := b.sql.Exec(query, numbers...)
+	return err
 }
 
 // SetParkedOn changes who parked decision id waits on. One closed is
