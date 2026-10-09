@@ -125,7 +125,7 @@ func boardCommand() *cobra.Command {
 	decision.Flags().StringVar(&worker, "worker", "", "the worker it concerns (workerN)")
 	decision.Flags().StringVar(&subject, "subject", "", "what it is about: a ticket, a PR, a topic")
 	decision.Flags().StringVar(&why, "why", "", "the reason, in one line")
-	cmd.AddCommand(decision, parkCommand(), parkedCommand(), resumeCommand(), handoffCommand())
+	cmd.AddCommand(decision, parkCommand(), parkedCommand(), editCommand(), resumeCommand(), handoffCommand())
 	return cmd
 }
 
@@ -340,7 +340,61 @@ func parkedCommand() *cobra.Command {
 	return cmd
 }
 
+// parkedOf checks that parked decision id belongs to the repo --repo
+// names, when it names one: the number alone is unique across repos, and
+// a master quoting another swarm's number must not touch it.
+func parkedOf(b *board.DB, cmd *cobra.Command, repoOf func() (string, error), id int64) error {
+	if !cmd.Flags().Changed("repo") {
+		return nil
+	}
+	repo, err := repoOf()
+	if err != nil {
+		return err
+	}
+	p, err := b.GetParked(id)
+	if err == nil && p.Repo != repo {
+		err = fmt.Errorf("#%d belongs to %s, not %s", id, p.Repo, repo)
+	}
+	return err
+}
+
+// acw board edit changes who a parked decision waits on: one parked on
+// the user that in fact waits on the client must leave "Waiting on you"
+// without a resume, which would record an answer nobody gave.
+func editCommand() *cobra.Command {
+	var on string
+	var repoOf func() (string, error)
+	cmd := &cobra.Command{
+		Use:   "edit number --on <who>",
+		Short: "Change who a parked decision waits on",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parkedID(args[0])
+			if err != nil {
+				return err
+			}
+			if on == "" {
+				return errors.New("--on: who the answer is waited from (client, me, a name)")
+			}
+			return withBoard(func(b *board.DB) error {
+				if err := parkedOf(b, cmd, repoOf, id); err != nil {
+					return err
+				}
+				if _, err := b.SetParkedOn(id, on); err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "#%d now waits on %s\n", id, on)
+				return nil
+			})
+		},
+	}
+	repoOf = repoFlag(cmd)
+	cmd.Flags().StringVar(&on, "on", "", "who the answer is waited from: client, me (the user), or a name")
+	return cmd
+}
+
 func resumeCommand() *cobra.Command {
+	var repoOf func() (string, error)
 	cmd := &cobra.Command{
 		Use:   "resume number [answer...]",
 		Short: "Close a parked decision with its answer, read from stdin without one; the answer is also recorded as a decision",
@@ -355,6 +409,9 @@ func resumeCommand() *cobra.Command {
 				return err
 			}
 			return withBoard(func(b *board.DB) error {
+				if err := parkedOf(b, cmd, repoOf, id); err != nil {
+					return err
+				}
 				now := time.Now()
 				p, err := b.CloseParked(id, answer, now)
 				if err != nil {
@@ -368,6 +425,7 @@ func resumeCommand() *cobra.Command {
 			})
 		},
 	}
+	repoOf = repoFlag(cmd)
 	return cmd
 }
 
@@ -404,7 +462,9 @@ func renderParked(p board.Parked, full bool) string {
 // someone), then, while it has a task, the state it gives itself, else
 // the pool's. A free worker has no subject. Since is when that state
 // began: state_since for the worker's own, which acw stamps; herdr's
-// blocked is dated by changedWorkers.
+// blocked is dated by changedWorkers. A <what>_ready waits on the user
+// only once the turn is over: while herdr says working, the worker went
+// on (an addendum, the go it got) and nothing is to approve yet.
 func boardWorker(repo string, pw poolWorker, agentStatus string, s workerStatus, now time.Time) board.Worker {
 	w := board.Worker{Repo: repo, Worker: pw.label(), State: pw.State, Since: pw.Since, UpdatedAt: now}
 	if pw.State == workerBusy {
@@ -414,6 +474,9 @@ func boardWorker(repo string, pw poolWorker, agentStatus string, s workerStatus,
 			if t, err := time.Parse(time.RFC3339, s.StateSince); err == nil {
 				w.Since = t
 			}
+		}
+		if agentStatus == "working" && strings.HasSuffix(w.State, "_ready") {
+			w.State = "working"
 		}
 	}
 	if agentStatus == "blocked" {

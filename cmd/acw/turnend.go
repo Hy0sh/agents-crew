@@ -130,10 +130,47 @@ func masterMessage(text string) string {
 // markTold records that the master spoke to the worker since its last
 // ping (a message, a new brief): the end of the turn that follows is its
 // answer, and goes to the master even with nothing moved in the status.
+// It also clears a <what>_ready state (see clearReady).
 func markTold(statusDir, label string) {
 	if err := os.WriteFile(filepath.Join(statusDir, label+".told"), nil, 0o644); err != nil {
 		fmt.Fprintln(os.Stderr, "told mark:", err)
 	}
+	if err := clearReady(filepath.Join(statusDir, label+".json")); err != nil {
+		fmt.Fprintln(os.Stderr, "ready state:", err)
+	}
+}
+
+// clearReady turns a <what>_ready state into working: the master's message
+// is its answer, and workers left plan_ready set while coding the go, on
+// the user's page as still to approve. A worker that still waits writes
+// it again (its brief says so), and gets a new state_since. Safe to write
+// here: markTold runs when the worker is idle or at the end of its turn.
+// The mtime is given back, as normalizeStatus does.
+func clearReady(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var status map[string]any
+	if json.Unmarshal(content, &status) != nil || status == nil {
+		return nil
+	}
+	if state, _ := status["state"].(string); !strings.HasSuffix(state, "_ready") {
+		return nil
+	}
+	status["state"] = "working"
+	out, err := json.MarshalIndent(status, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := writeAtomic(path, append(out, '\n'), info.Mode().Perm()); err != nil {
+		return err
+	}
+	return os.Chtimes(path, info.ModTime(), info.ModTime())
 }
 
 // unchangedEvery is how long the end of turns with nothing moved stay

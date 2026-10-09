@@ -15,6 +15,24 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   master's first prompt, with the decisions still parked, and marks it
   used. What was pending used to go through a file the user kept by
   hand. `--no-handoff` stops without asking.
+- `acw board edit <number> --on <who>` changes who a parked decision
+  waits on. One parked on you that in fact waits on the client had to be
+  closed with `resume`, which recorded an answer nobody gave, then
+  parked again under a new number.
+
+### Fixed
+
+- `acw board`: a worker's `*_ready` no longer shows in "Waiting on you"
+  while its turn goes on (herdr says working): one that set
+  `verdict_ready` and went on with an addendum for half an hour was
+  listed, and marked done for nothing.
+- A message from the master (`acw tell`, a dispatch) sets a worker's
+  `*_ready` state back to `working`: the worker kept `plan_ready` while
+  coding the go it got, and the plan stayed on the page as still to
+  approve. A worker still waiting sets it again, with a new
+  `state_since`.
+- `acw board resume` takes `--repo` like the other `board` commands, and
+  refuses, with `--repo`, a number that belongs to another repo.
 
 ## [0.17.1] - 2026-10-09
 
