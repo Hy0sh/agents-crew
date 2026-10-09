@@ -64,8 +64,14 @@ type Ticket struct {
 
 // markGrace is how long a line marked done stays aside before it comes
 // back, flagged, if its wait is still there: the master needs a turn or
-// two to act on it.
+// two to act on it. A PR's line is the exception: its ID holds the PR's
+// state, and a mark keeps it aside until that state changes.
 const markGrace = 2 * time.Minute
+
+// isPRWait says the wait comes from a PR's state on GitHub, which the
+// user often answers elsewhere (a reviewer seen on chat): only a change
+// on the PR brings it back.
+func isPRWait(id string) bool { return strings.HasPrefix(id, "pr-") }
 
 // ticketKey is a Jira-like key: PROJ-123.
 // ponytail: any WORD-123 matches, "UTF-8" in a PR title included; the
@@ -176,10 +182,19 @@ func BuildView(d Day, now time.Time) View {
 	}
 
 	waits := userWaits(d, workerKey, byURL)
+	// acked are the PRs whose wait the user marked done, state unchanged:
+	// they wait on reviewers, not on the user nor on nobody.
+	var open []Wait
+	acked := map[string]bool{}
 	for _, w := range waits {
 		at, marked := d.Marks[w.ID]
+		if marked && isPRWait(w.ID) {
+			acked[w.URL] = true
+		} else {
+			open = append(open, w)
+		}
 		switch {
-		case marked && now.Sub(at) < markGrace:
+		case marked && (now.Sub(at) < markGrace || isPRWait(w.ID)):
 			w.MarkedAt = &at
 			v.Marked = append(v.Marked, w)
 		case marked:
@@ -196,7 +211,7 @@ func BuildView(d Day, now time.Time) View {
 			continue
 		}
 		t.Phase = phase(*t, d.Workers)
-		t.Waiting, t.WaitSince = waiting(*t, waits, d.Workers)
+		t.Waiting, t.WaitSince = waiting(*t, open, acked)
 		if t.Phase == "merged" && len(t.Workers) == 0 && len(t.Parked) == 0 {
 			v.Done = append(v.Done, *t)
 		} else {
@@ -241,15 +256,19 @@ func userWaits(d Day, workerKey, prKeyByURL map[string]string) []Wait {
 			continue
 		}
 		base := Wait{Ticket: prKeyByURL[p.URL], Who: p.Worker, Detail: p.Title, URL: p.URL}
+		// ponytail: the state is what the PR watch keeps (status, CI, last
+		// review, open threads); a second review of the same kind by the
+		// same reviewer, or a plain comment, doesn't change it.
+		state := p.Status + "|" + p.CI + "|" + p.Review
 		if !p.SinceReady.IsZero() {
 			w := base
-			w.ID, w.Since = fmt.Sprintf("pr-ready:%d:%d", p.Number, p.SinceReady.Unix()), p.SinceReady
+			w.ID, w.Since = fmt.Sprintf("pr-ready:%d:%d:%s", p.Number, p.SinceReady.Unix(), state), p.SinceReady
 			w.Text = fmt.Sprintf("#%d is ready for your merge", p.Number)
 			out = append(out, w)
 		}
 		if !p.SinceHole.IsZero() {
 			w := base
-			w.ID, w.Since = fmt.Sprintf("pr-hole:%d:%d", p.Number, p.SinceHole.Unix()), p.SinceHole
+			w.ID, w.Since = fmt.Sprintf("pr-hole:%d:%d:%s", p.Number, p.SinceHole.Unix(), state), p.SinceHole
 			w.Text = fmt.Sprintf("#%d: %s, and no worker or task on it", p.Number, p.Review)
 			w.Who = "nobody"
 			out = append(out, w)
@@ -330,7 +349,8 @@ func readyNow(p PR) bool {
 }
 
 // waiting says whom a ticket waits on, and since when when it is known.
-func waiting(t Ticket, waits []Wait, workers []Worker) (string, *time.Time) {
+// acked are the PR URLs whose review asks the user marked done.
+func waiting(t Ticket, waits []Wait, acked map[string]bool) (string, *time.Time) {
 	for _, w := range waits {
 		if w.Ticket == t.Key && w.Who != "nobody" {
 			since := w.Since
@@ -351,7 +371,7 @@ func waiting(t Ticket, waits []Wait, workers []Worker) (string, *time.Time) {
 	}
 	// Review asks are answered by whoever holds the PR, not by reviewers.
 	for _, p := range t.PRs {
-		if isOpen(p) && (strings.Contains(p.Review, "CHANGES_REQUESTED") || strings.Contains(p.Review, "threads open")) {
+		if isOpen(p) && !acked[p.URL] && (strings.Contains(p.Review, "CHANGES_REQUESTED") || strings.Contains(p.Review, "threads open")) {
 			if len(t.Workers) > 0 {
 				return strings.Join(t.Workers, ", "), nil
 			}

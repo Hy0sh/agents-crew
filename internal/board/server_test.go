@@ -57,6 +57,22 @@ func TestDone(t *testing.T) {
 	}
 }
 
+// A PR's line marked twice, state unchanged, tells the master once.
+func TestDoneOnAPRTellsOnce(t *testing.T) {
+	b := open(t)
+	var told []string
+	h := Handler(b, func() time.Time { return noon }, func(repo, msg string) error { told = append(told, msg); return nil })
+	body := `{"repo": "/r", "id": "pr-hole:12:1:open|green|COMMENTED by b", "text": "#12: COMMENTED by b"}`
+	for range 2 {
+		if w := post(t, h, "127.0.0.1:1", doneHeaders, body); w.Code != http.StatusNoContent {
+			t.Fatalf("done = %d %s", w.Code, w.Body)
+		}
+	}
+	if len(told) != 1 {
+		t.Errorf("told = %q", told)
+	}
+}
+
 // Another site open in the browser can't write: it can't set the header
 // without a preflight nobody answers, nor reach us under another name.
 func TestDoneRefusals(t *testing.T) {
