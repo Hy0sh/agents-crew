@@ -17,7 +17,11 @@ import (
 //     one the config set apart (worker-overrides), which only takes the
 //     tasks named for it;
 //   - a free worker gets the first task it may take, if its agent is
-//     ready for one;
+//     ready for one; a task on a branch goes first to the free worker
+//     already on it;
+//   - a free worker left on its task's branch goes back to its waiting
+//     branch, unless a queued task is for that branch; a task waits
+//     while its branch is being left;
 //   - a task no free worker can take opens the lowest worker not open,
 //     within the configured count and, for a worker in the code when the
 //     repo has stacks, within max-stacks, which also counts the stacks
@@ -38,6 +42,7 @@ const (
 	actClose
 	actDirty      // free long enough to close, but its worktree has changes
 	actStacksFull // min-workers not met: max-stacks is reached
+	actPark       // free, clean, off its waiting branch: back on it
 )
 
 type poolAction struct {
@@ -55,7 +60,17 @@ type workerPoll struct {
 	Ready bool
 	// Clean is set when its worktree has no change, or it has none.
 	Clean bool
+	// Branch is the branch its worktree is on, Home its waiting branch;
+	// both "" for a worker outside the code.
+	Branch, Home string
+	// Parking is set while the watcher puts it back on Home, or after
+	// that failed on this same Branch: not Ready, and not moved again.
+	Parking bool
 }
+
+// offHome says a worker's worktree is on a branch other than its waiting
+// one.
+func (w workerPoll) offHome() bool { return w.Branch != "" && w.Branch != w.Home }
 
 func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time) []poolAction {
 	var actions []poolAction
@@ -104,6 +119,13 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 		if t.Error != "" || len(waitingFor(t, p, q)) > 0 {
 			continue
 		}
+		// Its branch is being left by a worker going back to its waiting
+		// branch: next poll, once it is free.
+		if t.Branch != "" && slices.ContainsFunc(p.Workers, func(w poolWorker) bool {
+			return polls[w.Index].Parking && polls[w.Index].Branch == t.Branch
+		}) {
+			continue
+		}
 		if t.Worker != 0 {
 			if w := p.worker(t.Worker); w == nil {
 				if canOpen(t.Worker) {
@@ -115,7 +137,14 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 			}
 			continue
 		}
-		if i := slices.IndexFunc(p.Workers, func(w poolWorker) bool { return ready(w) && spec(w.Index).takes(t) }); i >= 0 {
+		// The worker already on the task's branch first: no switch.
+		i := slices.IndexFunc(p.Workers, func(w poolWorker) bool {
+			return t.Branch != "" && polls[w.Index].Branch == t.Branch && ready(w) && spec(w.Index).takes(t)
+		})
+		if i < 0 {
+			i = slices.IndexFunc(p.Workers, func(w poolWorker) bool { return ready(w) && spec(w.Index).takes(t) })
+		}
+		if i >= 0 {
 			w := p.Workers[i]
 			taken[w.Index] = true
 			actions = append(actions, poolAction{Kind: actAssign, Worker: w.Index, Task: t.ID})
@@ -173,6 +202,25 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 	}
 	if up < p.MinWorkers && p.Plan.Stacks && stacks >= p.Plan.MaxStacks {
 		actions = append(actions, poolAction{Kind: actStacksFull})
+	}
+
+	// A free worker left on its task's branch goes back to its waiting
+	// branch, unless a queued task is for that branch: it may get it.
+	// Neither one is closed this poll.
+	for _, w := range p.Workers {
+		poll := polls[w.Index]
+		if w.State != workerFree || taken[w.Index] {
+			continue
+		}
+		if poll.Parking {
+			taken[w.Index] = true
+			continue
+		}
+		if !poll.offHome() || !poll.Clean || slices.ContainsFunc(q.Tasks, func(t queuedTask) bool { return t.Error == "" && t.Branch == poll.Branch }) {
+			continue
+		}
+		taken[w.Index] = true
+		actions = append(actions, poolAction{Kind: actPark, Worker: w.Index})
 	}
 
 	idle := time.Duration(p.IdleCloseMinutes) * time.Minute

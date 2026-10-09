@@ -199,16 +199,22 @@ func releaseBranch(p poolState, holder, branch string, out io.Writer) error {
 	return parkWorker(p, hw, out)
 }
 
-// parkWorker puts a worker's worktree back on the branch it opened on, its
-// waiting branch, so that the branch of the task it ended is free for
-// whoever takes it next: acw done does it for every task, releaseBranch
-// for a free worker that still holds one. A worktree with uncommitted
+// homeBranch is the branch a worker's worktree opened on, its waiting
+// branch.
+func homeBranch(w poolWorker) string {
+	return names.WorkerBranch(w.Index, strings.TrimPrefix(filepath.Base(w.Worktree), w.label()+"-"))
+}
+
+// parkWorker puts a worker's worktree back on its waiting branch, so that
+// the branch of the task it ended is free for whoever takes it next: the
+// watcher does it for a free worker (see schedule), releaseBranch for one
+// that still holds the branch a task needs. A worktree with uncommitted
 // changes is left alone: moving it would carry them along or fail.
 func parkWorker(p poolState, w poolWorker, out io.Writer) error {
 	if w.Worktree == "" {
 		return nil
 	}
-	home := names.WorkerBranch(w.Index, strings.TrimPrefix(filepath.Base(w.Worktree), w.label()+"-"))
+	home := homeBranch(w)
 	current, err := gitutil.CurrentBranch(w.Worktree)
 	if err != nil || current == home {
 		return err

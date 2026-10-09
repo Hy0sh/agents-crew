@@ -20,6 +20,19 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   closed with `resume`, which recorded an answer nobody gave, then
   parked again under a new number.
 
+### Changed
+
+- `acw done` no longer moves the worker's worktree: it frees the worker
+  and returns at once. The watcher puts a free worker back on its waiting
+  branch in the background, its `wtm switch` output in the watcher's log,
+  and tells the master only when it can't. The master's turn used to block
+  on the whole stack rebuild, and read its docker output.
+- A task given `--branch` goes first to the free worker still on that
+  branch, and a free worker stays on its branch while a queued task is
+  for it: `acw done` then a follow-up on the same branch costs no stack
+  round trip, and needs no `--worker`. The master brief no longer asks for
+  `--worker workerN --branch` to keep a rebase on its worker.
+
 ### Fixed
 
 - `acw board`: a worker's `*_ready` no longer shows in "Waiting on you"
