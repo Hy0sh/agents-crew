@@ -62,9 +62,19 @@ type poolWorker struct {
 	// typed: a watcher that dies in between leaves it busy with a task it
 	// never got, which the next watcher puts back (see recoverPool).
 	Dispatching *queuedTask `json:"dispatching,omitempty"`
+	// Label is its name, its slot's (see workerSpec.label), set when it
+	// opens.
+	Label string `json:"label,omitempty"`
 }
 
-func (w poolWorker) label() string { return fmt.Sprintf("worker%d", w.Index) }
+// label is the worker's name. A worker opened before roles has none
+// stored, and was named by its index.
+func (w poolWorker) label() string {
+	if w.Label != "" {
+		return w.Label
+	}
+	return fmt.Sprintf("worker%d", w.Index)
+}
 
 // poolState is pool.json.
 type poolState struct {
@@ -259,7 +269,30 @@ func readPoolFile(repo string) (poolState, error) {
 	if err := json.Unmarshal(content, &p); err != nil {
 		return p, fmt.Errorf("%s: %w", names.PoolFile(repo), err)
 	}
+	normalizeLegacy(&p)
 	return p, nil
+}
+
+// normalizeLegacy reads a pool.json written before roles as one role,
+// worker, ranked by index: its workers keep their names. Its general
+// workers share the floor min_workers set; a kept worker has a floor of
+// its own, one.
+func normalizeLegacy(p *poolState) {
+	for i := range p.Plan.Workers {
+		w := &p.Plan.Workers[i]
+		if w.Role != "" {
+			continue
+		}
+		w.Role, w.Rank = "worker", i+1
+		switch {
+		case w.Keep:
+			w.Group, w.Min = fmt.Sprintf("worker#%d", i+1), 1
+		case !w.Overridden:
+			w.Min = p.MinWorkers
+		default:
+			w.Group = fmt.Sprintf("worker#%d", i+1)
+		}
+	}
 }
 
 func writeJSON(path string, v any) error {
@@ -272,8 +305,18 @@ func writeJSON(path string, v any) error {
 
 // workerArg turns worker3, or its herdr name, into 3 (see clearLabel).
 func workerArg(repo, arg string) (int, error) {
-	_, index, err := clearLabel(arg, names.Slug(repo))
+	index, _, err := workerName(repo, arg)
 	return index, err
+}
+
+// workerName is the slot and name of the worker arg names, in repo's
+// swarm.
+func workerName(repo, arg string) (int, string, error) {
+	p, err := readPoolFile(repo)
+	if err != nil {
+		return 0, "", err
+	}
+	return p.Plan.slotOf(arg, names.Slug(repo))
 }
 
 // addOptions are acw queue add's flags.
@@ -581,7 +624,7 @@ func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, no
 				if w != nil {
 					continue
 				}
-				nw := poolWorker{Index: a.Worker, State: workerOpening, Stacked: a.Stacked, Since: now}
+				nw := poolWorker{Index: a.Worker, State: workerOpening, Stacked: a.Stacked, Since: now, Label: p.Plan.Workers[a.Worker-1].label()}
 				if p.Plan.Workers[a.Worker-1].Dir == "" {
 					nw.Worktree = names.WorkerWorktree(repo, nw.label(), now.Format("20060102150405"))
 				}

@@ -45,7 +45,7 @@ func TestAddDecision(t *testing.T) {
 
 func TestDecisionWorkerIsChecked(t *testing.T) {
 	cmd := boardCommand()
-	cmd.SetArgs([]string{"decision", "--repo", t.TempDir(), "--worker", "bob", "text"})
+	cmd.SetArgs([]string{"decision", "--repo", testSwarm(t, 2), "--worker", "bob", "text"})
 	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "not a worker") {
 		t.Errorf("--worker bob = %v, want a refusal", err)
 	}

@@ -9,18 +9,28 @@ import (
 	"strings"
 
 	"github.com/Hy0sh/agents-crew/internal/brief"
+	"github.com/Hy0sh/agents-crew/internal/config"
+	"github.com/Hy0sh/agents-crew/internal/names"
 )
 
-// workerSpec is one worker as it will be started: the global worker-kind
-// and worker-model, unless the config overrides them for this worker.
+// workerSpec is one slot of the swarm: a worker as it will be started,
+// of its role (see buildSlots). Its name is its role and its rank in it.
 type workerSpec struct {
 	Kind  string `json:"kind"`
 	Model string `json:"model"`
+	// Role and Rank name the worker (reviewer2); Min is its role's min,
+	// how many of the role are kept open. Group, when set, is the key its
+	// floor is counted by instead of Role (a legacy kept worker).
+	Role  string `json:"role,omitempty"`
+	Rank  int    `json:"rank,omitempty"`
+	Min   int    `json:"min,omitempty"`
+	Group string `json:"group,omitempty"`
 	// PromptPath is absolute: the worker runs from its own worktree, where
 	// a path relative to the repo would point somewhere else.
 	PromptPath string `json:"prompt_path,omitempty"`
 	Prompt     string `json:"-"` // content, for the master's brief only
-	Overridden bool   `json:"overridden,omitempty"`
+	// Overridden is set for a role with tasks: it takes only those kinds.
+	Overridden bool `json:"overridden,omitempty"`
 	// Dir, when set, is where a worker outside the code starts: no
 	// worktree, environment or branch (see validateAgentDir).
 	Dir string `json:"dir,omitempty"`
@@ -52,61 +62,98 @@ func (w workerSpec) takes(t queuedTask) bool {
 	return !w.Overridden
 }
 
-// resolveWorkers builds the spec of each of the opts.workers workers. An
-// override for a worker that doesn't exist, or a prompt that can't be
-// read, refuses to start: a worker meant to verify that silently becomes
-// a generic one would skew every dispatch the master makes.
-func resolveWorkers(opts *startOptions, repo string) ([]workerSpec, error) {
-	workers := make([]workerSpec, opts.workers)
-	for i := range workers {
-		workers[i] = workerSpec{Kind: opts.workerKind, Model: opts.workerModel}
+// label is the worker's name everywhere: its role and its rank, reviewer2.
+func (w workerSpec) label() string { return w.Role + strconv.Itoa(w.Rank) }
+
+// group is the key the floor of its role is counted by.
+func (w workerSpec) group() string {
+	if w.Group != "" {
+		return w.Group
 	}
-	for key, o := range opts.overrides {
-		i, err := strconv.Atoi(key)
-		if err != nil || i < 1 || i > opts.workers {
-			return nil, fmt.Errorf("worker-overrides: %q names no worker (1 to %d)", key, opts.workers)
+	return w.Role
+}
+
+// buildSlots lays the roles out as the swarm's slots, role by role in
+// config order, max slots each, the swarm's kind, model and profile
+// under each role's own keys. Without roles, workers and min-workers
+// make one role, worker. A prompt that can't be read, or a dir that isn't
+// one, refuses to start: a worker meant to verify that silently becomes a
+// generic one would skew every dispatch the master makes.
+func buildSlots(opts *startOptions, repo string) ([]workerSpec, error) {
+	roles := opts.roles
+	if len(roles) == 0 {
+		max, min := opts.workers, opts.minWorkers
+		roles = config.Roles{{Name: "worker", Role: config.Role{Max: &max, Min: &min}}}
+	}
+	var slots []workerSpec
+	for _, r := range roles {
+		w := workerSpec{Kind: opts.workerKind, Model: opts.workerModel, Role: r.Name}
+		if r.Min != nil {
+			w.Min = *r.Min
 		}
-		w := &workers[i-1]
-		w.Overridden = true
-		if o.Kind != nil {
-			w.Kind = *o.Kind
+		if r.Kind != nil {
+			w.Kind = *r.Kind
 		}
-		if o.Model != nil {
-			w.Model = *o.Model
+		if r.Model != nil {
+			w.Model = *r.Model
 		}
-		if o.Prompt != nil {
-			path := *o.Prompt
+		if r.Prompt != nil {
+			path := *r.Prompt
 			if !filepath.IsAbs(path) {
 				path = filepath.Join(repo, path)
 			}
 			content, err := os.ReadFile(path)
 			if err != nil {
-				return nil, fmt.Errorf("worker-overrides %s: prompt unreadable: %w", key, err)
+				return nil, fmt.Errorf("roles %s: prompt unreadable: %w", r.Name, err)
 			}
 			w.PromptPath, w.Prompt = path, string(content)
 		}
-		if o.Dir != nil {
-			dir, err := validateAgentDir(repo, *o.Dir)
+		if r.Dir != nil {
+			dir, err := validateAgentDir(repo, *r.Dir)
 			if err != nil {
-				return nil, fmt.Errorf("worker-overrides %s: dir: %w", key, err)
+				return nil, fmt.Errorf("roles %s: dir: %w", r.Name, err)
 			}
 			w.Dir = dir
 		}
-		for _, k := range o.Tasks {
+		for _, k := range r.Tasks {
 			if k = strings.TrimSpace(k); k == "" || strings.HasPrefix(k, "-") || strings.ContainsAny(k, " \t") {
-				return nil, fmt.Errorf("worker-overrides %s: tasks: %q is not a task kind (one word, like need-review)", key, k)
+				return nil, fmt.Errorf("roles %s: tasks: %q is not a task kind (one word, like need-review)", r.Name, k)
 			}
 			w.Tasks = append(w.Tasks, k)
 		}
-		w.Keep = o.Keep != nil && *o.Keep
-		if o.Profile != nil {
-			if w.Dir != "" {
-				return nil, fmt.Errorf("worker-overrides %s: profile: a worker outside the code (dir) has no stack", key)
-			}
-			w.Profile = *o.Profile
+		w.Overridden = len(w.Tasks) > 0
+		if r.Profile != nil {
+			w.Profile = *r.Profile
+		}
+		for rank := 1; rank <= *r.Max; rank++ {
+			slot := w
+			slot.Rank = rank
+			slot.Tasks = slices.Clone(w.Tasks)
+			slots = append(slots, slot)
 		}
 	}
-	return workers, nil
+	return slots, nil
+}
+
+// slotOf is the slot arg names, by its label (reviewer2) or its herdr
+// name (reviewer2-<slug>): an exact match, so review1 never reads as
+// reviewer1. An unknown name is refused with the ones there are.
+func (p provisionPlan) slotOf(arg, slug string) (index int, label string, err error) {
+	for i, w := range p.Workers {
+		if l := w.label(); arg == l || arg == names.Agent(slug, l) {
+			return i + 1, l, nil
+		}
+	}
+	return 0, "", fmt.Errorf("%q is not a worker of this swarm (%s, or its herdr name <name>-%s); the worker and what follows are separate arguments", arg, strings.Join(p.labels(), ", "), slug)
+}
+
+// labels are the names of the swarm's workers, in slot order.
+func (p provisionPlan) labels() []string {
+	out := make([]string, len(p.Workers))
+	for i, w := range p.Workers {
+		out[i] = w.label()
+	}
+	return out
 }
 
 // distinctKinds lists each kind once, in worker order.
@@ -196,7 +243,7 @@ func describeWorkers(workers []workerSpec) string {
 	}
 	parts := make([]string, len(workers))
 	for i, w := range workers {
-		parts[i] = fmt.Sprintf("worker%d %s", i+1, brief.DescribeAgent(w.Kind, w.Model))
+		parts[i] = w.label() + " " + brief.DescribeAgent(w.Kind, w.Model)
 	}
 	return strings.Join(parts, ", ")
 }
@@ -212,8 +259,8 @@ type provisionPlan struct {
 	Stacks    bool   `json:"stacks,omitempty"`
 	MaxStacks int    `json:"max_stacks"`
 	Profile   string `json:"profile"`
-	// Workers is every worker that may be opened, worker1 first: its
-	// length is the configured count.
+	// Workers is every slot that may be opened, in role order (see
+	// buildSlots); slot i is pool index i+1.
 	Workers []workerSpec `json:"workers"`
 	// Inbox is where pings go for a master that watches one, "" when they
 	// are typed into it (see inboxWatchCommand).
