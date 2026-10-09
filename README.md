@@ -284,14 +284,17 @@ workerN`.
 - A task acw could not hand out (a branch held by a busy worker, a failed
   switch) goes back first in the queue, held with the reason, and is
   skipped until the master moves or removes it.
-- **Ending a task frees its branch.** `acw done` puts the worker back on
-  its waiting branch (the one it opened on) before freeing it, through
-  `wtm switch` for a worker with a stack. The branch of the task it ended
-  is then free for the next task on it: the review, then the fix of what
-  the review found, each going to whichever worker is free, with what it
-  needs in its brief. A worker with uncommitted changes is not moved, and
-  the master is told. A task given `--branch` that a free worker still
-  holds takes it back the same way; a busy worker keeps its own.
+- **Ending a task frees its branch.** `acw done` frees the worker at once;
+  the watcher then puts it back on its waiting branch (the one it opened
+  on) in the background, through `wtm switch` for a worker with a stack,
+  its output in the watcher's log. The branch of the task it ended is then
+  free for the next task on it: the review, then the fix of what the
+  review found, each going to whichever worker is free, with what it needs
+  in its brief. A task given `--branch` goes first to the free worker
+  still on that branch, which moves nothing, and a worker a queued task
+  waits for on its branch stays there. A worker with uncommitted changes
+  is not moved. A task given `--branch` that another free worker still
+  holds takes it back; a busy worker keeps its own.
 - A task queued `--after <id>` (repeatable) waits until each of those tasks
   is ended with `acw done`: still queued or on a busy worker, it is not.
   That is the `rebase --onto` that needs the pushed result of the task

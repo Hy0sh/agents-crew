@@ -249,3 +249,45 @@ func TestScheduleMinWorkers(t *testing.T) {
 		t.Errorf("schedule() = %+v, want one close, down to min-workers", got)
 	}
 }
+
+// A free worker left on its task's branch: a task for that branch goes to
+// it, before a lower free worker; without one it goes back to its waiting
+// branch, unless dirty or a queued task is for that branch; while it is
+// being moved, a task for that branch waits and the worker is not closed.
+func TestScheduleParksFreeWorkersOffHome(t *testing.T) {
+	old := t0.Add(-time.Hour)
+	p := testPool(3, 3, free(1, t0), free(2, t0))
+	polls := readyAll(1, 2)
+	polls[1] = workerPoll{Ready: true, Clean: true, Branch: "agents/worker1-a", Home: "agents/worker1-a"}
+	polls[2] = workerPoll{Ready: true, Clean: true, Branch: "feat/b", Home: "agents/worker2-a"}
+
+	got := schedule(p, tasks(queuedTask{ID: 18, Branch: "feat/b"}), polls, t0)
+	if want := []poolAction{{Kind: actAssign, Worker: 2, Task: 18}}; !slices.Equal(got, want) {
+		t.Errorf("task on its branch = %+v, want %+v", got, want)
+	}
+
+	got = schedule(p, taskQueue{}, polls, t0)
+	if want := []poolAction{{Kind: actPark, Worker: 2}}; !slices.Equal(got, want) {
+		t.Errorf("nothing queued = %+v, want %+v", got, want)
+	}
+
+	waiting := tasks(queuedTask{ID: 18, Branch: "feat/b", After: []int{17}}, queuedTask{ID: 17, Worker: 3})
+	if got := schedule(p, waiting, polls, t0); slices.Contains(got, poolAction{Kind: actPark, Worker: 2}) {
+		t.Errorf("a task waits for feat/b = %+v, want worker2 kept on it", got)
+	}
+
+	dirty := polls[2]
+	dirty.Clean = false
+	polls[2] = dirty
+	if got := schedule(p, taskQueue{}, polls, t0); len(got) != 0 {
+		t.Errorf("dirty = %+v, want it left alone", got)
+	}
+
+	p = testPool(3, 3, free(1, old), free(2, old))
+	p.MinWorkers = 0
+	polls[2] = workerPoll{Clean: true, Branch: "feat/b", Home: "agents/worker2-a", Parking: true}
+	got = schedule(p, tasks(queuedTask{ID: 18, Branch: "feat/b"}), polls, t0)
+	if want := []poolAction{{Kind: actClose, Worker: 1}}; !slices.Equal(got, want) {
+		t.Errorf("while parking = %+v, want %+v: task 18 waits, worker2 not closed", got, want)
+	}
+}
