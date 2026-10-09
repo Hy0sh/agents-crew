@@ -34,8 +34,8 @@ type workerSpec struct {
 	// Dir, when set, is where a worker outside the code starts: no
 	// worktree, environment or branch (see validateAgentDir).
 	Dir string `json:"dir,omitempty"`
-	// Tasks are the kinds of task it takes (queue add --kind); Keep keeps
-	// it open for the life of the swarm.
+	// Tasks are the kinds of task it takes (queue add --kind). Keep is only
+	// read from a pool written before roles (see normalizeLegacy).
 	Tasks []string `json:"tasks,omitempty"`
 	Keep  bool     `json:"keep,omitempty"`
 	// Profile is its own wtm stack profile, "" for the swarm's (see
@@ -147,6 +147,20 @@ func (p provisionPlan) slotOf(arg, slug string) (index int, label string, err er
 	return 0, "", fmt.Errorf("%q is not a worker of this swarm (%s, or its herdr name <name>-%s); the worker and what follows are separate arguments", arg, strings.Join(p.labels(), ", "), slug)
 }
 
+// minOpen is how many workers the roles keep open with nothing queued:
+// each role's min, once.
+func minOpen(slots []workerSpec) int {
+	n := 0
+	seen := map[string]bool{}
+	for _, s := range slots {
+		if !seen[s.group()] {
+			seen[s.group()] = true
+			n += s.Min
+		}
+	}
+	return n
+}
+
 // labelOf is slot index's name, or the index's legacy one outside the
 // slots.
 func (p provisionPlan) labelOf(index int) string {
@@ -181,7 +195,7 @@ func distinctKinds(workers []workerSpec) []string {
 func briefWorkers(workers []workerSpec) []brief.Worker {
 	out := make([]brief.Worker, len(workers))
 	for i, w := range workers {
-		out[i] = brief.Worker{Kind: w.Kind, Model: w.Model, Prompt: w.Prompt, Overridden: w.Overridden, Dir: w.Dir, Tasks: w.Tasks, Keep: w.Keep, Profile: w.Profile}
+		out[i] = brief.Worker{Kind: w.Kind, Model: w.Model, Label: w.label(), Role: w.Role, Min: w.Min, Prompt: w.Prompt, Dir: w.Dir, Tasks: w.Tasks, Profile: w.Profile}
 	}
 	return out
 }

@@ -48,9 +48,9 @@ type MasterData struct {
 	// PingingWorkers names the workers that have the Stop hook (claude
 	// ones), empty when none does.
 	PingingWorkers string
-	// WorkerOverrides describes the workers configured apart from the
-	// others (kind, model, standing instructions), empty when none is.
-	WorkerOverrides string
+	// Roles describes the workers role by role (names, kind, model,
+	// what they take, standing instructions), empty for one plain role.
+	Roles string
 	// InboxWatch is the command the master arms a Monitor on to receive
 	// pings, empty when they are typed into its input instead. Kept for
 	// custom briefs; the built-in one uses InboxNext.
@@ -126,17 +126,17 @@ type Params struct {
 type Worker struct {
 	Kind  string
 	Model string
+	// Label is its name (reviewer2), Role the role it is of, Min how many
+	// of its role are kept open.
+	Label string
+	Role  string
+	Min   int
 	// Prompt is the content of its standing instructions, "" when none.
 	Prompt string
-	// Overridden is set when the config gave this worker its own
-	// settings, so the brief only lists workers that differ.
-	Overridden bool
 	// Dir is where a worker outside the code runs, "" for a coder.
 	Dir string
-	// Tasks are the kinds of task it takes (acw queue add --kind); Keep,
-	// that it stays open for the life of the swarm.
+	// Tasks are the kinds of task it takes (acw queue add --kind).
 	Tasks []string
-	Keep  bool
 	// Profile is its own wtm stack profile, "" for the swarm's.
 	Profile string
 }
@@ -162,12 +162,12 @@ func newMasterData(p Params) MasterData {
 		MinWorkers:       p.MinWorkers,
 		IdleCloseMinutes: p.IdleCloseMinutes,
 		WorkerAgent:      workerAgent(p.Slug, p.Workers),
-		WorkerNames:      workerNamesList(p.Slug, n),
+		WorkerNames:      workerNamesList(p.Slug, p.Workers),
 		EnvCapRule:       envCapRule(coders(p.Workers), p.Stacks, p.MaxStacks),
 		StackProfileRule: stackProfileRule(p.Profile),
 		RepoRules:        strings.TrimSpace(p.Notes),
 		PingingWorkers:   pingingWorkers(p.Slug, p.Workers),
-		WorkerOverrides:  workerOverrides(p.Slug, p.Workers),
+		Roles:            rolesSection(p.Slug, p.Workers),
 		InboxWatch:       p.InboxWatch,
 		InboxNext:        p.InboxNext,
 		SilenceMinutes:   p.SilenceMinutes,
@@ -204,7 +204,7 @@ func workerAgent(slug string, workers []Worker) string {
 	}
 	parts := make([]string, len(workers))
 	for i, w := range workers {
-		parts[i] = names.Worker(slug, i+1) + " " + w.Kind
+		parts[i] = names.Agent(slug, w.Label) + " " + w.Kind
 	}
 	return "mixed: " + strings.Join(parts, ", ")
 }
@@ -224,9 +224,9 @@ func coders(workers []Worker) int {
 // (see workerArgs in cmd/acw).
 func pingingWorkers(slug string, workers []Worker) string {
 	var list []string
-	for i, w := range workers {
+	for _, w := range workers {
 		if w.Kind == "claude" {
-			list = append(list, names.Worker(slug, i+1))
+			list = append(list, names.Agent(slug, w.Label))
 		}
 	}
 	return strings.Join(list, ", ")
@@ -246,46 +246,60 @@ func kindFlags(kinds []string) string {
 	return strings.Join(flags, " or ")
 }
 
-func workerOverrides(slug string, workers []Worker) string {
+// rolesSection tells the master the workers role by role: their names,
+// what runs them, which tasks they take, and their instructions in full,
+// once per role: it needs them to dispatch (a worker told to verify must
+// not get a feature to write), and must copy them into every brief of a
+// role whose kind has no system prompt acw can set. Empty for one plain
+// role, the swarm's own: there is nothing to tell apart.
+func rolesSection(slug string, workers []Worker) string {
+	var roles [][]Worker // consecutive workers of one role, in slot order
+	for _, w := range workers {
+		if n := len(roles); n > 0 && roles[n-1][0].Role == w.Role {
+			roles[n-1] = append(roles[n-1], w)
+		} else {
+			roles = append(roles, []Worker{w})
+		}
+	}
+	if len(roles) == 1 {
+		if w := roles[0][0]; w.Prompt == "" && len(w.Tasks) == 0 && w.Dir == "" && w.Profile == "" {
+			return ""
+		}
+	}
 	var b strings.Builder
-	var generic []string
-	for i, w := range workers {
-		if !w.Overridden {
-			generic = append(generic, names.Worker(slug, i+1))
-			continue
+	for _, ws := range roles {
+		w := ws[0]
+		agents := make([]string, len(ws))
+		for i, x := range ws {
+			agents[i] = names.Agent(slug, x.Label)
 		}
-		name := names.Worker(slug, i+1)
-		fmt.Fprintf(&b, "- %s runs on %s", name, DescribeAgent(w.Kind, w.Model))
-		if w.Dir != "" {
-			fmt.Fprintf(&b, ", outside the code, in %s: no worktree, no environment, no branch. NEVER give it code, "+
-				"and the worktree, branch, environment and PR rules above do not apply to it; "+
-				"its status file is at the same absolute path as the others', under the repo", w.Dir)
-		}
+		fmt.Fprintf(&b, "- %s (role %s, %s)", strings.Join(agents, ", "), w.Role, DescribeAgent(w.Kind, w.Model))
 		if len(w.Tasks) > 0 {
-			fmt.Fprintf(&b, ". It takes the tasks queued with %s, and only those (or what you send it with --worker); no general-purpose worker takes them",
-				kindFlags(w.Tasks))
+			fmt.Fprintf(&b, ": take only the tasks queued with %s; no other role takes them", kindFlags(w.Tasks))
+		} else {
+			b.WriteString(": take the tasks queued without `--kind`")
 		}
-		if w.Keep {
-			b.WriteString(". It stays open for the life of the swarm, ready for the next one")
+		if w.Min > 0 {
+			fmt.Fprintf(&b, "; %d kept open even with nothing queued", w.Min)
+		}
+		if w.Dir != "" {
+			fmt.Fprintf(&b, "; outside the code, in %s: no worktree, no environment, no branch. NEVER give them code, "+
+				"and the worktree, branch, environment and PR rules above do not apply to them; "+
+				"their status files are at the same absolute path as the others', under the repo", w.Dir)
 		}
 		if w.Profile != "" {
-			fmt.Fprintf(&b, ". Its environment runs the %s stack profile, not the swarm's: when a brief has it cut a branch, the switch takes `--profile %s`; give it no task that needs a service that profile leaves out", w.Profile, w.Profile)
+			fmt.Fprintf(&b, "; their environment runs the %s stack profile, not the swarm's: when a brief has one cut a branch, the switch takes `--profile %s`; give them no task that needs a service that profile leaves out", w.Profile, w.Profile)
 		}
 		if w.Prompt == "" {
-			b.WriteString(", with no instructions of its own.\n")
+			b.WriteString("; no instructions of their own.\n")
 			continue
 		}
 		if w.Kind == "claude" {
-			b.WriteString(". Its own instructions are already in its system prompt, they survive its resets: do NOT copy them into its briefs, only take them into account when assigning it tasks.\n")
+			b.WriteString(". Their own instructions are already in their system prompt, they survive their resets: do NOT copy them into their briefs, only take them into account when assigning them tasks.\n")
 		} else {
-			b.WriteString(". Its agent has no system prompt this setup can set: copy its own instructions VERBATIM into EACH of its briefs, after every reset, and take them into account when assigning it tasks.\n")
+			b.WriteString(". Their agent has no system prompt this setup can set: copy their own instructions VERBATIM into EACH of their briefs, after every reset, and take them into account when assigning them tasks.\n")
 		}
-		fmt.Fprintf(&b, "<<<INSTRUCTIONS FOR %s\n%s\nEND OF INSTRUCTIONS FOR %s>>>\n", name, strings.TrimSpace(w.Prompt), name)
-	}
-	// Said rather than left to inference: without it the master has to
-	// guess that a worker it was told nothing about takes everything else.
-	if b.Len() > 0 && len(generic) > 0 {
-		fmt.Fprintf(&b, "- %s: no instructions of their own, general-purpose, they take the tasks that belong to none of the workers above.\n", strings.Join(generic, ", "))
+		fmt.Fprintf(&b, "<<<INSTRUCTIONS FOR role %s\n%s\nEND OF INSTRUCTIONS FOR role %s>>>\n", w.Role, strings.TrimSpace(w.Prompt), w.Role)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -355,10 +369,10 @@ func stackProfileRule(profile string) string {
 		"and bring it back to \"%s\" once the task is done: a heavier profile takes more memory from all the others", profile, profile)
 }
 
-func workerNamesList(slug string, n int) string {
-	list := make([]string, n)
-	for i := 1; i <= n; i++ {
-		list[i-1] = names.Worker(slug, i)
+func workerNamesList(slug string, workers []Worker) string {
+	list := make([]string, len(workers))
+	for i, w := range workers {
+		list[i] = names.Agent(slug, w.Label)
 	}
 	return strings.Join(list, ", ")
 }

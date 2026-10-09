@@ -36,7 +36,7 @@ func queueCommand() *cobra.Command {
 
 	var o addOptions
 	add := &cobra.Command{
-		Use:   "add <brief-file> [--branch <b>] [--base <ref>] [--worker workerN] [--kind <kind>] [--after <id>]... [--after-merge <id>]... [--top]",
+		Use:   "add <brief-file> [--branch <b>] [--base <ref>] [--worker <worker>] [--kind <kind>] [--after <id>]... [--after-merge <id>]... [--top]",
 		Short: "Queue a task: the brief is copied in, the file may change afterwards",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

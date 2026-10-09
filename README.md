@@ -106,8 +106,8 @@ the terminal too.
 | `acw stop` | tear down the swarm of the current directory | you |
 | `acw status [--repo <dir>]` | every worker at a glance | master, you |
 | `acw queue [--repo <dir>] [add \| move \| remove ...]` | list or change the task queue | master, you |
-| `acw done [--repo <dir>] workerN [task-id]` | end a worker's task | master, you |
-| `acw tell [--repo <dir>] workerN [message...]` | leave a worker a message; `--command /x` types a slash command | master, you |
+| `acw done [--repo <dir>] <worker> [task-id]` | end a worker's task | master, you |
+| `acw tell [--repo <dir>] <worker> [message...]` | leave a worker a message; `--command /x` types a slash command | master, you |
 | `acw clear [--repo <dir>] worker1 [worker2...]` | reset workers' context, confirmed | you |
 | `acw dispatch [--repo <dir>] worker1 <brief-file>` | hand a worker a task outside the queue | you |
 | `acw pause` / `acw resume` | stop / restart the workers' stacks | you |
@@ -140,7 +140,7 @@ workspace. A swarm running for another repo is left alone.
   with the decisions still parked, then marks it used. `--no-handoff`
   skips it. `acw board handoff --repo <dir> < file` leaves one by hand.
 - **Branches**: a worker's task branch is kept with its commits, pushed or
-  not. Only the `agents/workerN-…` branch acw cut for it is deleted, and
+  not. Only the `agents/<worker>-…` branch acw cut for it is deleted, and
   only when nothing was committed on it.
 - **A worktree whose stack wtm lost track of** (the worktree changed branch
   without `wtm switch`) is kept, with the repair printed: removed, it would
@@ -178,10 +178,10 @@ replaces with its own (`ctx 34% · 5h 78%`) to record that usage.
 
 ```sh
 acw queue                                   # workers and queue
-acw queue add <brief-file> [--branch <b>] [--worker workerN] [--kind <kind>] [--after <id>]... [--after-merge <id>]... [--top]
+acw queue add <brief-file> [--branch <b>] [--worker <worker>] [--kind <kind>] [--after <id>]... [--after-merge <id>]... [--top]
 acw queue move <id> <position>
 acw queue remove <id>
-acw done workerN [task-id]
+acw done <worker> [task-id]
 ```
 
 See [Pool and queue](#pool-and-queue).
@@ -191,7 +191,7 @@ See [Pool and queue](#pool-and-queue).
 How the master speaks to a worker in the middle of a task. The message
 comes on stdin (a quoted heredoc) or as arguments.
 
-- It waits in `workerN.tell`. At the worker's next turn end, the Stop hook
+- It waits in `<worker>.tell`. At the worker's next turn end, the Stop hook
   hands it over as its block decision: Claude Code gives it to the worker
   as its next input, and nothing is typed.
 - A worker already idle gets it from the watcher, typed in. Unless its
@@ -202,7 +202,7 @@ comes on stdin (a quoted heredoc) or as arguments.
 - A new task drops the messages still waiting for the previous one.
 
 A message reaches the worker as text, so a slash command sent that way is
-only read, never run. `acw tell workerN --command /reload-plugins` types
+only read, never run. `acw tell <worker> --command /reload-plugins` types
 the command itself into the worker's input instead: it waits for the
 worker to be idle, and refuses one that is blocked or whose input line
 holds something. `/clear` is refused there: `acw clear` confirms the reset.
@@ -247,7 +247,7 @@ With `--branch <b>` (a fix, a rebase on a known branch) it first runs
   another session may never have followed origin's. Behind origin's, it is
   brought up to it after the switch (a worker rebasing the old copy would
   force-push over the commits it lacked). Diverged from it, the task is
-  refused. What was done is in the master's "task #N → workerN" line.
+  refused. What was done is in the master's "task #N → <worker>" line.
 - Fetches take turns on a lock in the repo's git dir: two workers taking a
   task at once used to fail on `cannot lock ref`.
 
@@ -278,11 +278,11 @@ runs is acw's, from fixed rules a model cannot bend.
 **Handing out.** acw's watcher hands tasks out in queue order, each to a
 free worker whose agent is idle, with the same steps as `acw dispatch`
 (branch if asked, confirmed `/clear`, brief). The master hears `task #N →
-workerN`.
+<worker>`.
 
-- A worker set apart in [`worker-overrides`](#keys) only takes the tasks
-  queued for it with `--worker workerN`, or with `--kind` for a kind its
-  `tasks` lists; the others take everything else.
+- A task queued `--kind X` goes only to a worker whose [role](#roles)
+  lists X in its `tasks`; a task with no `--kind`, only to a worker whose
+  role lists none; `--worker <name>` sends it to that one worker.
 - A task acw could not hand out (a branch held by a busy worker, a failed
   switch) goes back first in the queue, held with the reason, and is
   skipped until the master moves or removes it.
@@ -331,7 +331,7 @@ once.
 - Layout: the master keeps the left 60 % of the screen; the workers share
   one column on the right, each new one halving the tallest worker pane.
 
-**Ending a task.** A task ends when the master runs `acw done workerN <id>`,
+**Ending a task.** A task ends when the master runs `acw done <worker> <id>`,
 after checking its result: never on the worker's word, nor on a merged PR,
 since acw cannot tell which task a PR belongs to. With the id, a `done` for
 a task already over is refused instead of freeing the worker from the next
@@ -382,7 +382,7 @@ finished PR could sit unnoticed until someone thought to look.
   `acw tell` says "status unchanged", since the master waits for that
   answer. A worker whose status has not moved for 15 minutes of turn ends
   pings once, saying so, for a worker looping or stuck.
-- It keeps what it saw in `workerN.ping` for the next turn.
+- It keeps what it saw in `<worker>.ping` for the next turn.
 
 Workers of any other kind have no hooks: the master polls them.
 
@@ -395,7 +395,7 @@ left set long after the answer):
 - `blocked_on` is cleared once `state` no longer says blocked (any wording
   holding `block` or `bloq`, since workers write it freely);
 - `state_since` is the turn end at which the current `state` was first
-  seen, kept in `workerN.since` since the worker rewrites its file whole.
+  seen, kept in `<worker>.since` since the worker rewrites its file whole.
   Workers waiting in the same state can be ordered without the master's
   memory.
 
@@ -521,7 +521,7 @@ https://github.com/user-attachments/assets/e3bac7fd-445d-46b1-b4a0-219743d12541
   optional argument, the current directory by default.
 - **With flags**, only the keys given are written; the others keep their
   value. Each key in the [table below](#keys) has a flag of the same name,
-  except `presets` and `worker-overrides`.
+  except `presets` and `roles`.
 - **Without flags**, every key is asked in turn, its current value in
   brackets:
 
@@ -536,7 +536,7 @@ https://github.com/user-attachments/assets/e3bac7fd-445d-46b1-b4a0-219743d12541
   or deleting the original changes nothing. Give the path again to replace
   the copy.
 - The command ends by printing the entry as acw will read it.
-- `presets` and `worker-overrides` are nested, so they are edited in the
+- `presets` and `roles` are nested, so they are edited in the
   JSON by hand. The commands keep them, and keep the other repos' entries,
   but rewrite the file whole: hand-made formatting is lost.
 
@@ -586,14 +586,14 @@ The commands above write this; editing it directly works just as well.
 | `brief-extra` | *(no flag)* | none: a template appended to the brief, see [Custom brief template](#custom-brief-template) |
 | `profile` | *(no flag)* | none: the whole stack |
 | `notes` | *(no flag)* | none |
-| `worker-overrides` | *(no flag)* | none: every worker as above |
+| `roles` | *(no flag)* | none: one role, `worker`, of `workers` and `min-workers`, see [`roles`](#roles) |
 | `master-dir` | *(no flag)* | none: the master starts in the repo |
 | `silence-minutes` | *(no flag)* | `30`: minutes a working worker may show no activity before acw's watcher tells the master |
 | `pr-watch` | `--pr-watch` | `false` |
 | `presets` | *(picked with `--preset`)* | none |
 
 "No flag" means no launch flag; `acw project` has one for each of these
-but `worker-overrides` and `presets`.
+but `roles` and `presets`.
 
 #### `profile`
 
@@ -640,67 +640,70 @@ committed. Or committed in the repo, so the team shares and versions it,
 with a relative path (`"notes": "docs/acw-rules.md"`): it is read from the
 repo.
 
-#### `worker-overrides`
+#### `roles`
 
-Sets one worker apart from the others: its own kind, model and standing
-instructions. Not predefined roles: whatever you write in its prompt file.
+Describes the swarm's workers by role rather than by number: what each
+kind of worker runs, which tasks it takes, how many may be open. The
+role's name is its workers' name everywhere: `reviewer1`, `reviewer2`.
 
 ```json
-"worker-overrides": {
-  "1": { "prompt": "~/.config/acw/planner.md", "model": "opus" },
-  "3": { "kind": "codex", "model": "gpt-5-codex", "prompt": "verifier.md" }
+"roles": {
+  "worker":   { "max": 4, "min": 3, "model": "sonnet", "profile": "light" },
+  "reviewer": { "max": 2, "model": "opus", "prompt": "~/.config/acw/reviewer.md",
+                "tasks": ["need-review"], "profile": "api" },
+  "analyst":  { "max": 1, "model": "opus", "prompt": "~/.config/acw/analyst.md",
+                "tasks": ["analysis"], "dir": "~/notes/some-project" }
 }
 ```
 
-- The key is the worker's index, `1` to `workers`. A worker with no entry
-  takes `worker-kind` and `worker-model`, and a field left out of an entry
-  falls back the same way (`"model": ""` still means no `--model`).
-- `prompt` is a file, with the same path rules as `notes`. It has to
-  survive the context reset before every task, so it is not sent as a
-  message. A `claude` worker gets it as a system prompt
-  (`--append-system-prompt-file`). Any other kind has no system prompt acw
-  knows how to set, so the master copies it verbatim into each of that
-  worker's briefs.
-- The master's brief lists every overridden worker with its instructions
-  in full, and tells it to dispatch accordingly: a worker whose prompt says
-  to verify does not get a feature to write.
+| key | meaning | left out |
+|---|---|---|
+| `max` | how many of the role may be open | required, at least 1 |
+| `min` | how many are kept open with nothing queued | `0` |
+| `kind` / `model` | its agent | `worker-kind` / `worker-model` (`""` means no `--model`) |
+| `prompt` | standing instructions, a file | none |
+| `dir` | works outside the code (see [below](#working-directories-master-dir-and-dir)) | in a worktree |
+| `tasks` | the kinds of task it takes | the tasks with no kind |
+| `profile` | its wtm stack profile | `profile` |
+
+- **Names.** A role's workers are named after it, ranked from 1 in config
+  order: `worker1` to `worker4`, `reviewer1`, `reviewer2`, `analyst1`.
+  That name is the herdr agent and pane (`reviewer2-<hash>`), the status
+  files, the worktree and its waiting branch (`agents/reviewer2-<stamp>`),
+  what the master reads and what it types (`acw done reviewer2 58`,
+  `--worker reviewer2`). A role name is lowercase letters and `-`, at most
+  20, not ending with a digit, and not `master`.
+- **Which tasks.** A task queued `--kind need-review` goes only to a role
+  that lists `need-review`; a task with no `--kind`, only to a role that
+  lists none. No other worker takes a review, even free while the
+  reviewers are busy: it waits for them. `acw queue add --kind X` is
+  refused when no role lists X, so a typo fails at once. The kinds are
+  yours to name: one word each.
+- **How many.** The pool opens a role's workers as tasks for it come, up
+  to `max`, and keeps `min` of them open even with nothing queued: the
+  first review doesn't wait for a worktree and a stack. Above `min`, a
+  free worker closes after `idle-close-minutes`. A task with no kind opens
+  the first role in config order that takes it and has room. `max-stacks`
+  still caps the environments of all roles together.
+- **`prompt`** has the same path rules as `notes`. It has to survive the
+  context reset before every task, so it is not sent as a message: a
+  `claude` worker gets it as a system prompt; any other kind has no system
+  prompt acw can set, so the master copies it verbatim into each brief.
+  The master's brief lists each role once, with its instructions in full.
+- **`profile`** is the wtm stack profile the role's workers start on
+  instead of the swarm's (`wtm project profiles <project>` lists them): a
+  reviewer of backend changes on `db` and `backend` holds less memory than
+  a full stack. A role with `dir` has no stack, and is refused one.
 - Only `claude` workers ping the master (the Stop hook). In a mixed swarm
   the brief says which ones do, and the master watches the others.
-- Refused at launch: an index that names no worker (`"4"` with 3 workers,
-  checked after `-n`), an unknown field, and a `prompt` file that can't be
-  read. Unlike `notes`, that last one is not just a warning: a worker meant
-  to verify that silently becomes a generic one would skew every dispatch.
-
-**Kinds of task and kept workers.** A worker can be given work by kind
-rather than by number, and kept open:
-
-```json
-"worker-overrides": {
-  "5": { "model": "opus", "prompt": "~/.config/acw/reviewer.md", "tasks": ["need-review"], "keep": true, "profile": "api" },
-  "6": { "model": "opus", "dir": "~/notes/some-project", "tasks": ["analysis"] }
-}
-```
-
-- `tasks` lists the kinds it takes. A task queued `--kind need-review` goes
-  only to a worker that lists `need-review`. A general-purpose worker never
-  takes it, even when free and the reviewer is busy: the task waits for
-  the reviewer. A task with no `--kind` never goes to a worker with
-  `tasks`. The kinds are yours to name: one word each, no list in acw.
-- `acw queue add --kind X` is refused when no worker lists `X`, so a typo
-  fails at once instead of waiting forever. Given with `--worker`, that
-  worker must list it.
-- `keep: true` opens the worker with the swarm and never closes it for
-  being idle, so the first review does not wait for a worktree and a
-  stack. It is on top of `min-workers`, and its stack holds a `max-stacks`
-  slot the whole time.
-- `profile` is the wtm stack profile this worker starts on instead of the
-  swarm's (`wtm project profiles <project>` lists them): a reviewer of
-  backend changes on `db` and `backend` only holds less memory than a
-  full stack. acw uses it at the opening, at each task's switch and at
-  `acw resume`, and the master's brief tells it, for the switch the worker
-  runs itself. A worker with `dir` has no stack, and is refused one.
-- Like any overridden worker, it otherwise only takes what is sent to it
-  with `--worker`.
+- **Without `roles`**, `workers` and `min-workers` make one role, `worker`:
+  a config without roles runs as before, its workers named `worker1`…
+- Refused at launch: `roles` together with `workers` or `min-workers` (in
+  the entry, or a preset over it), a role without `max`, `min` above
+  `max`, a bad role name, an unknown key, and a `prompt` that can't be
+  read: a worker meant to verify that silently becomes a generic one
+  would skew every dispatch. `worker-overrides`, which roles replace, is
+  refused with the `roles` to write instead.
 
 ### Working directories: `master-dir` and `dir`
 
@@ -710,15 +713,16 @@ brings the project's product tooling, next to the code:
 
 ```json
 "master-dir": "~/Drive/some-project-studio",
-"worker-overrides": {
-  "1": { "dir": "~/Drive/some-project-studio", "prompt": "~/.config/acw/po.md" }
+"roles": {
+  "worker": { "max": 3 },
+  "po":     { "max": 1, "dir": "~/Drive/some-project-studio", "prompt": "~/.config/acw/po.md", "tasks": ["product"] }
 }
 ```
 
-- **`dir` makes a worker one outside the code.** It starts in that folder
-  with no worktree, no environment and no branch, and the master's brief
-  says never to give it code. A worker without `dir` is a coder, in its
-  worktree. No role to declare: the folder decides.
+- **`dir` makes a role's workers ones outside the code.** They start in
+  that folder with no worktree, no environment and no branch, and the
+  master's brief says never to give them code. A role without `dir`
+  codes, in worktrees.
 - **Whoever codes stays in a worktree.** A `dir` or `master-dir` inside the
   repo (or the repo itself) is refused: that agent would work on your main
   checkout, with no isolation from the others.
@@ -742,14 +746,14 @@ variants of the entry, and `--preset` picks one at launch:
 
 ```json
 "/Users/me/dev/some-repo": {
-  "workers": 3,
+  "roles": { "worker": { "max": 3 } },
   "presets": {
     "feature": {
-      "workers": 4,
       "brief": "~/.config/acw/pipeline-brief.md",
-      "worker-overrides": {
-        "1": { "prompt": "~/.config/acw/planner.md", "model": "opus" },
-        "4": { "prompt": "~/.config/acw/reviewer.md" }
+      "roles": {
+        "planner":  { "max": 1, "model": "opus", "prompt": "~/.config/acw/planner.md", "tasks": ["plan"] },
+        "worker":   { "max": 2 },
+        "reviewer": { "max": 1, "prompt": "~/.config/acw/reviewer.md", "tasks": ["need-review"] }
       }
     }
   }
@@ -761,9 +765,10 @@ acw --preset feature
 ```
 
 - A preset takes the entry's keys. Each key it sets **replaces the entry's
-  whole value**, `worker-overrides` included: merged index by index, a
-  preset would inherit roles written for another composition of the swarm.
-  A key it leaves out keeps the entry's value.
+  whole value**, `roles` included: merged role by role, a preset would
+  inherit roles written for another composition of the swarm. A key it
+  leaves out keeps the entry's value; a preset's `workers` over the
+  entry's `roles` is refused.
 - A pipeline (plan, then code, then review) is a different way of
   dispatching, not only different workers: give the preset its own `brief`,
   or the master will use the roles as interchangeable task runners. A mode
@@ -815,16 +820,16 @@ and keep the variables you need:
 | Variable | Content |
 |---|---|
 | `{{.RepoPath}}` | absolute path of the repo acw runs in |
-| `{{.N}}` | how many workers acw may open at once (`workers`) |
-| `{{.MinWorkers}}` | how many it keeps open with nothing queued (`min-workers`) |
+| `{{.N}}` | how many workers acw may open at once (`workers`, or the roles' `max` together) |
+| `{{.MinWorkers}}` | how many it keeps open with nothing queued (`min-workers`, or the roles' `min` together) |
 | `{{.IdleCloseMinutes}}` | how long a free worker above `min-workers` stays open with nothing queued for it (`idle-close-minutes`) |
 | `{{.WorkerAgent}}` | the workers' Herdr kind (`claude`, `codex`...) when they all share one; otherwise `mixed: ` followed by each worker's kind |
-| `{{.WorkerNames}}` | the workers' Herdr names, comma-separated (`worker1-<slug>, worker2-<slug>`) |
+| `{{.WorkerNames}}` | the workers' Herdr names, comma-separated (`worker1-<slug>, reviewer1-<slug>`) |
 | `{{.EnvCapRule}}` | the stack capacity rule: how many environments may be up, which acw enforces when it opens a worker in the code |
 | `{{.StackProfileRule}}` | the wtm profile rule, empty when no `profile` is configured |
 | `{{.RepoRules}}` | the `notes` file's content, empty when none is configured |
 | `{{.PingingWorkers}}` | the names of the workers that ping the master on each turn (the `claude` ones, which have the Stop hook), empty when none does |
-| `{{.WorkerOverrides}}` | each worker configured apart in `worker-overrides`: its kind, model and standing instructions in full, and whether the master must copy them into its briefs; empty when none is |
+| `{{.Roles}}` | the workers role by role: their names, kind and model, the tasks they take, their profile or folder, and their standing instructions in full with whether the master must copy them into briefs; empty for one plain role |
 | `{{.InboxWatch}}` | the command the master must arm a Monitor on to receive pings and acw's messages, empty when the master is not `claude`. A custom brief that mentions neither it nor `{{.InboxNext}}` gets pings typed into the master's input, as before, with a warning at launch |
 | `{{.InboxNext}}` | the command the master runs in the background to read its next messages, and runs again after each batch; empty when the master is not `claude`. The built-in brief uses this one |
 | `{{.SilenceMinutes}}` | the `silence-minutes` value: how long a working worker may show no activity before acw's watcher tells the master |
@@ -846,7 +851,7 @@ and keep the variables you need:
   of sending a brief with a hole in it.
 - Only the brief is a template. The `notes` file is injected as is: a
   `{{.WorkerNames}}` written in it stays literal.
-- Before `worker-overrides`, a template could test `{{if eq .WorkerAgent
+- Before roles, a template could test `{{if eq .WorkerAgent
   "claude"}}` to know whether pings come in. That still works when all
   workers are Claude, but `{{if .PingingWorkers}}` is right for a mixed
   swarm too.
@@ -972,7 +977,7 @@ that ends in a branch and a PR; run reviews separately.
   someone running workers interactively actually hits it.
 - **`agent read` is a TUI capture, not text**: truncated lines, spinners,
   occasional corruption mid-redraw. The shared per-worker status file
-  (`.claude/worktrees/.acw-status/workerN.json`, worker-written, timestamps
+  (`.claude/worktrees/.acw-status/<worker>.json`, worker-written, timestamps
   stamped by acw) is cheaper and more reliable for routine checks. It's
   still self-reported, so the brief also tells the master to cross-check
   objective signals (git status, CI) before trusting a push.

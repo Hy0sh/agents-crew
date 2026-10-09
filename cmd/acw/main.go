@@ -387,7 +387,7 @@ func main() {
 
 	var clearRepo func() (string, error)
 	clearCmd := &cobra.Command{
-		Use:   "clear workerN...",
+		Use:   "clear <worker>...",
 		Short: "Reset workers' context before a new task, and confirm it took",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -408,7 +408,7 @@ func main() {
 	var dispatchRepo func() (string, error)
 	var br branchRequest
 	dispatch := &cobra.Command{
-		Use:   "dispatch workerN <brief-file> [--branch <b>] [--base <ref>]",
+		Use:   "dispatch <worker> <brief-file> [--branch <b>] [--base <ref>]",
 		Short: "Give a worker its next task: wait until it is idle, reset its context, type the brief",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -468,7 +468,7 @@ func main() {
 	var tellRepo func() (string, error)
 	var slash string
 	tell := &cobra.Command{
-		Use:   "tell workerN [message...]",
+		Use:   "tell <worker> [message...]",
 		Short: "Leave a worker a message, read from stdin without one: it gets it at the end of its turn, or at once when idle",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

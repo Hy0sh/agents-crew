@@ -6,6 +6,39 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `roles` describes a swarm's workers by role instead of by number: each
+  role says what its workers run (`kind`, `model`, `prompt`, `dir`,
+  `profile`), which tasks they take (`tasks`), and how many may be open
+  (`max`) or are kept open (`min`). Two identical reviewers are written
+  once; the first role in config order that takes a task with no kind is
+  the one opened for it.
+
+### Changed
+
+- A worker is named after its role, everywhere: `reviewer2` is its herdr
+  agent and pane, its status files, its worktree and waiting branch, what
+  the master reads in its messages, `acw status` and `acw queue`, and
+  what it types (`acw done reviewer2`, `--worker reviewer2`). Without
+  `roles`, `workers` and `min-workers` make one role, `worker`: names
+  stay `worker1`… A worker's name is checked against the swarm's, so
+  `--worker` needs a running swarm.
+- The master's brief describes the workers role by role, each role's
+  instructions once.
+
+### Removed
+
+- `worker-overrides`, and its `keep`: a config that still has it is
+  refused with the `roles` to write instead. `keep: true` is a role's
+  `min: 1`.
+
+### Upgrading
+
+- Rewrite `worker-overrides` as `roles`: acw prints the equivalent when it
+  refuses the config. A swarm started before keeps its `workerN` names
+  until its next `acw start`.
+
 ## [0.21.0] - 2026-10-09
 
 ### Added

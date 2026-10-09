@@ -57,6 +57,9 @@ func TestBuildSlotsFromRoles(t *testing.T) {
 	if plan.profileOf(1) != "light" || plan.profileOf(3) != "api" {
 		t.Errorf("profiles = %q, %q", plan.profileOf(1), plan.profileOf(3))
 	}
+	if minOpen(got) != 1 {
+		t.Errorf("minOpen = %d, want 1: worker's min, counted once", minOpen(got))
+	}
 	for _, bad := range []string{"", "need review", "--all"} {
 		opts.roles = config.Roles{{Name: "reviewer", Role: config.Role{Max: intp(1), Tasks: []string{bad}}}}
 		if _, err := buildSlots(opts, t.TempDir()); err == nil {

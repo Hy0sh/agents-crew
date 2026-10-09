@@ -96,7 +96,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		Slug:             slug,
 		Stacks:           stacks,
 		MaxStacks:        maxStacks,
-		MinWorkers:       opts.minWorkers,
+		MinWorkers:       minOpen(workers),
 		IdleCloseMinutes: opts.idleCloseMinutes,
 		Profile:          opts.profile,
 		Notes:            notes,
