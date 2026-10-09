@@ -146,3 +146,14 @@ func TestProvisionPlanRoundTrip(t *testing.T) {
 		t.Errorf("round trip = %+v, want %+v", got, plan)
 	}
 }
+
+// A worker stopping for approval writes its document where it survives
+// it, and names it in its status: the user reads it later, on the board.
+func TestWorkerRoleDocumentToApprove(t *testing.T) {
+	role := workerRole("worker2", "/s/worker2.json")
+	for _, want := range []string{"doc_path", "outside the repo"} {
+		if !strings.Contains(role, want) {
+			t.Errorf("worker role lacks %q", want)
+		}
+	}
+}

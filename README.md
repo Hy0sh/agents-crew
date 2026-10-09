@@ -114,7 +114,7 @@ the terminal too.
 | `acw watch [--repo <dir>]` | start the swarm's watcher again when it is not running, without touching the swarm | you |
 | `acw project create\|edit [dir]` | write the repo's config entry | you |
 | `acw board` | local page of what waits on you, ticket by ticket | you |
-| `acw board decision\|park\|parked\|edit\|resume\|handoff [--repo <dir>] ...` | record a decision, put one off, list the ones put off, change who one waits on, close one, leave the next master a handoff | master |
+| `acw board decision\|park\|parked\|edit\|resume [--repo <dir>] ...` | record a decision, put one off (or a document to approve, `--doc`), list the ones put off, change who one waits on, close one | master |
 
 A `claude` master is started allowed to run `status`, `queue`, `done`,
 `tell` and its `board` commands without a prompt, and nothing broader (see
@@ -132,13 +132,13 @@ Tears down the swarm running in the **current directory**: each worker's
 environment, the worktrees, the shared status directory and the Herdr
 workspace. A swarm running for another repo is left alone.
 
-- **Handoff first**: while the master runs, `acw stop` waits for it to be
-  idle, asks it for its handoff (what is pending, ticket by ticket: where
-  it stands, what it waits on, what comes next), and waits up to
-  `--handoff-wait` (5 min) for it to run `acw board handoff`. The next
-  `acw start` on the repo gives it to the new master in its first prompt,
-  with the decisions still parked, then marks it used. `--no-handoff`
-  skips it. `acw board handoff --repo <dir> < file` leaves one by hand.
+- **Tasks kept first**: `acw stop` asks the master nothing. It keeps in
+  the board's base the task each busy worker was on (brief, branch, PR,
+  where it stood) and the queued ones, then ends the pool, so nothing
+  queued after is lost. The next `acw start` on the repo gives them to the
+  new master in its first prompt, with the decisions still parked: a
+  pending subject is either parked or a task, nothing else is needed. A
+  stop run again after a failed one keeps what the first one saved.
 - **Branches**: a worker's task branch is kept with its commits, pushed or
   not. Only the `agents/<worker>-…` branch acw cut for it is deleted, and
   only when nothing was committed on it.
@@ -430,9 +430,12 @@ broader:
                "Bash(<acw> status:*)" "Bash(<acw> queue:*)" "Bash(<acw> done:*)"
                "Bash(<acw> tell:*)" "Bash(<acw> board decision:*)"
                "Bash(<acw> board park:*)" "Bash(<acw> board parked:*)"
-               "Bash(<acw> board resume:*)" "Bash(<acw> board handoff:*)"
-               "Bash(<acw> board edit:*)"
+               "Bash(<acw> board resume:*)" "Bash(<acw> board edit:*)"
+--disallowedTools Edit Write NotebookEdit EnterPlanMode ExitPlanMode
 ```
+
+Plan mode is off for the master: it would stop it on an approval screen,
+and a worker's plan is parked for you instead (see acw board).
 
 The two inbox commands only when it reads an inbox. A master of another
 kind has no background commands and still gets messages typed in.
@@ -890,7 +893,8 @@ the master write.
   master's next message to it sets it back to `working`), a worker's `blocked_on`, a
   worker stopped on a prompt, a PR approved and green waiting for your
   merge, a PR with review asks that no busy worker and no queued task
-  holds, and the decisions parked on you. The last two need the PR watch;
+  holds, your draft PRs no busy worker is still writing, and the
+  decisions and documents parked on you. The PR lines need the PR watch;
   without it the page says so.
 - **Parked decisions** waiting on someone else, with what to tell the
   master when the answer comes: "for #7: ...".
@@ -919,6 +923,19 @@ master "for #7: <answer>", and it closes it with `acw board resume 7`,
 which records the answer as a decision. `acw board edit 7 --on client`
 changes who it waits on: only the ones parked on you show as waiting on
 you.
+
+**Documents to approve**: a worker that stops for a plan, a verdict or a
+review draft writes it as a markdown file outside the repo and names it in
+its status (`doc_path`). The master parks it on you with `acw board park
+--on me --worker <w> --doc <path>`, which keeps only the path and frees the
+worker at once: you may take days to read it. "Read worker2's plan" opens
+it in a dialog, rendered from the file as it is now (GitHub markdown, raw
+HTML dropped, outside images not loaded), with its path to open in your
+editor, and two buttons. **Accept** is your go: the master queues the
+follow-up on the branch, the document's path in its brief. **Refuse**
+tells the master to wait for you in the terminal, where you discuss it; the
+item stays, marked refused, until the master closes it. Nothing is typed on
+the page: the board is not a second chat.
 
 A repo picker and a day picker read the history: a past day shows the
 tickets it touched and their decisions. Everything lives in one SQLite base,

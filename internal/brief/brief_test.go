@@ -399,6 +399,20 @@ func TestBuildNamesTheWaitingSubagentState(t *testing.T) {
 	}
 }
 
+// A document to approve is parked with its file, never presented in the
+// conversation; the board's accept is a go; no handoff any more.
+func TestBuildParksDocumentsToApprove(t *testing.T) {
+	got := Build(params("claude", 2, 2))
+	for _, want := range []string{"--doc", "`doc_path`", "ACCEPTED", "REFUSED", "interrupted"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("brief lacks %q", want)
+		}
+	}
+	if strings.Contains(strings.ToLower(got), "handoff") {
+		t.Error("brief still speaks of a handoff")
+	}
+}
+
 func TestBuildPRWatchParagraphOnlyWhenOn(t *testing.T) {
 	p := params("claude", 2, 2)
 	if got := Build(p); strings.Contains(got, "PR #") {
