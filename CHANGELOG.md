@@ -6,6 +6,8 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-10-09
+
 ### Added
 
 - `acw board park --doc <path>`: a worker's plan, verdict or review draft is
@@ -957,7 +959,8 @@ project: 7 PRs, 3 merged. Each entry names what actually went wrong.
   anything, with a clear message and install instructions if not; `wtm` is
   checked too but stays optional.
 
-[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.22.0...HEAD
+[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.23.0...HEAD
+[0.23.0]: https://github.com/Hy0sh/agents-crew/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/Hy0sh/agents-crew/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/Hy0sh/agents-crew/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/Hy0sh/agents-crew/compare/v0.19.1...v0.20.0
