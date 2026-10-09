@@ -46,6 +46,11 @@ type Wait struct {
 	Since  time.Time `json:"since"`
 	// MarkedAt is set on a line marked done whose wait is still there.
 	MarkedAt *time.Time `json:"marked_at"`
+	// Doc is a parked document to read (GET /api/parked/<id>/doc), with
+	// accept and refuse in place of done; Refused, one the user refused,
+	// waiting for the master to discuss it.
+	Doc     bool `json:"doc"`
+	Refused bool `json:"refused"`
 }
 
 // Ticket is a ticket key and what the swarm holds of it.
@@ -275,10 +280,16 @@ func userWaits(d Day, workerKey, prKeyByURL map[string]string) []Wait {
 		}
 	}
 	for _, p := range d.Parked {
-		if p.On == "me" {
-			out = append(out, Wait{ID: fmt.Sprintf("parked:%d", p.ID), Ticket: p.Ticket, Text: firstLine(p.Text),
-				Who: fmt.Sprintf("parked #%d", p.ID), Detail: p.Text, Since: p.CreatedAt})
+		if p.On != "me" {
+			continue
 		}
+		w := Wait{ID: fmt.Sprintf("parked:%d", p.ID), Ticket: p.Ticket, Text: firstLine(p.Text),
+			Who: fmt.Sprintf("parked #%d", p.ID), Detail: p.Text, Since: p.CreatedAt, Refused: p.Refused}
+		if p.DocPath != "" {
+			// From the row: its worker was freed when it was parked.
+			w.Text, w.Doc = "Read "+p.Worker+"'s "+p.Kind, true
+		}
+		out = append(out, w)
 	}
 	slices.SortStableFunc(out, func(a, b Wait) int { return a.Since.Compare(b.Since) })
 	return out

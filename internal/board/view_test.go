@@ -77,6 +77,22 @@ func TestViewWaits(t *testing.T) {
 	}
 }
 
+// A parked document reads as what to read, from its row: its worker is
+// free by then. Refused, it stays, flagged.
+func TestViewParkedDocument(t *testing.T) {
+	d := Day{Live: true, Parked: []Parked{
+		{ID: 3, Ticket: "SHOP-9", Worker: "worker2", On: "me", Text: "Approve the plan", Kind: "plan", DocPath: "/p.md", CreatedAt: noon},
+		{ID: 4, Worker: "reviewer1", On: "me", Text: "Read the verdict", Kind: "verdict", DocPath: "/v.md", CreatedAt: noon, Refused: true},
+	}}
+	v := BuildView(d, noon)
+	if len(v.Waits) != 2 || v.Waits[0].Text != "Read worker2's plan" || !v.Waits[0].Doc || v.Waits[0].Refused || v.Waits[0].Detail != "Approve the plan" {
+		t.Errorf("waits = %+v", v.Waits)
+	}
+	if !v.Waits[1].Refused || v.Waits[1].Text != "Read reviewer1's verdict" {
+		t.Errorf("refused wait = %+v", v.Waits[1])
+	}
+}
+
 // A line marked done steps aside, then comes back flagged if its wait is
 // still there.
 func TestViewMarks(t *testing.T) {
