@@ -199,6 +199,14 @@ func Switch(dir, branch, from, profile string, out io.Writer) error {
 	return runTo(dir, out, switchArgs(branch, from, profile)...)
 }
 
+// SwitchNoStart moves the worktree at dir to an existing branch and drops
+// its stack without starting one there (wtm switch --no-start, there
+// since switch itself): a worker waiting for its next task needs none,
+// and that task's own switch starts a fresh one.
+func SwitchNoStart(dir, branch string, out io.Writer) error {
+	return runTo(dir, out, append(switchArgs(branch, "", ""), "--no-start")...)
+}
+
 func switchArgs(branch, from, profile string) []string {
 	args := []string{"switch", branch}
 	if from != "" {

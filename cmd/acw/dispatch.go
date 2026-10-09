@@ -226,14 +226,16 @@ func parkWorker(p poolState, w poolWorker, out io.Writer) error {
 		if !wtm.Available() || !wtm.SwitchAvailable() {
 			return fmt.Errorf("%s stays on %s: its stack would stay behind without wtm switch", w.label(), current)
 		}
-		err = wtm.Switch(w.Worktree, home, "", p.Plan.Profile, out)
+		// No stack on the waiting branch: nobody works there, and the next
+		// task's switch starts a fresh one anyway.
+		err = wtm.SwitchNoStart(w.Worktree, home, out)
 	} else {
 		err = gitutil.Switch(w.Worktree, home, "", false)
 	}
 	if err != nil {
 		return fmt.Errorf("%s could not be moved off %s to its waiting branch: %w", w.label(), current, err)
 	}
-	fmt.Fprintf(out, "%s: off %s, back on its waiting branch %s.\n", w.label(), current, home)
+	fmt.Fprintf(out, "%s: off %s, back on its waiting branch %s, no stack until its next task.\n", w.label(), current, home)
 	return nil
 }
 
