@@ -101,7 +101,8 @@ func masterArgs(kind, model, exe, inboxWatch, briefPath string, autocompact int)
 		"Bash("+shellWord(exe)+" board decision:*)",
 		"Bash("+shellWord(exe)+" board park:*)",
 		"Bash("+shellWord(exe)+" board parked:*)",
-		"Bash("+shellWord(exe)+" board resume:*)")
+		"Bash("+shellWord(exe)+" board resume:*)",
+		"Bash("+shellWord(exe)+" board handoff:*)")
 }
 
 // watchInbox prints every line appended to inbox, forever, until the

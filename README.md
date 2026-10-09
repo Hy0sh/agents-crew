@@ -113,7 +113,7 @@ the terminal too.
 | `acw pause` / `acw resume` | stop / restart the workers' stacks | you |
 | `acw project create\|edit [dir]` | write the repo's config entry | you |
 | `acw board` | local page of what waits on you, ticket by ticket | you |
-| `acw board decision\|park\|parked\|resume [--repo <dir>] ...` | record a decision, put one off, list or close the ones put off | master |
+| `acw board decision\|park\|parked\|resume\|handoff [--repo <dir>] ...` | record a decision, put one off, list or close the ones put off, leave the next master a handoff | master |
 
 A `claude` master is started allowed to run `status`, `queue`, `done`,
 `tell` and its `board` commands without a prompt, and nothing broader (see
@@ -131,6 +131,13 @@ Tears down the swarm running in the **current directory**: each worker's
 environment, the worktrees, the shared status directory and the Herdr
 workspace. A swarm running for another repo is left alone.
 
+- **Handoff first**: while the master runs, `acw stop` waits for it to be
+  idle, asks it for its handoff (what is pending, ticket by ticket: where
+  it stands, what it waits on, what comes next), and waits up to
+  `--handoff-wait` (5 min) for it to run `acw board handoff`. The next
+  `acw start` on the repo gives it to the new master in its first prompt,
+  with the decisions still parked, then marks it used. `--no-handoff`
+  skips it. `acw board handoff --repo <dir> < file` leaves one by hand.
 - **Branches**: a worker's task branch is kept with its commits, pushed or
   not. Only the `agents/workerN-…` branch acw cut for it is deleted, and
   only when nothing was committed on it.
@@ -409,7 +416,7 @@ broader:
                "Bash(<acw> status:*)" "Bash(<acw> queue:*)" "Bash(<acw> done:*)"
                "Bash(<acw> tell:*)" "Bash(<acw> board decision:*)"
                "Bash(<acw> board park:*)" "Bash(<acw> board parked:*)"
-               "Bash(<acw> board resume:*)"
+               "Bash(<acw> board resume:*)" "Bash(<acw> board handoff:*)"
 ```
 
 The two inbox commands only when it reads an inbox. A master of another

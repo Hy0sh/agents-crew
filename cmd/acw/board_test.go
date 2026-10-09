@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -176,6 +177,39 @@ func TestHeldPRs(t *testing.T) {
 	urls, branches := heldPRs(dir, pool, taskQueue{Tasks: []queuedTask{{Branch: "feat/c"}}})
 	if !urls["https://github.com/o/r/pull/1"] || urls["https://github.com/o/r/pull/2"] || !branches["feat/a"] || branches["feat/b"] || !branches["feat/c"] {
 		t.Errorf("urls %v, branches %v", urls, branches)
+	}
+}
+
+// A handoff left with acw board handoff reaches the next master's first
+// prompt once, the latest one, with the decisions still parked; nothing
+// left gives no prompt.
+func TestHandoffReachesTheNextMaster(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	repo := t.TempDir()
+	if got := handoffPrompt(repo, time.Now()); got != "" {
+		t.Errorf("nothing left = %q", got)
+	}
+	for _, text := range []string{"old handoff", "SHOP-7: waits on staging, PR #12 green"} {
+		cmd := boardCommand()
+		cmd.SetOut(io.Discard)
+		cmd.SetIn(strings.NewReader(text))
+		cmd.SetArgs([]string{"handoff", "--repo", repo})
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := withBoard(func(b *board.DB) error {
+		_, err := b.Park(board.Parked{Repo: repo, Ticket: "SHOP-9", On: "client", Text: "Which address?", CreatedAt: time.Now()})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := handoffPrompt(repo, time.Now())
+	if !strings.Contains(got, "PR #12 green") || strings.Contains(got, "old handoff") || !strings.Contains(got, "#1 SHOP-9 · waits on client") {
+		t.Errorf("first start = %q", got)
+	}
+	if got := handoffPrompt(repo, time.Now()); strings.Contains(got, "PR #12") || !strings.Contains(got, "SHOP-9") {
+		t.Errorf("second start = %q, want the parked ones only", got)
 	}
 }
 

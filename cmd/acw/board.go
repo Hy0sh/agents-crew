@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Hy0sh/agents-crew/internal/board"
+	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
 )
 
@@ -124,7 +125,7 @@ func boardCommand() *cobra.Command {
 	decision.Flags().StringVar(&worker, "worker", "", "the worker it concerns (workerN)")
 	decision.Flags().StringVar(&subject, "subject", "", "what it is about: a ticket, a PR, a topic")
 	decision.Flags().StringVar(&why, "why", "", "the reason, in one line")
-	cmd.AddCommand(decision, parkCommand(), parkedCommand(), resumeCommand())
+	cmd.AddCommand(decision, parkCommand(), parkedCommand(), resumeCommand(), handoffCommand())
 	return cmd
 }
 
@@ -206,6 +207,93 @@ func parkCommand() *cobra.Command {
 	cmd.Flags().StringVar(&on, "on", "", "who the answer is waited from: client, me (the user), or a name")
 	cmd.Flags().StringVar(&worker, "worker", "", "the worker it came from (workerN)")
 	return cmd
+}
+
+// acw board handoff keeps what the master leaves for the next one: acw
+// stop asks for it, acw start hands it to the next master.
+func handoffCommand() *cobra.Command {
+	var repoOf func() (string, error)
+	cmd := &cobra.Command{
+		Use:   "handoff [text...]",
+		Short: "Leave the next master a handoff, read from stdin without text: acw start gives it to it",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repo, err := repoOf()
+			if err != nil {
+				return err
+			}
+			text, err := readText(args, cmd.InOrStdin(), "handoff")
+			if err != nil {
+				return err
+			}
+			if err := withBoard(func(b *board.DB) error { return b.AddHandoff(repo, text, time.Now()) }); err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "handoff kept: the next acw start gives it to the master")
+			return nil
+		},
+	}
+	repoOf = repoFlag(cmd)
+	return cmd
+}
+
+const handoffAsk = "The swarm is being stopped (acw stop). Before it is, leave the next master your handoff: run `%s` with, on stdin through a single-quoted heredoc, what is still pending, ticket by ticket: where it stands, what or whom it waits on, its PRs and branches, what you meant to do next, and what must not be forgotten. The parked decisions are kept already: name them by number, do not copy them. Do nothing else: acw stops the swarm once the handoff is kept."
+
+// askHandoff has a running master leave its handoff before acw stop tears
+// the swarm down: once it is idle, it is asked, and the stop waits for
+// the handoff up to wait. Without a master, or past wait, the stop goes on.
+func askHandoff(repo, self string, wait time.Duration, out io.Writer) {
+	name := names.Master(names.Slug(repo))
+	agents, err := herdr.AgentList()
+	if _, found := herdr.FindAgent(agents, name); err != nil || !found {
+		return
+	}
+	start := time.Now()
+	fmt.Fprintf(out, "asking the master for its handoff (up to %s; --no-handoff skips it)...\n", wait)
+	if err := herdr.AgentWait(name, []string{"idle", "done"}, wait); err != nil {
+		fmt.Fprintln(out, "warning: the master stayed busy, no handoff asked:", err)
+		return
+	}
+	if err := herdr.AgentPrompt(name, fmt.Sprintf(handoffAsk, shellWord(self)+" board handoff --repo "+shellWord(repo))); err != nil {
+		fmt.Fprintln(out, "warning: could not ask the master for its handoff:", err)
+		return
+	}
+	for time.Since(start) < wait {
+		time.Sleep(3 * time.Second)
+		var kept bool
+		if withBoard(func(b *board.DB) (err error) { kept, err = b.HandoffSince(repo, start); return err }) == nil && kept {
+			fmt.Fprintln(out, "handoff kept.")
+			return
+		}
+	}
+	fmt.Fprintf(out, "warning: no handoff after %s, stopping anyway.\n", wait)
+}
+
+// handoffPrompt is what a new master is told of the previous one: its
+// handoff, marked used, and the decisions still parked. "" with neither.
+func handoffPrompt(repo string, now time.Time) string {
+	var b strings.Builder
+	_ = withBoard(func(db *board.DB) error {
+		text, at, ok, err := db.TakeHandoff(repo, now)
+		if err != nil {
+			return err
+		}
+		if ok {
+			fmt.Fprintf(&b, "The previous master left you this handoff on %s:\n\n%s\n", at.Local().Format("02/01 15:04"), text)
+		}
+		ps, err := db.OpenParked(repo)
+		if err != nil || len(ps) == 0 {
+			return err
+		}
+		b.WriteString("\nDecisions still parked:\n")
+		for _, p := range ps {
+			b.WriteString(renderParked(p, false))
+		}
+		return nil
+	})
+	if b.Len() == 0 {
+		return ""
+	}
+	return b.String() + "\nCheck it against what acw shows now, tell me in a few lines what is pending, then wait for my instructions."
 }
 
 func parkedCommand() *cobra.Command {
