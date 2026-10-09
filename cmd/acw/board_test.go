@@ -189,36 +189,56 @@ func TestHeldPRs(t *testing.T) {
 	}
 }
 
-// A handoff left with acw board handoff reaches the next master's first
-// prompt once, the latest one, with the decisions still parked; nothing
-// left gives no prompt.
-func TestHandoffReachesTheNextMaster(t *testing.T) {
+// acw stop keeps what the workers were on and what was queued, and ends
+// the pool in the same lock: nothing queued after is lost unseen. A stop
+// run again finds no pool and keeps what the first one saved.
+func TestSaveInterrupted(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	repo := t.TempDir()
-	if got := handoffPrompt(repo, time.Now()); got != "" {
-		t.Errorf("nothing left = %q", got)
-	}
-	for _, text := range []string{"old handoff", "SHOP-7: waits on staging, PR #12 green"} {
-		cmd := boardCommand()
-		cmd.SetOut(io.Discard)
-		cmd.SetIn(strings.NewReader(text))
-		cmd.SetArgs([]string{"handoff", "--repo", repo})
-		if err := cmd.Execute(); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := withBoard(func(b *board.DB) error {
-		_, err := b.Park(board.Parked{Repo: repo, Ticket: "SHOP-9", On: "client", Text: "Which address?", CreatedAt: time.Now()})
-		return err
-	}); err != nil {
+	repo := testSwarm(t, 2,
+		poolWorker{Index: 1, State: workerBusy, Task: 3, Label: "worker1", Current: &queuedTask{ID: 3, Brief: "fix the VAT rounding", Branch: "fix/vat"}},
+		poolWorker{Index: 2, State: workerFree, Label: "worker2"})
+	os.WriteFile(filepath.Join(names.StatusDir(repo), "worker1.json"), []byte(`{"state":"coding","summary":"half way","pr_url":"https://github.com/o/r/pull/12"}`), 0o644)
+	writeJSON(names.QueueFile(repo), taskQueue{NextID: 5, Tasks: []queuedTask{{ID: 4, Brief: "review #12", Kind: "need-review", After: []int{3}}}})
+	if err := saveInterrupted(repo, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	got := handoffPrompt(repo, time.Now())
-	if !strings.Contains(got, "PR #12 green") || strings.Contains(got, "old handoff") || !strings.Contains(got, "#1 SHOP-9 · waits on client") {
-		t.Errorf("first start = %q", got)
+	if _, err := os.Stat(names.PoolFile(repo)); err == nil {
+		t.Error("pool.json still there: a task could still be queued")
 	}
-	if got := handoffPrompt(repo, time.Now()); strings.Contains(got, "PR #12") || !strings.Contains(got, "SHOP-9") {
-		t.Errorf("second start = %q, want the parked ones only", got)
+	if err := saveInterrupted(repo, io.Discard); err != nil {
+		t.Fatalf("second stop = %v", err)
+	}
+	got, delivered := startPrompt(repo)
+	for _, want := range []string{"fix the VAT rounding", "worker1", "fix/vat", "pull/12", "half way", "review #12", "queued", "--kind need-review"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("start prompt lacks %q:\n%s", want, got)
+		}
+	}
+	delivered()
+	if got, _ := startPrompt(repo); got != "" {
+		t.Errorf("after delivery = %q, want nothing", got)
+	}
+}
+
+// The next master's first prompt has the decisions still parked, a
+// document's path and a refusal included; nothing left gives no prompt.
+func TestStartPromptParked(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	repo := t.TempDir()
+	if got, _ := startPrompt(repo); got != "" {
+		t.Errorf("nothing left = %q", got)
+	}
+	withBoard(func(b *board.DB) error {
+		b.Park(board.Parked{Repo: repo, Ticket: "SHOP-9", On: "client", Text: "Which address?", CreatedAt: time.Now()})
+		id, _ := b.Park(board.Parked{Repo: repo, Ticket: "SHOP-7", On: "me", Worker: "worker2", Text: "Approve the plan", Kind: "plan", DocPath: "/plans/p.md", CreatedAt: time.Now()})
+		_, err := b.RefuseParked(id)
+		return err
+	})
+	got, _ := startPrompt(repo)
+	for _, want := range []string{"#1 SHOP-9 · waits on client", "/plans/p.md", "refused"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("start prompt lacks %q:\n%s", want, got)
+		}
 	}
 }
 

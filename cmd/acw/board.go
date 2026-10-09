@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -18,7 +20,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Hy0sh/agents-crew/internal/board"
-	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
 )
 
@@ -124,7 +125,7 @@ func boardCommand() *cobra.Command {
 	decision.Flags().StringVar(&worker, "worker", "", "the worker it concerns, by its name (worker2, reviewer1)")
 	decision.Flags().StringVar(&subject, "subject", "", "what it is about: a ticket, a PR, a topic")
 	decision.Flags().StringVar(&why, "why", "", "the reason, in one line")
-	cmd.AddCommand(decision, parkCommand(), parkedCommand(), editCommand(), resumeCommand(), handoffCommand())
+	cmd.AddCommand(decision, parkCommand(), parkedCommand(), editCommand(), resumeCommand())
 	return cmd
 }
 
@@ -260,91 +261,134 @@ func parkCommand() *cobra.Command {
 	return cmd
 }
 
-// acw board handoff keeps what the master leaves for the next one: acw
-// stop asks for it, acw start hands it to the next master.
-func handoffCommand() *cobra.Command {
-	var repoOf func() (string, error)
-	cmd := &cobra.Command{
-		Use:   "handoff [text...]",
-		Short: "Leave the next master a handoff, read from stdin without text: acw start gives it to it",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			repo, err := repoOf()
-			if err != nil {
-				return err
-			}
-			text, err := readText(args, cmd.InOrStdin(), "handoff")
-			if err != nil {
-				return err
-			}
-			if err := withBoard(func(b *board.DB) error { return b.AddHandoff(repo, text, time.Now()) }); err != nil {
-				return err
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), "handoff kept: the next acw start gives it to the master")
-			return nil
-		},
-	}
-	repoOf = repoFlag(cmd)
-	return cmd
+// interruptedTask is a task acw stop found: on a busy worker (Label, and
+// what its status file said), or still queued.
+type interruptedTask struct {
+	queuedTask
+	Label   string `json:"label,omitempty"`
+	State   string `json:"state,omitempty"`
+	Summary string `json:"summary,omitempty"`
+	PRURL   string `json:"pr_url,omitempty"`
+	DocPath string `json:"doc_path,omitempty"`
+	Queued  bool   `json:"queued,omitempty"`
 }
 
-const handoffAsk = "The swarm is being stopped (acw stop). Before it is, leave the next master your handoff: run `%s` with, on stdin through a single-quoted heredoc, what is still pending, ticket by ticket: where it stands, what or whom it waits on, its PRs and branches, what you meant to do next, and what must not be forgotten. The parked decisions are kept already: name them by number, do not copy them. Do nothing else: acw stops the swarm once the handoff is kept."
-
-// askHandoff has a running master leave its handoff before acw stop tears
-// the swarm down: once it is idle, it is asked, and the stop waits for
-// the handoff up to wait. Without a master, or past wait, the stop goes on.
-func askHandoff(repo, self string, wait time.Duration, out io.Writer) {
-	name := names.Master(names.Slug(repo))
-	agents, err := herdr.AgentList()
-	if _, found := herdr.FindAgent(agents, name); err != nil || !found {
-		return
-	}
-	start := time.Now()
-	fmt.Fprintf(out, "asking the master for its handoff (up to %s; --no-handoff skips it)...\n", wait)
-	if err := herdr.AgentWait(name, []string{"idle", "done"}, wait); err != nil {
-		fmt.Fprintln(out, "warning: the master stayed busy, no handoff asked:", err)
-		return
-	}
-	if err := herdr.AgentPrompt(name, fmt.Sprintf(handoffAsk, shellWord(self)+" board handoff --repo "+shellWord(repo))); err != nil {
-		fmt.Fprintln(out, "warning: could not ask the master for its handoff:", err)
-		return
-	}
-	for time.Since(start) < wait {
-		time.Sleep(3 * time.Second)
-		var kept bool
-		if withBoard(func(b *board.DB) (err error) { kept, err = b.HandoffSince(repo, start); return err }) == nil && kept {
-			fmt.Fprintln(out, "handoff kept.")
-			return
+// saveInterrupted keeps, for the next master, the tasks of repo's busy
+// workers and its queue, and ends the pool in the same lock: a task
+// queued after would be lost unseen, it is refused instead (no swarm).
+// No pool (a stop run again) saves nothing and keeps what was saved. A
+// board that can't be written gets the tasks printed instead.
+func saveInterrupted(repo string, out io.Writer) error {
+	var tasks []interruptedTask
+	err := withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
+		for _, w := range p.Workers {
+			if w.State != workerBusy || w.Current == nil {
+				continue
+			}
+			s, _ := readWorkerStatus(filepath.Join(names.StatusDir(repo), w.label()+".json"))
+			tasks = append(tasks, interruptedTask{queuedTask: *w.Current, Label: w.label(), State: s.State, Summary: s.Summary, PRURL: s.PRURL, DocPath: s.DocPath})
 		}
+		for _, t := range q.Tasks {
+			tasks = append(tasks, interruptedTask{queuedTask: t, Queued: true})
+		}
+		if err := os.Remove(names.PoolFile(repo)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return false, err
+		}
+		return false, nil
+	})
+	if err != nil {
+		if _, statErr := os.Stat(names.PoolFile(repo)); errors.Is(statErr, fs.ErrNotExist) {
+			return nil
+		}
+		return err
 	}
-	fmt.Fprintf(out, "warning: no handoff after %s, stopping anyway.\n", wait)
+	data, err := json.Marshal(tasks)
+	if err != nil {
+		return err
+	}
+	if !record("interrupted", func(b *board.DB) error { return b.SaveInterrupted(repo, time.Now(), data, len(tasks) == 0) }) {
+		fmt.Fprintf(out, "warning: the board could not keep the interrupted tasks, here they are:\n%s\n", renderInterrupted(tasks))
+	}
+	return nil
 }
 
-// handoffPrompt is what a new master is told of the previous one: its
-// handoff, marked used, and the decisions still parked. "" with neither.
-func handoffPrompt(repo string, now time.Time) string {
+func renderInterrupted(tasks []interruptedTask) string {
 	var b strings.Builder
+	for _, t := range tasks {
+		head := "queued"
+		if !t.Queued {
+			head = "on " + t.Label
+			if t.State != "" {
+				head += " (" + t.State + ")"
+			}
+		}
+		if t.Branch != "" {
+			head += ", branch " + t.Branch
+		}
+		if t.Kind != "" {
+			head += ", --kind " + t.Kind
+		}
+		for _, id := range t.After {
+			head += fmt.Sprintf(", after #%d", id)
+		}
+		if t.PRURL != "" {
+			head += ", PR " + t.PRURL
+		}
+		if t.DocPath != "" {
+			head += ", document " + t.DocPath
+		}
+		fmt.Fprintf(&b, "- #%d %s\n", t.ID, head)
+		if t.Summary != "" {
+			fmt.Fprintf(&b, "  where it stood: %s\n", t.Summary)
+		}
+		fmt.Fprintf(&b, "  brief:\n%s\n", indent(t.Brief, "    "))
+	}
+	return b.String()
+}
+
+func indent(s, prefix string) string {
+	return prefix + strings.ReplaceAll(strings.TrimSpace(s), "\n", "\n"+prefix)
+}
+
+// startPrompt is what a new master is told of the previous swarm: the
+// decisions still parked and the tasks the last acw stop interrupted.
+// "" with neither. delivered drops the interrupted tasks, once the
+// prompt reached the master.
+func startPrompt(repo string) (text string, delivered func()) {
+	var b strings.Builder
+	found := false
 	_ = withBoard(func(db *board.DB) error {
-		text, at, ok, err := db.TakeHandoff(repo, now)
+		ps, err := db.OpenParked(repo)
 		if err != nil {
 			return err
 		}
-		if ok {
-			fmt.Fprintf(&b, "The previous master left you this handoff on %s:\n\n%s\n", at.Local().Format("02/01 15:04"), text)
+		if len(ps) > 0 {
+			b.WriteString("Decisions still parked:\n")
+			for _, p := range ps {
+				b.WriteString(renderParked(p, false))
+			}
 		}
-		ps, err := db.OpenParked(repo)
-		if err != nil || len(ps) == 0 {
+		data, at, ok, err := db.Interrupted(repo)
+		if err != nil || !ok {
 			return err
 		}
-		b.WriteString("\nDecisions still parked:\n")
-		for _, p := range ps {
-			b.WriteString(renderParked(p, false))
+		var tasks []interruptedTask
+		if err := json.Unmarshal(data, &tasks); err != nil || len(tasks) == 0 {
+			return err
 		}
+		found = true
+		fmt.Fprintf(&b, "\nTasks interrupted by the last acw stop (%s); queue again what should go on, with acw queue add:\n%s", at.Local().Format("02/01 15:04"), renderInterrupted(tasks))
 		return nil
 	})
-	if b.Len() == 0 {
-		return ""
+	delivered = func() {
+		if found {
+			record("interrupted", func(db *board.DB) error { return db.DeleteInterrupted(repo) })
+		}
 	}
-	return b.String() + "\nCheck it against what acw shows now, tell me in a few lines what is pending, then wait for my instructions."
+	if b.Len() == 0 {
+		return "", delivered
+	}
+	return strings.TrimLeft(b.String(), "\n") + "\nCheck it against what acw shows now, tell me in a few lines what is pending, then wait for my instructions.", delivered
 }
 
 func parkedCommand() *cobra.Command {
@@ -500,17 +544,17 @@ func renderParked(p board.Parked, full bool) string {
 	if p.Worker != "" {
 		head += " · from " + p.Worker
 	}
+	if p.Refused {
+		head += " · refused by the user, to discuss"
+	}
+	if p.DocPath != "" {
+		head += fmt.Sprintf("\n    %s, document: %s", p.Kind, p.DocPath)
+	}
 	if !full {
 		return head + "\n    " + firstLine(p.Text) + "\n"
 	}
 	if p.ClosedAt != nil {
 		head += fmt.Sprintf(" · closed %s: %s", p.ClosedAt.Local().Format("02/01 15:04"), p.Answer)
-	}
-	if p.Refused {
-		head += " · refused by the user, to discuss"
-	}
-	if p.DocPath != "" {
-		head += fmt.Sprintf("\n%s, document: %s", p.Kind, p.DocPath)
 	}
 	return head + "\n" + p.Text + "\n"
 }

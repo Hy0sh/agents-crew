@@ -175,7 +175,7 @@ func TestMasterArgsAllowOnlyTheInboxWatch(t *testing.T) {
 		t.Errorf("rule %q does not cover the watch command %q", got[i+1], watch)
 	}
 	for j, want := range []string{"Bash(/bin/acw status:*)", "Bash(/bin/acw queue:*)", "Bash(/bin/acw done:*)", "Bash(/bin/acw tell:*)", "Bash(/bin/acw board decision:*)",
-		"Bash(/bin/acw board park:*)", "Bash(/bin/acw board parked:*)", "Bash(/bin/acw board resume:*)", "Bash(/bin/acw board handoff:*)", "Bash(/bin/acw board edit:*)"} {
+		"Bash(/bin/acw board park:*)", "Bash(/bin/acw board parked:*)", "Bash(/bin/acw board resume:*)", "Bash(/bin/acw board edit:*)"} {
 		if i+3+j >= len(got) || got[i+3+j] != want {
 			t.Errorf("masterArgs() = %v, want the rule %s for the commands the brief hands the master", got, want)
 		}
@@ -200,8 +200,10 @@ func TestMasterArgsAllowOnlyTheInboxWatch(t *testing.T) {
 	// status, queue and done: without the rules every acw queue add would
 	// stop on an approval.
 	got = masterArgs("claude", "opus", "/bin/acw", "", "/s/master.system.md", 250000)
-	want := []string{"--model", "opus", "--autocompact", "250000", "--append-system-prompt-file", "/s/master.system.md", "--disallowedTools", "Edit", "Write", "NotebookEdit", "--allowedTools", "Bash(/bin/acw status:*)", "Bash(/bin/acw queue:*)", "Bash(/bin/acw done:*)", "Bash(/bin/acw tell:*)", "Bash(/bin/acw board decision:*)",
-		"Bash(/bin/acw board park:*)", "Bash(/bin/acw board parked:*)", "Bash(/bin/acw board resume:*)", "Bash(/bin/acw board handoff:*)", "Bash(/bin/acw board edit:*)"}
+	// Plan mode would stop it on an approval screen: its job is to
+	// dispatch, a worker's plan is parked for the user.
+	want := []string{"--model", "opus", "--autocompact", "250000", "--append-system-prompt-file", "/s/master.system.md", "--disallowedTools", "Edit", "Write", "NotebookEdit", "EnterPlanMode", "ExitPlanMode", "--allowedTools", "Bash(/bin/acw status:*)", "Bash(/bin/acw queue:*)", "Bash(/bin/acw done:*)", "Bash(/bin/acw tell:*)", "Bash(/bin/acw board decision:*)",
+		"Bash(/bin/acw board park:*)", "Bash(/bin/acw board parked:*)", "Bash(/bin/acw board resume:*)", "Bash(/bin/acw board edit:*)"}
 	if !slices.Equal(got, want) {
 		t.Errorf("masterArgs(claude, no inbox) = %v, want %v", got, want)
 	}
