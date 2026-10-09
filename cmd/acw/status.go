@@ -41,7 +41,7 @@ func renderStatus(now time.Time, rows []statusRow, unread int, lastAt time.Time,
 	if !watcher {
 		// Dead, it dispatches nothing more and opens no worker, with no other sign.
 		b.WriteString("watcher: not running, the queue is no longer dispatched " +
-			"(its log: acw-watch-*.log in " + os.TempDir() + "); acw stop then acw starts a new swarm\n")
+			"(its log: acw-watch-*.log in " + os.TempDir() + "); acw watch starts it again, and puts back what it left half done\n")
 	}
 	for _, r := range rows {
 		state := orDash(r.State)

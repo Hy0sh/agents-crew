@@ -111,6 +111,7 @@ the terminal too.
 | `acw clear [--repo <dir>] worker1 [worker2...]` | reset workers' context, confirmed | you |
 | `acw dispatch [--repo <dir>] worker1 <brief-file>` | hand a worker a task outside the queue | you |
 | `acw pause` / `acw resume` | stop / restart the workers' stacks | you |
+| `acw watch [--repo <dir>]` | start the swarm's watcher again when it is not running, without touching the swarm | you |
 | `acw project create\|edit [dir]` | write the repo's config entry | you |
 | `acw board` | local page of what waits on you, ticket by ticket | you |
 | `acw board decision\|park\|parked\|edit\|resume\|handoff [--repo <dir>] ...` | record a decision, put one off, list the ones put off, change who one waits on, close one, leave the next master a handoff | master |
@@ -467,6 +468,19 @@ long turn of the master's.
 The watcher stops with its swarm: when `acw stop` removes the status
 directory, when a new run stamps that directory as its own, or when its
 master is gone from herdr.
+
+If it dies otherwise (a crash, a `pkill -f` too wide), `acw status` says
+so and `acw watch` starts it again from its plan, kept in the status
+directory as `watch.json`; it is never on the watcher's command line, so
+a `pkill -f` aimed at one of the commands it carries can't hit it. The
+watcher that starts puts back what the dead one left half done: a task
+handed to a worker that never got its brief goes back first in the
+queue, its worker free again, and a worker caught opening or closing is
+dropped from the pool. The master hears of each.
+
+A free worker is closed after `idle-close-minutes` counted from its last
+end of turn, never while its agent works: a task given with `acw tell`
+outside the queue keeps it open.
 
 ### Several swarms at once
 

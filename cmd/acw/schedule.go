@@ -66,6 +66,12 @@ type workerPoll struct {
 	// Parking is set while the watcher puts it back on Home, or after
 	// that failed on this same Branch: not Ready, and not moved again.
 	Parking bool
+	// Active is set while its agent works although the pool has it free
+	// (a task given by acw tell, with no watcher to hand it out);
+	// LastTurn is its last end of turn. Its idle time counts from the
+	// later of that and the moment it was freed.
+	Active   bool
+	LastTurn time.Time
 }
 
 // offHome says a worker's worktree is on a branch other than its waiting
@@ -289,7 +295,11 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 		if spec(w.Index).Kind != "claude" && w.Used {
 			limit = 0
 		}
-		if now.Sub(w.Since) < limit {
+		since := w.Since
+		if t := polls[w.Index].LastTurn; t.After(since) {
+			since = t
+		}
+		if polls[w.Index].Active || now.Sub(since) < limit {
 			continue
 		}
 		kind := actClose

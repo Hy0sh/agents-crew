@@ -211,6 +211,24 @@ func TestScheduleClosesIdleWorkers(t *testing.T) {
 	}
 }
 
+// A worker free in the pool but whose agent works (a task given by acw
+// tell while the watcher was down) is not closed, and its idle time
+// counts from its last end of turn. One was closed mid-task in the field.
+func TestScheduleIdleCloseLooksAtTheAgent(t *testing.T) {
+	p := testPool(3, 3, free(1, t0.Add(-30*time.Minute)), free(2, t0.Add(-30*time.Minute)))
+	polls := map[int]workerPoll{
+		1: {Clean: true, Active: true},
+		2: {Ready: true, Clean: true, LastTurn: t0.Add(-2 * time.Minute)},
+	}
+	if got := schedule(p, taskQueue{}, polls, t0); len(got) != 0 {
+		t.Errorf("working agent, recent turn = %+v, want neither closed", got)
+	}
+	polls[2] = workerPoll{Ready: true, Clean: true, LastTurn: t0.Add(-20 * time.Minute)}
+	if got, want := schedule(p, taskQueue{}, polls, t0), []poolAction{{Kind: actClose, Worker: 2}}; !slices.Equal(got, want) {
+		t.Errorf("idle since its last turn = %+v, want %+v", got, want)
+	}
+}
+
 // A kind acw cannot reset closes once its task is done, not right after
 // opening.
 func TestScheduleClosesAnUnresettableWorkerAfterItsTask(t *testing.T) {

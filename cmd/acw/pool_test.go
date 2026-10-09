@@ -83,6 +83,61 @@ func TestQueueAddMoveRemove(t *testing.T) {
 	}
 }
 
+// What a dead watcher left half done is undone by the next one: a task
+// whose brief never reached its worker goes back first in the queue, the
+// worker free; a worker caught opening is dropped. The master is told.
+// The field case: worker2 busy #45 without ever getting it, worker3
+// stuck opening and holding a max-stacks slot.
+func TestRecoverPool(t *testing.T) {
+	t45 := queuedTask{ID: 45, Brief: "health proof", Branch: "feat/h"}
+	repo := testSwarm(t, 3,
+		poolWorker{Index: 1, State: workerBusy, Task: 40},
+		poolWorker{Index: 2, State: workerBusy, Task: 45, TaskBranch: "feat/h", Dispatching: &t45, Since: t0},
+		poolWorker{Index: 3, State: workerOpening, Worktree: filepath.Join(t.TempDir(), "gone")})
+	p, q, _ := readPool(repo)
+	p.Plan.Repo, p.Plan.Inbox = repo, names.Inbox(repo)
+	q.Tasks = []queuedTask{{ID: 47}}
+	if err := writeJSON(names.PoolFile(repo), p); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeJSON(names.QueueFile(repo), q); err != nil {
+		t.Fatal(err)
+	}
+	recoverPool(repo)
+	p, q, _ = readPool(repo)
+	if ids := queueIDs(t, repo); !slices.Equal(ids, []int{45, 47}) || q.Tasks[0].Brief != "health proof" {
+		t.Errorf("queue = %v, want #45 back first", ids)
+	}
+	if w := p.worker(2); w == nil || w.State != workerFree || w.Task != 0 || w.Dispatching != nil || w.TaskBranch != "" || !w.Since.After(t0) {
+		t.Errorf("worker2 = %+v, want free, idle from now", w)
+	}
+	if w := p.worker(1); w == nil || w.State != workerBusy || w.Task != 40 {
+		t.Errorf("worker1 = %+v, want its task kept", w)
+	}
+	if p.worker(3) != nil {
+		t.Error("worker3, caught opening, still in the pool")
+	}
+	if inbox, _ := os.ReadFile(names.Inbox(repo)); !strings.Contains(string(inbox), "task #45 never reached worker2") || !strings.Contains(string(inbox), "worker3 was opening") {
+		t.Errorf("inbox = %q", inbox)
+	}
+}
+
+// Without a kept plan (a swarm an older acw started), acw watch says how
+// to get one; the plan file reads back as written.
+func TestWatchPlanFile(t *testing.T) {
+	repo := testSwarm(t, 1)
+	if err := restartWatcher(repo, io.Discard); err == nil || !strings.Contains(err.Error(), "acw stop then acw start") {
+		t.Errorf("no plan: %v", err)
+	}
+	want := watchPlan{Repo: repo, MasterName: "master-x", InboxNext: "acw __inbox-next /i", SilenceMinutes: 30, Stamp: "s"}
+	if err := writeJSON(names.WatchPlan(repo), want); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := readWatchPlan(names.WatchPlan(repo)); err != nil || got != want {
+		t.Errorf("readWatchPlan = %+v, %v", got, err)
+	}
+}
+
 // --after-merge needs the PR watch; a task waits until the PR its
 // prerequisite ended with is seen merged; one ended without a PR holds
 // what waits for it, and can't be waited for afterwards.

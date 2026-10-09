@@ -82,6 +82,11 @@ func WatchLock(repo string) string {
 	return filepath.Join(StatusDir(repo), "watch.lock")
 }
 
+// WatchPlan is the watcher's plan, kept for acw watch to start it again.
+func WatchPlan(repo string) string {
+	return filepath.Join(StatusDir(repo), "watch.json")
+}
+
 // QueueFile holds the tasks waiting for a worker.
 func QueueFile(repo string) string {
 	return filepath.Join(StatusDir(repo), "queue.json")

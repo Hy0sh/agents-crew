@@ -76,6 +76,9 @@ func runWatch(plan watchPlan, interval time.Duration) {
 		}
 	}
 	defer inflight.Wait()
+	// With the lock held, no other watcher runs: whatever is half done in
+	// the pool was left by one that died.
+	recoverPool(plan.Repo)
 	boardLast := map[string]board.Worker{}
 	var prsWritten, beaten time.Time
 	for {
