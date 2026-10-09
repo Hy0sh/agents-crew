@@ -250,6 +250,58 @@ func TestScheduleMinWorkers(t *testing.T) {
 	}
 }
 
+// A branch is one task at a time: a task on feat/b waits while a busy
+// worker's task is on it, while a worker given another task is still
+// leaving it, and for a task on it handed out earlier in the same poll.
+// Each used to go out and be held on "checked out" or "already has a
+// stack", for the master to move by hand.
+func TestScheduleOneTaskPerBranch(t *testing.T) {
+	busy := poolWorker{Index: 1, State: workerBusy, Task: 30, TaskBranch: "feat/b"}
+	p := testPool(3, 3, busy, free(2, t0), free(3, t0))
+	q := tasks(queuedTask{ID: 35, Branch: "feat/b"}, queuedTask{ID: 36})
+	if got, want := schedule(p, q, readyAll(2, 3), t0), []poolAction{{Kind: actAssign, Worker: 2, Task: 36}}; !slices.Equal(got, want) {
+		t.Errorf("busy on feat/b = %+v, want %+v", got, want)
+	}
+
+	busy.TaskBranch = "feat/c" // given feat/c, still leaving feat/b
+	p = testPool(3, 3, busy, free(2, t0), free(3, t0))
+	polls := readyAll(2, 3)
+	polls[1] = workerPoll{Branch: "feat/b", Parking: true}
+	if got := schedule(p, tasks(queuedTask{ID: 35, Branch: "feat/b"}), polls, t0); len(got) != 0 {
+		t.Errorf("leaving feat/b = %+v, want #35 to wait", got)
+	}
+
+	p = testPool(3, 3, free(2, t0), free(3, t0))
+	q = tasks(queuedTask{ID: 35, Branch: "feat/b"}, queuedTask{ID: 37, Branch: "feat/b"})
+	if got, want := schedule(p, q, readyAll(2, 3), t0), []poolAction{{Kind: actAssign, Worker: 2, Task: 35}}; !slices.Equal(got, want) {
+		t.Errorf("two tasks on feat/b = %+v, want %+v", got, want)
+	}
+
+	// Busy on a branch it cut itself (a task with no --branch).
+	busy.TaskBranch = ""
+	p = testPool(3, 3, busy, free(2, t0))
+	polls = readyAll(2)
+	polls[1] = workerPoll{Branch: "feat/x"}
+	if got := schedule(p, tasks(queuedTask{ID: 38, Branch: "feat/x"}), polls, t0); len(got) != 0 {
+		t.Errorf("busy on its own feat/x = %+v, want #38 to wait", got)
+	}
+}
+
+// The third field variant: worker1 just freed on feat/b, the queue holds
+// #40 (elsewhere) then #47 (on feat/b). worker1 is kept for #47, which
+// moves nothing; #40 goes to worker2. Handing #40 to worker1 made #47
+// wait for its switch off feat/b, then another switch back to it.
+func TestScheduleReservesAHolderForATaskFurtherDown(t *testing.T) {
+	p := testPool(3, 3, free(1, t0), free(2, t0))
+	polls := readyAll(1, 2)
+	polls[1] = workerPoll{Ready: true, Clean: true, Branch: "feat/b", Home: "agents/worker1-a"}
+	q := tasks(queuedTask{ID: 40, Branch: "feat/c"}, queuedTask{ID: 47, Branch: "feat/b"})
+	want := []poolAction{{Kind: actAssign, Worker: 2, Task: 40}, {Kind: actAssign, Worker: 1, Task: 47}}
+	if got := schedule(p, q, polls, t0); !slices.Equal(got, want) {
+		t.Errorf("schedule() = %+v, want %+v", got, want)
+	}
+}
+
 // The race seen in the field: worker1 just freed on feat/b, its agent not
 // ready yet, a task --branch feat/b queued first. It waits for worker1,
 // which gets nothing else; it used to go to worker2, which then took

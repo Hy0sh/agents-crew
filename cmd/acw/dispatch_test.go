@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -94,6 +95,50 @@ func TestParkAndReleaseBranch(t *testing.T) {
 	setPool(pool(workerBusy))
 	if err := switchWorkerBranch(repo, clearTarget{index: 2, label: "worker2"}, branchRequest{Branch: "feat/y"}, &out); err == nil || !strings.Contains(err.Error(), "busy") {
 		t.Errorf("busy holder = %v", err)
+	}
+}
+
+// A busy worker still leaving its previous branch is polled as parking on
+// it; a task with no branch first puts its worker back home.
+func TestLeavingAndParkBeforeTask(t *testing.T) {
+	repo, wts, git := twoWorkerSwarm(t)
+	p := poolState{Plan: provisionPlan{Repo: repo, Workers: []workerSpec{{Kind: "claude"}, {Kind: "claude"}}},
+		Workers: []poolWorker{{Index: 1, Worktree: wts[0], State: workerBusy, Task: 31}}}
+	mem := newPoolMemory()
+	mem.leaving[1] = "feat/b"
+	if poll := pollWorkers(p, nil, names.StatusDir(repo), t0, mem)[1]; !poll.Parking || poll.Branch != "feat/b" {
+		t.Errorf("busy and leaving: poll = %+v", poll)
+	}
+
+	if err := writeJSON(names.PoolFile(repo), p); err != nil {
+		t.Fatal(err)
+	}
+	git(wts[0], "switch", "-q", "-c", "feat/b")
+	if err := parkBeforeTask(repo, 1, io.Discard); err != nil || onBranch(t, wts[0]) != names.WorkerBranch(1, "20261008170000") {
+		t.Errorf("park before a task with no branch = %v, on %s", err, onBranch(t, wts[0]))
+	}
+
+	// Dirty: left where it is, no error, rather than every task with no
+	// branch held on it.
+	git(wts[0], "switch", "-q", "feat/b")
+	if err := os.WriteFile(filepath.Join(wts[0], "wip.txt"), []byte("wip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := parkBeforeTask(repo, 1, io.Discard); err != nil || onBranch(t, wts[0]) != "feat/b" {
+		t.Errorf("dirty: %v, on %s", err, onBranch(t, wts[0]))
+	}
+
+	// Free again while its switch still runs (a done without a task id):
+	// still leaving feat/b, not ready.
+	p.Workers[0].State = workerFree
+	if poll := pollWorkers(p, nil, names.StatusDir(repo), t0, mem)[1]; !poll.Parking || poll.Branch != "feat/b" || poll.Ready {
+		t.Errorf("free and leaving: poll = %+v", poll)
+	}
+	// Busy with nothing leaving: polled on its real branch.
+	delete(mem.leaving, 1)
+	p.Workers[0].State = workerBusy
+	if poll := pollWorkers(p, nil, names.StatusDir(repo), t0, mem)[1]; poll.Parking || poll.Branch != "feat/b" {
+		t.Errorf("busy: poll = %+v", poll)
 	}
 }
 
