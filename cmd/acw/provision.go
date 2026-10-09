@@ -91,7 +91,7 @@ func openWorker(repo string, index int) {
 	opened := label + " opened"
 	stacked := pw.Stacked
 	if stacked {
-		if err := adoptAlone(pw.Worktree, plan.Profile); err != nil {
+		if err := adoptAlone(pw.Worktree, plan.profileOf(pw.Index)); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: wtm adopt failed, it goes on without a dedicated environment: %v\n", name, err)
 			// wtm records the index and the path before it starts the
 			// stack: an unknown profile, a port clash or a missing dump

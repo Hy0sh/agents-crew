@@ -6,6 +6,14 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `worker-overrides` takes `profile`: the wtm stack profile that worker
+  starts on instead of the swarm's, at its opening, at each task's switch
+  and at `acw resume`; the master's brief tells it for the switch a worker
+  runs itself. A reviewer of backend changes no longer holds a full stack
+  with a frontend it never opens.
+
 ### Changed
 
 - A free worker goes back to its waiting branch without a stack (`wtm

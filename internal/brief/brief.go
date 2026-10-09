@@ -137,6 +137,8 @@ type Worker struct {
 	// that it stays open for the life of the swarm.
 	Tasks []string
 	Keep  bool
+	// Profile is its own wtm stack profile, "" for the swarm's.
+	Profile string
 }
 
 // Variables lists what a custom template can reference, e.g.
@@ -265,6 +267,9 @@ func workerOverrides(slug string, workers []Worker) string {
 		}
 		if w.Keep {
 			b.WriteString(". It stays open for the life of the swarm, ready for the next one")
+		}
+		if w.Profile != "" {
+			fmt.Fprintf(&b, ". Its environment runs the %s stack profile, not the swarm's: when a brief has it cut a branch, the switch takes `--profile %s`; give it no task that needs a service that profile leaves out", w.Profile, w.Profile)
 		}
 		if w.Prompt == "" {
 			b.WriteString(", with no instructions of its own.\n")

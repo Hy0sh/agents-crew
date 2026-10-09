@@ -107,6 +107,26 @@ func TestParkWorkerStartsNoStack(t *testing.T) {
 	}
 }
 
+// A worker with a profile of its own is started on it.
+func TestResumeStartsAWorkerOnItsOwnProfile(t *testing.T) {
+	repo, calls := fakeSwarm(t, "light")
+	p, _, _ := readPool(repo)
+	p.Plan.Workers = []workerSpec{{Kind: "claude", Profile: "api"}}
+	if err := writeJSON(names.PoolFile(repo), p); err != nil {
+		t.Fatal(err)
+	}
+	wt := names.WorkerWorktree(repo, 1, "20260925140000")
+	if out, err := exec.Command("git", "-C", wt, "switch", "-q", "-c", "feat/x").CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if err := resumeStacks(repo, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(calls); string(got) != "start feat/x --profile api\n" {
+		t.Errorf("wtm calls = %q", got)
+	}
+}
+
 // A worker beyond max-stacks, or whose adopt failed, has a worktree but no
 // stack: wtm says so, and that is not a failure of pause.
 func TestPauseSkipsAWorktreeWithoutAStack(t *testing.T) {
