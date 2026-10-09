@@ -38,6 +38,8 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 - Rewrite `worker-overrides` as `roles`: acw prints the equivalent when it
   refuses the config. A swarm started before keeps its `workerN` names
   until its next `acw start`.
+- A custom brief template that used `{{.WorkerOverrides}}` uses
+  `{{.Roles}}` instead.
 
 ## [0.21.0] - 2026-10-09
 

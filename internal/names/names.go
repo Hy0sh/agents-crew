@@ -12,7 +12,6 @@ package names
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -149,18 +148,3 @@ func IsWorkerAgent(name, slug string) bool {
 // Agent is the herdr agent name of the worker labelled label in the run
 // identified by slug.
 func Agent(slug, label string) string { return label + "-" + slug }
-
-// WorkerIndex reads a worker's index from how it is named: its label
-// (worker2) or its agent name for slug (Worker(slug, 2)). ok is false for
-// anything else, a zero-padded or suffixed index included.
-func WorkerIndex(name, slug string) (i int, ok bool) {
-	if _, err := fmt.Sscanf(name, "worker%d", &i); err != nil || i < 1 {
-		return 0, false
-	}
-	return i, name == fmt.Sprintf("worker%d", i) || name == Worker(slug, i)
-}
-
-// Worker is worker i's agent name for a run identified by slug.
-func Worker(slug string, i int) string {
-	return fmt.Sprintf("worker%d-%s", i, slug)
-}

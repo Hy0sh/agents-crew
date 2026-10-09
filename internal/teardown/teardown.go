@@ -83,11 +83,11 @@ func Run() error {
 	return nil
 }
 
-// anyWorker finds a worker of the run by its full agent name: a bare
-// worker2 label could be another directory's.
+// anyWorker finds a worker of the run, of any role, by its full agent
+// name: a bare reviewer2 label could be another directory's.
 func anyWorker(agents []herdr.Agent, slug string) (herdr.Agent, bool) {
 	for _, a := range agents {
-		if i, ok := names.WorkerIndex(a.Name, slug); ok && a.Name == names.Worker(slug, i) {
+		if names.IsWorkerAgent(a.Name, slug) {
 			return a, true
 		}
 	}
@@ -103,7 +103,7 @@ func anyWorker(agents []herdr.Agent, slug string) (herdr.Agent, bool) {
 // disk by their naming convention (see cleanupWorkerWorktrees for why not
 // through Herdr). A worker outside the code has none, and is not listed.
 func WorkerWorktrees(repo string) []string {
-	matches, err := filepath.Glob(filepath.Join(names.WorktreesDir(repo), "worker*"))
+	matches, err := filepath.Glob(filepath.Join(names.WorktreesDir(repo), "*"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "looking for worker worktrees: %v\n", err)
 		return nil

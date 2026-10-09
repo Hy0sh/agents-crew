@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
 )
 
@@ -19,6 +20,31 @@ func git(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// Workers of any role are found, on disk and in herdr; the master and
+// other folders never are.
+func TestFindsWorkersOfAnyRole(t *testing.T) {
+	repo := t.TempDir()
+	for _, d := range []string{"reviewer1-20261009", "worker2-20261009", "front-end1-20261009", "notes", "reviewer-x"} {
+		if err := os.MkdirAll(filepath.Join(names.WorktreesDir(repo), d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var got []string
+	for _, d := range WorkerWorktrees(repo) {
+		got = append(got, filepath.Base(d))
+	}
+	if strings.Join(got, ",") != "front-end1-20261009,reviewer1-20261009,worker2-20261009" {
+		t.Errorf("WorkerWorktrees = %v", got)
+	}
+	agents := []herdr.Agent{{Name: "master-s"}, {Name: "reviewer1-s"}}
+	if a, ok := anyWorker(agents, "s"); !ok || a.Name != "reviewer1-s" {
+		t.Errorf("anyWorker = %v, %t", a, ok)
+	}
+	if _, ok := anyWorker([]herdr.Agent{{Name: "master-s"}, {Name: "reviewer1-other"}}, "s"); ok {
+		t.Error("anyWorker found a worker of another run, or the master")
+	}
 }
 
 // A worker takes each task on a new branch in its worktree: acw stop must
@@ -203,7 +229,7 @@ func TestStopWithoutAMasterReleasesWhatItsRunLeft(t *testing.T) {
 	fakeWtm(t, "exit 0")
 	calls := fakeHerdr(t, `{"result":{"agents":[`+
 		`{"name":"worker1","workspace_id":"elsewhere"},`+
-		`{"name":"`+names.Worker(names.Slug(repo), 1)+`","workspace_id":"ws-7"}]}}`)
+		`{"name":"`+names.Agent(names.Slug(repo), "worker1")+`","workspace_id":"ws-7"}]}}`)
 
 	if err := Run(); err != nil {
 		t.Fatal(err)

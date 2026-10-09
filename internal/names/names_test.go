@@ -1,6 +1,7 @@
 package names
 
 import (
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -89,9 +90,9 @@ func TestMasterAndWorkerNamesAreHerdrSafe(t *testing.T) {
 			t.Errorf("Master(Slug(%q)) = %q, not a valid herdr agent name", repo, master)
 		}
 		for i := 1; i <= 9; i++ {
-			w := Worker(slug, i)
+			w := Agent(slug, fmt.Sprintf("worker%d", i))
 			if !herdrNamePattern.MatchString(w) {
-				t.Errorf("Worker(Slug(%q), %d) = %q, not a valid herdr agent name", repo, i, w)
+				t.Errorf("Agent(Slug(%q), worker%d) = %q, not a valid herdr agent name", repo, i, w)
 			}
 		}
 	}
@@ -109,7 +110,7 @@ func TestLabelCarriesTheRepoDirectory(t *testing.T) {
 
 func TestWorkerNamesDistinctByIndex(t *testing.T) {
 	slug := Slug("/repo")
-	if Worker(slug, 1) == Worker(slug, 2) {
-		t.Fatal("Worker(slug, 1) == Worker(slug, 2)")
+	if Agent(slug, "worker1") == Agent(slug, "worker2") {
+		t.Fatal("Agent(slug, worker1) == Agent(slug, worker2)")
 	}
 }
