@@ -269,8 +269,17 @@ func workerArg(repo, arg string) (int, error) {
 	return index, err
 }
 
-// queueAdd queues the brief at path, last, or first with top.
-func queueAdd(repo, path string, br branchRequest, worker, kind string, after, afterMerge []int, top bool, now time.Time, out io.Writer) error {
+// addOptions are acw queue add's flags.
+type addOptions struct {
+	Branch            branchRequest
+	Worker, Kind      string
+	After, AfterMerge []int
+	Top               bool // first in the queue instead of last
+}
+
+// queueAdd queues the brief at path, as o says.
+func queueAdd(repo, path string, o addOptions, now time.Time, out io.Writer) error {
+	br, worker, kind, after, afterMerge, top := o.Branch, o.Worker, o.Kind, o.After, o.AfterMerge, o.Top
 	if err := br.check(); err != nil {
 		return err
 	}
