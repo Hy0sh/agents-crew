@@ -30,16 +30,6 @@ func cleared(before string, u usage) bool {
 	return before != "" && u.SessionID != "" && u.SessionID != before
 }
 
-// clearLabel turns what the master names a worker by, workerN or its herdr
-// name workerN-<slug> (the one the brief lists), into workerN and N.
-// Anything else is refused: the label becomes a file name.
-func clearLabel(arg, slug string) (string, int, error) {
-	if index, ok := names.WorkerIndex(arg, slug); ok {
-		return fmt.Sprintf("worker%d", index), index, nil
-	}
-	return "", 0, fmt.Errorf("%q is not a worker of this swarm (worker1, or its herdr name worker1-%s); the worker and what follows are separate arguments", arg, slug)
-}
-
 // clearRefusal is why a worker must not be sent /clear, "" when it can.
 // Sent to a blocked worker, /clear queues behind the prompt; sent to one
 // without acw's status line, nothing could confirm it.
@@ -72,12 +62,12 @@ func clearWorker(repo, arg string, out io.Writer) error {
 // idle, not blocked, with acw's status line to confirm it.
 func readyToClear(repo, arg string, out io.Writer) (clearTarget, error) {
 	slug := names.Slug(repo)
-	label, index, err := clearLabel(arg, slug)
+	index, label, err := workerName(repo, arg)
 	if err != nil {
 		return clearTarget{}, err
 	}
 	statusDir := names.StatusDir(repo)
-	t := clearTarget{label: label, index: index, name: names.Worker(slug, index), statusDir: statusDir,
+	t := clearTarget{label: label, index: index, name: names.Agent(slug, label), statusDir: statusDir,
 		usagePath: filepath.Join(statusDir, label+".usage.json")}
 
 	status, err := agentStatus(t.name)

@@ -19,6 +19,8 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+
+	"github.com/Hy0sh/agents-crew/internal/names"
 )
 
 // Project is one repo's entry. Keys are the flag names, so there is
@@ -55,9 +57,12 @@ type Project struct {
 	// PRWatch makes acw's watcher follow the user's open pull requests on
 	// the repo and tell the master what changed on them.
 	PRWatch *bool `json:"pr-watch,omitempty"`
-	// WorkerOverrides is keyed by worker index, 1 to workers, as a
-	// string because JSON keys are. The range is checked by the caller,
-	// once the flags have had their say on the worker count.
+	// Roles are the kinds of worker of the swarm, in the order written:
+	// what each runs, which tasks it takes, how many may be open. Without
+	// them, workers and min-workers make one role, worker.
+	Roles Roles `json:"roles,omitempty"`
+	// WorkerOverrides is only read to be refused with the roles that
+	// replace it (see CheckRoles).
 	WorkerOverrides map[string]WorkerOverride `json:"worker-overrides,omitempty"`
 	// Presets are named variants of the entry, picked with --preset: same
 	// keys, laid over it by WithPreset. A preset holding presets of its own
@@ -65,8 +70,155 @@ type Project struct {
 	Presets map[string]Project `json:"presets,omitempty"`
 }
 
-// WorkerOverride replaces worker-kind / worker-model for one worker and
-// gives it standing instructions. Same absent-vs-"" rule as Project.
+// Role is one kind of worker of a swarm: what its instances run, which
+// tasks they take, and how many may be open (Max) or are kept open (Min).
+// An absent key takes the entry's own (worker-kind, worker-model,
+// profile). Same absent-vs-"" rule as Project.
+type Role struct {
+	Max    *int    `json:"max,omitempty"`
+	Min    *int    `json:"min,omitempty"`
+	Kind   *string `json:"kind,omitempty"`
+	Model  *string `json:"model,omitempty"`
+	Prompt *string `json:"prompt,omitempty"`
+	// Dir makes its instances workers outside the code: they start there,
+	// with no worktree, environment or branch. Checked by the caller.
+	Dir *string `json:"dir,omitempty"`
+	// Profile is the wtm stack profile its instances start on instead of
+	// the swarm's.
+	Profile *string `json:"profile,omitempty"`
+	// Tasks are the kinds of task its instances take (acw queue add
+	// --kind); a role without any takes the tasks with no kind.
+	Tasks []string `json:"tasks,omitempty"`
+}
+
+// NamedRole is a role and its name, the prefix of its instances' names.
+type NamedRole struct {
+	Name string
+	Role
+}
+
+// Roles keeps the order they are written in: the first role with room
+// is the one the pool opens a worker of (see schedule in cmd/acw).
+type Roles []NamedRole
+
+func (r *Roles) UnmarshalJSON(data []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return errors.New("roles: an object of roles, by name")
+	}
+	*r = Roles{}
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		name, _ := tok.(string)
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			return err
+		}
+		var role Role
+		inner := json.NewDecoder(bytes.NewReader(raw))
+		inner.DisallowUnknownFields()
+		if err := inner.Decode(&role); err != nil {
+			return fmt.Errorf("roles: %s: %w", name, err)
+		}
+		*r = append(*r, NamedRole{Name: name, Role: role})
+	}
+	_, err := dec.Token()
+	return err
+}
+
+func (r Roles) MarshalJSON() ([]byte, error) {
+	var b bytes.Buffer
+	b.WriteByte('{')
+	for i, nr := range r {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		k, err := json.Marshal(nr.Name)
+		if err != nil {
+			return nil, err
+		}
+		v, err := json.Marshal(nr.Role)
+		if err != nil {
+			return nil, err
+		}
+		b.Write(k)
+		b.WriteByte(':')
+		b.Write(v)
+	}
+	b.WriteByte('}')
+	return b.Bytes(), nil
+}
+
+// CheckRoles refuses what roles can't mean, and worker-overrides, which
+// they replace, with the roles to write instead.
+func (p *Project) CheckRoles() error {
+	if len(p.WorkerOverrides) > 0 {
+		return fmt.Errorf("worker-overrides is replaced by roles; write instead (rename the roles as you like):\n%s", overridesAsRoles(p))
+	}
+	if len(p.Roles) == 0 {
+		return nil
+	}
+	if p.Workers != nil || p.MinWorkers != nil {
+		return errors.New("roles sets how many workers run: drop workers and min-workers")
+	}
+	seen := map[string]bool{}
+	for _, r := range p.Roles {
+		switch {
+		case !names.ValidRole(r.Name):
+			return fmt.Errorf("roles: %q is not a role name (lowercase letters and -, at most 20, not ending with a digit, not master)", r.Name)
+		case seen[r.Name]:
+			return fmt.Errorf("roles: %s twice", r.Name)
+		case r.Max == nil || *r.Max < 1:
+			return fmt.Errorf("roles: %s: max, how many may be open, is required and at least 1", r.Name)
+		case r.Min != nil && (*r.Min < 0 || *r.Min > *r.Max):
+			return fmt.Errorf("roles: %s: min is from 0 to max (%d)", r.Name, *r.Max)
+		case r.Dir != nil && r.Profile != nil:
+			return fmt.Errorf("roles: %s: a role with dir has no stack, so no profile", r.Name)
+		}
+		seen[r.Name] = true
+	}
+	return nil
+}
+
+// overridesAsRoles is what an entry with worker-overrides reads as in
+// roles: the workers it didn't override as role worker, each override a
+// role of one, kept open if it was kept.
+func overridesAsRoles(p *Project) string {
+	one := 1
+	var roles Roles
+	if p.Workers != nil {
+		rest := *p.Workers - len(p.WorkerOverrides)
+		if rest > 0 {
+			roles = append(roles, NamedRole{Name: "worker", Role: Role{Max: &rest, Min: p.MinWorkers}})
+		}
+	}
+	used := map[string]bool{"worker": true}
+	for i, key := range slices.Sorted(maps.Keys(p.WorkerOverrides)) {
+		o := p.WorkerOverrides[key]
+		r := Role{Max: &one, Kind: o.Kind, Model: o.Model, Prompt: o.Prompt, Dir: o.Dir, Profile: o.Profile, Tasks: o.Tasks}
+		if o.Keep != nil && *o.Keep {
+			r.Min = &one
+		}
+		// Named after what it takes when that makes a role name, else by
+		// letter: a role name can't end with a digit.
+		name := "special-" + string(rune('a'+i%26))
+		if len(o.Tasks) > 0 && names.ValidRole(o.Tasks[0]) && !used[o.Tasks[0]] {
+			name = o.Tasks[0]
+		}
+		used[name] = true
+		roles = append(roles, NamedRole{Name: name, Role: r})
+	}
+	content, _ := json.MarshalIndent(struct {
+		Roles Roles `json:"roles"`
+	}{roles}, "", "  ")
+	return string(content)
+}
+
+// WorkerOverride is the former per-index setting, read only to be turned
+// into roles. Same absent-vs-"" rule as Project.
 type WorkerOverride struct {
 	Kind   *string `json:"kind,omitempty"`
 	Model  *string `json:"model,omitempty"`
@@ -111,6 +263,9 @@ func Load(repo string) (*Project, error) {
 	if key := f.keyOf(repo); key != "" {
 		p := f.Projects[key]
 		expandPaths(p)
+		if err := p.CheckRoles(); err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
 		for name, preset := range p.Presets {
 			if len(preset.Presets) > 0 {
 				return nil, fmt.Errorf("%s: preset %q: a preset can't contain presets", path, name)
@@ -173,6 +328,11 @@ func Edit(repo string, change func(*Project) error) error {
 	if err := change(&p); err != nil {
 		return err
 	}
+	// Never write what Load would refuse: every later acw start in the
+	// repo would fail until the JSON is fixed by hand.
+	if err := p.CheckRoles(); err != nil {
+		return err
+	}
 	f.Projects[key] = p
 
 	content, err := json.MarshalIndent(f, "", "  ")
@@ -213,8 +373,8 @@ func FilesDir(repo, slug string) string {
 // are pointers, so the expansion lands in the caller's entry.
 func expandPaths(p Project) {
 	paths := []*string{p.Brief, p.BriefExtra, p.Notes, p.MasterDir}
-	for _, o := range p.WorkerOverrides {
-		paths = append(paths, o.Prompt, o.Dir)
+	for _, r := range p.Roles {
+		paths = append(paths, r.Prompt, r.Dir)
 	}
 	for _, s := range paths {
 		if s != nil {
@@ -224,9 +384,11 @@ func expandPaths(p Project) {
 }
 
 // WithPreset returns the entry with the named preset laid over it. A key
-// the preset sets replaces the entry's whole value, worker-overrides
-// included: merged index by index, a preset would inherit roles written
-// for another composition of the swarm.
+// the preset sets replaces the entry's whole value, roles included:
+// merged role by role, a preset would inherit roles written for another
+// composition of the swarm. A preset's count of workers (roles, or
+// workers and min-workers) replaces the entry's, whichever way it is
+// written; the result is checked as a whole.
 func (p *Project) WithPreset(name string) (*Project, error) {
 	preset, ok := p.Presets[name]
 	if !ok {
@@ -237,6 +399,14 @@ func (p *Project) WithPreset(name string) (*Project, error) {
 		return nil, fmt.Errorf("unknown preset %q (%s)", name, available)
 	}
 	merged := *p
+	// The count of workers is one value written two ways: the preset's
+	// replaces the entry's, whichever way each is written.
+	if preset.Roles != nil {
+		merged.Workers, merged.MinWorkers = nil, nil
+	}
+	if preset.Workers != nil || preset.MinWorkers != nil {
+		merged.Roles = nil
+	}
 	dst, src := reflect.ValueOf(&merged).Elem(), reflect.ValueOf(preset)
 	for i := range src.NumField() {
 		// Every field is a pointer or a map: nil is exactly "not set".
@@ -245,6 +415,9 @@ func (p *Project) WithPreset(name string) (*Project, error) {
 		}
 	}
 	merged.Presets = nil
+	if err := merged.CheckRoles(); err != nil {
+		return nil, fmt.Errorf("preset %q: %w", name, err)
+	}
 	return &merged, nil
 }
 
@@ -280,9 +453,12 @@ func (p *Project) Summary() string {
 	if p.PRWatch != nil {
 		parts = append(parts, fmt.Sprintf("pr-watch=%t", *p.PRWatch))
 	}
-	if len(p.WorkerOverrides) > 0 {
-		keys := slices.Sorted(maps.Keys(p.WorkerOverrides))
-		parts = append(parts, "worker-overrides="+strings.Join(keys, ","))
+	if len(p.Roles) > 0 {
+		roles := make([]string, len(p.Roles))
+		for i, r := range p.Roles {
+			roles[i] = fmt.Sprintf("%s:%d", r.Name, *r.Max)
+		}
+		parts = append(parts, "roles="+strings.Join(roles, ","))
 	}
 	return strings.Join(parts, ", ")
 }

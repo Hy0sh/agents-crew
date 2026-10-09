@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
 )
 
@@ -21,6 +22,31 @@ func git(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// Workers of any role are found, on disk and in herdr; the master and
+// other folders never are.
+func TestFindsWorkersOfAnyRole(t *testing.T) {
+	repo := t.TempDir()
+	for _, d := range []string{"reviewer1-20261009120000", "worker2-20261009120000", "front-end1-20261009120000", "notes", "reviewer-x", "fix1-login"} {
+		if err := os.MkdirAll(filepath.Join(names.WorktreesDir(repo), d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var got []string
+	for _, d := range WorkerWorktrees(repo) {
+		got = append(got, filepath.Base(d))
+	}
+	if strings.Join(got, ",") != "front-end1-20261009120000,reviewer1-20261009120000,worker2-20261009120000" {
+		t.Errorf("WorkerWorktrees = %v", got)
+	}
+	agents := []herdr.Agent{{Name: "master-s"}, {Name: "reviewer1-s"}}
+	if a, ok := anyWorker(agents, "s"); !ok || a.Name != "reviewer1-s" {
+		t.Errorf("anyWorker = %v, %t", a, ok)
+	}
+	if _, ok := anyWorker([]herdr.Agent{{Name: "master-s"}, {Name: "reviewer1-other"}}, "s"); ok {
+		t.Error("anyWorker found a worker of another run, or the master")
+	}
+}
+
 // A worker takes each task on a new branch in its worktree: acw stop must
 // not force-delete that branch with the worktree, pushed or not. Only the
 // branch acw cut for the worker goes.
@@ -28,8 +54,8 @@ func TestCleanupKeepsTheTaskBranch(t *testing.T) {
 	repo := t.TempDir()
 	git(t, repo, "init", "-q")
 	git(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
-	wt := names.WorkerWorktree(repo, 1, "20261002")
-	git(t, repo, "worktree", "add", "-q", "-b", names.WorkerBranch(1, "20261002"), wt)
+	wt := names.WorkerWorktree(repo, "worker1", "20261002000000")
+	git(t, repo, "worktree", "add", "-q", "-b", names.WorkerBranch("worker1", "20261002000000"), wt)
 	git(t, wt, "switch", "-q", "-c", "feat/task")
 	git(t, wt, "commit", "-q", "--allow-empty", "-m", "work not pushed")
 
@@ -41,7 +67,7 @@ func TestCleanupKeepsTheTaskBranch(t *testing.T) {
 	if got := git(t, repo, "log", "-1", "--format=%s", "feat/task"); got != "work not pushed" {
 		t.Errorf("feat/task head = %q, want the task's commit kept", got)
 	}
-	if got := git(t, repo, "branch", "--list", names.WorkerBranch(1, "20261002")); got != "" {
+	if got := git(t, repo, "branch", "--list", names.WorkerBranch("worker1", "20261002000000")); got != "" {
 		t.Errorf("acw's own branch is still there: %q", got)
 	}
 }
@@ -92,7 +118,7 @@ func TestWorktreeRetriesUnderTheAdoptedBranch(t *testing.T) {
 	if kept := Worktree(repo, wt); kept != "" || exists(wt) {
 		t.Errorf("Worktree() = %q, want the stack found under the adopted branch and the worktree removed", kept)
 	}
-	want := "remove feat/task\nremove " + names.WorkerBranch(1, "20261002") + "\n"
+	want := "remove feat/task\nremove " + names.WorkerBranch("worker1", "20261002000000") + "\n"
 	if got, _ := os.ReadFile(calls); string(got) != want {
 		t.Errorf("wtm calls = %q, want %q", got, want)
 	}
@@ -109,7 +135,7 @@ func TestWorktreeRemovesTheStackRunningOrNot(t *testing.T) {
 	if kept := Worktree(repo, wt); kept != "" || exists(wt) {
 		t.Fatalf("Worktree() = %q, want the stack and the worktree removed", kept)
 	}
-	if got, _ := os.ReadFile(calls); string(got) != "remove "+names.WorkerBranch(1, "20261002")+"\n" {
+	if got, _ := os.ReadFile(calls); string(got) != "remove "+names.WorkerBranch("worker1", "20261002000000")+"\n" {
 		t.Errorf("wtm calls = %q, want one remove and no stop first", got)
 	}
 }
@@ -195,15 +221,15 @@ func TestStopWithoutAMasterReleasesWhatItsRunLeft(t *testing.T) {
 	}
 	git(t, repo, "init", "-q")
 	git(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
-	wt := names.WorkerWorktree(repo, 1, "20261002")
-	git(t, repo, "worktree", "add", "-q", "-b", names.WorkerBranch(1, "20261002"), wt)
+	wt := names.WorkerWorktree(repo, "worker1", "20261002000000")
+	git(t, repo, "worktree", "add", "-q", "-b", names.WorkerBranch("worker1", "20261002000000"), wt)
 	if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	fakeWtm(t, "exit 0")
 	calls := fakeHerdr(t, `{"result":{"agents":[`+
 		`{"name":"worker1","workspace_id":"elsewhere"},`+
-		`{"name":"`+names.Worker(names.Slug(repo), 1)+`","workspace_id":"ws-7"}]}}`)
+		`{"name":"`+names.Agent(names.Slug(repo), "worker1")+`","workspace_id":"ws-7"}]}}`)
 
 	if err := Run(); err != nil {
 		t.Fatal(err)
@@ -240,8 +266,8 @@ func workerWorktree(t *testing.T) (repo, wt string) {
 	repo = t.TempDir()
 	git(t, repo, "init", "-q")
 	git(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
-	wt = names.WorkerWorktree(repo, 1, "20261002")
-	git(t, repo, "worktree", "add", "-q", "-b", names.WorkerBranch(1, "20261002"), wt)
+	wt = names.WorkerWorktree(repo, "worker1", "20261002000000")
+	git(t, repo, "worktree", "add", "-q", "-b", names.WorkerBranch("worker1", "20261002000000"), wt)
 	return repo, wt
 }
 

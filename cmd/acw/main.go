@@ -41,12 +41,12 @@ type startOptions struct {
 	masterModel string
 	workerModel string
 	briefPath   string
-	preset      string                           // picks the config entry's variant, not a config key itself
-	profile     string                           // from the per-project config only, no flag
-	notesPath   string                           // same
-	extraPath   string                           // same: brief-extra
-	masterDir   string                           // same
-	overrides   map[string]config.WorkerOverride // same
+	preset      string       // picks the config entry's variant, not a config key itself
+	profile     string       // from the per-project config only, no flag
+	notesPath   string       // same
+	extraPath   string       // same: brief-extra
+	masterDir   string       // same
+	roles       config.Roles // same
 	// silenceMinutes: same, see config.Project.SilenceMinutes.
 	silenceMinutes int
 	// idleCloseMinutes: same, see config.Project.IdleCloseMinutes.
@@ -90,17 +90,21 @@ func applyConfig(opts *startOptions, p *config.Project, changed func(string) boo
 	if p.PRWatch != nil && !changed("pr-watch") {
 		opts.prWatch = *p.PRWatch
 	}
-	opts.overrides = p.WorkerOverrides
+	opts.roles = p.Roles
 }
 
 // checkCounts refuses counts the pool cannot run with: workers is how
 // many may be open, min-workers how many stay open, so 1 <= workers and
-// 0 <= min-workers <= workers.
-func checkCounts(opts *startOptions) error {
+// 0 <= min-workers <= workers. With roles, the config checked their own,
+// and --workers or --min-workers given on top would be ignored: refused.
+func checkCounts(opts *startOptions, changed func(string) bool) error {
+	roles := len(opts.roles) > 0
 	switch {
-	case opts.workers < 1:
+	case roles && (changed("workers") || changed("min-workers")):
+		return errors.New("the config sets roles: --workers and --min-workers don't apply, change the roles' max and min")
+	case !roles && opts.workers < 1:
 		return fmt.Errorf("workers is %d: at least 1, it is how many workers acw may open", opts.workers)
-	case opts.minWorkers < 0 || opts.minWorkers > opts.workers:
+	case !roles && (opts.minWorkers < 0 || opts.minWorkers > opts.workers):
 		return fmt.Errorf("min-workers is %d: from 0 to workers (%d)", opts.minWorkers, opts.workers)
 	case opts.idleCloseMinutes < 0:
 		return fmt.Errorf("idle-close-minutes is %d: 0 or more", opts.idleCloseMinutes)
@@ -287,10 +291,10 @@ func main() {
 				}
 				fmt.Fprintf(cmd.ErrOrStderr(), "config: %s → %s\n", config.Path(), summary)
 			}
-			if err := checkCounts(opts); err != nil {
+			if err := checkCounts(opts, cmd.Flags().Changed); err != nil {
 				return fmt.Errorf("config acw: %w", err)
 			}
-			workers, err := resolveWorkers(opts, cwd)
+			workers, err := buildSlots(opts, cwd)
 			if err != nil {
 				return fmt.Errorf("config acw: %w", err)
 			}
@@ -383,7 +387,7 @@ func main() {
 
 	var clearRepo func() (string, error)
 	clearCmd := &cobra.Command{
-		Use:   "clear workerN...",
+		Use:   "clear <worker>...",
 		Short: "Reset workers' context before a new task, and confirm it took",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -404,7 +408,7 @@ func main() {
 	var dispatchRepo func() (string, error)
 	var br branchRequest
 	dispatch := &cobra.Command{
-		Use:   "dispatch workerN <brief-file> [--branch <b>] [--base <ref>]",
+		Use:   "dispatch <worker> <brief-file> [--branch <b>] [--base <ref>]",
 		Short: "Give a worker its next task: wait until it is idle, reset its context, type the brief",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -423,7 +427,7 @@ func main() {
 
 	var doneRepo func() (string, error)
 	done := &cobra.Command{
-		Use:   "done workerN [task-id]",
+		Use:   "done <worker> [task-id]",
 		Short: "Mark a worker's task as finished: acw gives it the next one, or closes it",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -431,7 +435,7 @@ func main() {
 			if err != nil {
 				return err
 			}
-			index, err := workerArg(repo, args[0])
+			index, doneLabel, err := workerName(repo, args[0])
 			if err != nil {
 				return err
 			}
@@ -448,7 +452,7 @@ func main() {
 				return err
 			}
 			if finished != 0 {
-				label := fmt.Sprintf("worker%d", index)
+				label := doneLabel
 				s, _ := readWorkerStatus(filepath.Join(names.StatusDir(repo), label+".json"))
 				record("done", func(b *board.DB) error {
 					return b.AddHandled(board.Handled{Repo: repo, At: time.Now(), Worker: label, Task: finished,
@@ -464,7 +468,7 @@ func main() {
 	var tellRepo func() (string, error)
 	var slash string
 	tell := &cobra.Command{
-		Use:   "tell workerN [message...]",
+		Use:   "tell <worker> [message...]",
 		Short: "Leave a worker a message, read from stdin without one: it gets it at the end of its turn, or at once when idle",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

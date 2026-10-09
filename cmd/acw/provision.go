@@ -37,8 +37,8 @@ func openWorker(repo string, index int) {
 	}
 	slug := names.Slug(repo)
 	masterName := names.Master(slug)
-	label := pw.label()               // cosmetic pane label, kept short
-	name := names.Worker(slug, index) // actual herdr agent name, unique per repo
+	label := pw.label()              // pane label, kept short
+	name := names.Agent(slug, label) // herdr agent name, unique per repo
 	w := plan.Workers[index-1]
 	fail := func(step string, err error, pane string) {
 		fmt.Fprintf(os.Stderr, "%s: %s: %v\n", name, step, err)
@@ -161,7 +161,7 @@ func placeWorker(repo, masterPane string, w poolWorker, cwd string) (pane, step 
 		if err := gitutil.Fetch(repo); err != nil {
 			fmt.Fprintln(os.Stderr, "git fetch:", err)
 		}
-		branch := names.WorkerBranch(w.Index, strings.TrimPrefix(filepath.Base(w.Worktree), w.label()+"-"))
+		branch := names.WorkerBranch(w.label(), strings.TrimPrefix(filepath.Base(w.Worktree), w.label()+"-"))
 		if err := gitutil.WorktreeAdd(repo, w.Worktree, branch, gitutil.DefaultBaseRef(repo)); err != nil {
 			// Best effort: git may have made the branch before failing.
 			_ = gitutil.DeleteBranch(repo, branch)

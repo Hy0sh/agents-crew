@@ -1,6 +1,7 @@
 package brief
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -8,12 +9,13 @@ import (
 
 const testSlug = "testslug"
 
-// params is n identical workers of kind, maxStacks environments, no
-// profile, no notes: the shape every launch had before overrides.
+// params is n identical workers of kind, one role worker, maxStacks
+// environments, no profile, no notes: the shape every launch had before
+// roles.
 func params(kind string, n, maxStacks int) Params {
 	workers := make([]Worker, n)
 	for i := range workers {
-		workers[i] = Worker{Kind: kind}
+		workers[i] = Worker{Kind: kind, Role: "worker", Label: fmt.Sprintf("worker%d", i+1)}
 	}
 	return Params{RepoPath: "/repo", Slug: testSlug, Stacks: true, MaxStacks: maxStacks, IdleCloseMinutes: 10, Workers: workers}
 }
@@ -49,8 +51,8 @@ func TestBuildHandsTheMasterTheQueue(t *testing.T) {
 		p.StatusCommand,
 		"`" + p.QueueCommand + " add <brief-file>`",
 		"`" + p.QueueCommand + " move <id> <position>`",
-		"--top", "--worker workerN",
-		"`" + p.DoneCommand + " workerN <id>`",
+		"--top", "--worker <worker>",
+		"`" + p.DoneCommand + " <worker> <id>`",
 		"up to 2", "free for 10 min",
 	} {
 		if !strings.Contains(got, want) {
@@ -75,7 +77,7 @@ func TestBuildMinWorkersAtStartup(t *testing.T) {
 	}
 	p.MinWorkers = 2
 	got := Build(p)
-	if !strings.Contains(got, "The first 2 workers are opening") || !strings.Contains(got, "keeps 2 open with nothing queued") {
+	if !strings.Contains(got, "2 workers, the roles' min, are opening") || strings.Contains(got, "The first 2") || !strings.Contains(got, "keeps 2 open with nothing queued") {
 		t.Error("with min-workers the brief should say they are opening and stay open")
 	}
 }
@@ -97,10 +99,10 @@ func TestBuildLeansOnTheWatcherInsteadOfWaits(t *testing.T) {
 
 func TestBuildListsOutsideWorkersAndCountsOnlyCodersForStacks(t *testing.T) {
 	p := params("claude", 3, 2)
-	p.Workers[0] = Worker{Kind: "claude", Dir: "/Users/me/studio", Overridden: true}
+	p.Workers[0] = Worker{Kind: "claude", Dir: "/Users/me/studio", Role: "analyst", Label: "analyst1", Tasks: []string{"analysis"}}
 	got := Build(p)
-	if !strings.Contains(got, "/Users/me/studio") || !strings.Contains(got, "outside the code") {
-		t.Error("brief should list worker1 as outside the code, with its folder")
+	if line := lineWith(got, "- analyst1-testslug"); !strings.Contains(line, "/Users/me/studio") || !strings.Contains(line, "outside the code") {
+		t.Errorf("analyst1 line = %q, want it outside the code, with its folder", line)
 	}
 	// 2 coders, 2 environments: none waits for one, even with 3 workers.
 	if !strings.Contains(got, "every worker in the code gets its own isolated environment") {
@@ -108,16 +110,56 @@ func TestBuildListsOutsideWorkersAndCountsOnlyCodersForStacks(t *testing.T) {
 	}
 }
 
-// A worker with kinds tells the master how to reach it and that nobody
-// else takes those tasks; a kept one, that it stays open.
+// A role with kinds tells the master how to reach it and that no other
+// role takes those tasks; one with a min, that it stays open.
 func TestBuildListsWorkerKinds(t *testing.T) {
 	p := params("claude", 3, 3)
-	p.Workers[2] = Worker{Kind: "claude", Model: "opus", Overridden: true, Tasks: []string{"need-review"}, Keep: true}
+	p.Workers[2] = Worker{Kind: "claude", Model: "opus", Role: "reviewer", Label: "reviewer1", Tasks: []string{"need-review"}, Min: 1}
+	line := lineWith(Build(p), "- reviewer1-testslug")
+	for _, want := range []string{"`--kind need-review`", "no other role takes them", "1 kept open"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("reviewer line %q missing %q", line, want)
+		}
+	}
+}
+
+// The workers by role: each role once, with its names, what runs it and
+// what it takes; the instructions once per role.
+func TestBuildRoles(t *testing.T) {
+	p := params("claude", 4, 4)
+	p.Workers = []Worker{
+		{Kind: "claude", Model: "sonnet", Label: "worker1", Role: "worker"},
+		{Kind: "claude", Model: "sonnet", Label: "worker2", Role: "worker"},
+		{Kind: "claude", Model: "opus", Label: "reviewer1", Role: "reviewer", Tasks: []string{"need-review"}, Profile: "api", Prompt: "You review."},
+		{Kind: "claude", Model: "opus", Label: "reviewer2", Role: "reviewer", Tasks: []string{"need-review"}, Profile: "api", Prompt: "You review."},
+		{Kind: "codex", Model: "gpt-5-codex", Label: "verifier1", Role: "verifier", Tasks: []string{"verify"}, Prompt: "You verify."},
+	}
 	got := Build(p)
-	for _, want := range []string{"`--kind need-review`", "no general-purpose worker takes them", "stays open for the life of the swarm"} {
+	line := lineWith(got, "- reviewer1-testslug, reviewer2-testslug")
+	for _, want := range []string{"role reviewer", "claude opus", "`--kind need-review`", "api stack profile", "`--profile api`", "do NOT copy them"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("reviewer line %q missing %q", line, want)
+		}
+	}
+	if !strings.Contains(lineWith(got, "- worker1-testslug, worker2-testslug"), "without `--kind`") {
+		t.Error("generalist role line")
+	}
+	if !strings.Contains(lineWith(got, "- verifier1-testslug"), "instructions VERBATIM") {
+		t.Error("a codex role's instructions must be copied into each brief")
+	}
+	for _, want := range []string{
+		"<<<INSTRUCTIONS FOR role reviewer\nYou review.\nEND OF INSTRUCTIONS FOR role reviewer>>>",
+		"<<<INSTRUCTIONS FOR role verifier\nYou verify.\nEND OF INSTRUCTIONS FOR role verifier>>>",
+	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("brief missing %q", want)
 		}
+	}
+	if strings.Count(got, "You review.") != 1 {
+		t.Error("a role's instructions must be given once, not per worker")
+	}
+	if strings.Contains(got, "worker3") {
+		t.Error("brief names a worker that doesn't exist")
 	}
 }
 
@@ -239,7 +281,7 @@ func TestBuildMentionsTheStopHookOnlyForClaudeWorkers(t *testing.T) {
 
 func TestBuildMixedKinds(t *testing.T) {
 	p := params("claude", 3, 3)
-	p.Workers[2] = Worker{Kind: "codex", Overridden: true}
+	p.Workers[2] = Worker{Kind: "codex", Role: "worker", Label: "worker3"}
 	got := Build(p)
 	if !strings.Contains(got, "mixed: worker1-testslug claude, worker2-testslug claude, worker3-testslug codex") {
 		t.Errorf("brief should describe the mix of kinds, got:\n%s", got)
@@ -249,46 +291,10 @@ func TestBuildMixedKinds(t *testing.T) {
 	}
 }
 
-func TestBuildWithoutOverridesHasNoOverrideSection(t *testing.T) {
-	if strings.Contains(Build(params("claude", 3, 3)), "configured apart") {
-		t.Errorf("brief opens a worker-overrides section when none is configured")
-	}
-}
-
-func TestBuildWorkerOverrides(t *testing.T) {
-	p := params("claude", 3, 3)
-	p.Workers[0] = Worker{Kind: "claude", Model: "opus", Prompt: "You plan, you do not code.\n", Overridden: true}
-	p.Workers[2] = Worker{Kind: "codex", Model: "gpt-5-codex", Prompt: "You verify.", Overridden: true, Profile: "api"}
-	got := Build(p)
-	if line := lineWith(got, "worker3-testslug runs on"); !strings.Contains(line, "api stack profile") || !strings.Contains(line, "`--profile api`") {
-		t.Errorf("worker3 line = %q; must give the master its stack profile", line)
-	}
-
-	for _, want := range []string{
-		"worker1-testslug runs on claude opus",
-		"<<<INSTRUCTIONS FOR worker1-testslug\nYou plan, you do not code.\nEND OF INSTRUCTIONS FOR worker1-testslug>>>",
-		"worker3-testslug runs on codex gpt-5-codex",
-		"<<<INSTRUCTIONS FOR worker3-testslug\nYou verify.\nEND OF INSTRUCTIONS FOR worker3-testslug>>>",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("brief missing %q, got:\n%s", want, got)
-		}
-	}
-	if strings.Contains(got, "worker2-testslug runs on") {
-		t.Errorf("brief lists worker2, which has no override")
-	}
-	if !strings.Contains(got, "- worker2-testslug: no instructions of their own, general-purpose") {
-		t.Errorf("brief should say the worker without override takes the rest, got:\n%s", got)
-	}
-
-	// The claude worker has its instructions as a system prompt; only the
-	// codex one needs them copied into each brief.
-	claudeLine, codexLine := lineWith(got, "worker1-testslug runs on"), lineWith(got, "worker3-testslug runs on")
-	if !strings.Contains(claudeLine, "do NOT copy them") || strings.Contains(claudeLine, "instructions VERBATIM") {
-		t.Errorf("claude worker line = %q; must say not to copy its instructions", claudeLine)
-	}
-	if !strings.Contains(codexLine, "instructions VERBATIM") {
-		t.Errorf("codex worker line = %q; must say to copy its instructions into every brief", codexLine)
+// One plain role, the swarm's own: nothing to say by role.
+func TestBuildWithOneRoleHasNoRolesSection(t *testing.T) {
+	if strings.Contains(Build(params("claude", 3, 3)), "The workers by role") {
+		t.Errorf("brief opens a roles section for one plain role")
 	}
 }
 

@@ -107,11 +107,11 @@ func boardCommand() *cobra.Command {
 				return err
 			}
 			if worker != "" {
-				index, err := workerArg(repo, worker)
+				_, label, err := workerName(repo, worker)
 				if err != nil {
 					return err
 				}
-				worker = fmt.Sprintf("worker%d", index)
+				worker = label
 			}
 			if err := addDecision(board.Decision{Repo: repo, At: time.Now(), Worker: worker, Subject: subject, Why: why}, args, cmd.InOrStdin()); err != nil {
 				return err
@@ -121,7 +121,7 @@ func boardCommand() *cobra.Command {
 		},
 	}
 	decisionRepo = repoFlag(decision)
-	decision.Flags().StringVar(&worker, "worker", "", "the worker it concerns (workerN)")
+	decision.Flags().StringVar(&worker, "worker", "", "the worker it concerns, by its name (worker2, reviewer1)")
 	decision.Flags().StringVar(&subject, "subject", "", "what it is about: a ticket, a PR, a topic")
 	decision.Flags().StringVar(&why, "why", "", "the reason, in one line")
 	cmd.AddCommand(decision, parkCommand(), parkedCommand(), editCommand(), resumeCommand(), handoffCommand())
@@ -182,11 +182,11 @@ func parkCommand() *cobra.Command {
 				return errors.New("--on: who the answer is waited from (client, me, a name)")
 			}
 			if worker != "" {
-				index, err := workerArg(repo, worker)
+				_, label, err := workerName(repo, worker)
 				if err != nil {
 					return err
 				}
-				worker = fmt.Sprintf("worker%d", index)
+				worker = label
 			}
 			text, err := readText(args, cmd.InOrStdin(), "question")
 			if err != nil {
@@ -204,7 +204,7 @@ func parkCommand() *cobra.Command {
 	repoOf = repoFlag(cmd)
 	cmd.Flags().StringVar(&ticket, "ticket", "", "the ticket key it belongs to")
 	cmd.Flags().StringVar(&on, "on", "", "who the answer is waited from: client, me (the user), or a name")
-	cmd.Flags().StringVar(&worker, "worker", "", "the worker it came from (workerN)")
+	cmd.Flags().StringVar(&worker, "worker", "", "the worker it came from, by its name (worker2, reviewer1)")
 	return cmd
 }
 

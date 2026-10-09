@@ -24,7 +24,7 @@ type projectKey struct {
 	file        bool
 }
 
-// presets and worker-overrides are left to the JSON: nested, they don't
+// presets and roles are left to the JSON: nested, they don't
 // fit a flag or a question.
 var projectKeys = []projectKey{
 	{name: "workers", usage: "most worker agents open at once"},
@@ -191,8 +191,8 @@ func projectWriteCommand() *cobra.Command {
 
 dir is the repo (default: the current directory). Files given to brief,
 brief-extra and notes are copied into a folder of the repo's own next to
-the config, and the entry points at the copy. presets and worker-overrides
-are edited in the JSON.`,
+the config, and the entry points at the copy. presets and roles are
+edited in the JSON.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			repo, err := repoOrCwd(strings.Join(args, ""))

@@ -74,7 +74,7 @@ func dispatchByHand(repo, arg, briefPath string, br branchRequest, out io.Writer
 	if err != nil {
 		return err
 	}
-	index, err := workerArg(repo, arg)
+	index, label, err := workerName(repo, arg)
 	if err != nil {
 		return err
 	}
@@ -82,10 +82,10 @@ func dispatchByHand(repo, arg, briefPath string, br branchRequest, out io.Writer
 		return withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
 			w := p.worker(index)
 			if w == nil {
-				return false, fmt.Errorf("worker%d is not open: queue the task instead (acw queue add --worker worker%d)", index, index)
+				return false, fmt.Errorf("%s is not open: queue the task instead (acw queue add --worker %s)", label, label)
 			}
 			if w.State != from {
-				return false, fmt.Errorf("worker%d is %s, not %s", index, w.State, from)
+				return false, fmt.Errorf("%s is %s, not %s", label, w.State, from)
 			}
 			w.State, w.Task, w.Since, w.Used, w.TaskBranch = to, 0, time.Now(), true, ""
 			if to == workerBusy {
@@ -226,7 +226,7 @@ func releaseBranch(p poolState, holder, branch string, out io.Writer) error {
 // homeBranch is the branch a worker's worktree opened on, its waiting
 // branch.
 func homeBranch(w poolWorker) string {
-	return names.WorkerBranch(w.Index, strings.TrimPrefix(filepath.Base(w.Worktree), w.label()+"-"))
+	return names.WorkerBranch(w.label(), strings.TrimPrefix(filepath.Base(w.Worktree), w.label()+"-"))
 }
 
 // parkWorker puts a worker's worktree back on its waiting branch, so that

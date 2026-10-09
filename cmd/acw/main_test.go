@@ -94,18 +94,29 @@ func TestCheckCounts(t *testing.T) {
 		{3, -1, 10, false},
 		{3, 0, -1, false},
 	} {
-		err := checkCounts(&startOptions{workers: c.workers, minWorkers: c.min, idleCloseMinutes: c.idle})
+		err := checkCounts(&startOptions{workers: c.workers, minWorkers: c.min, idleCloseMinutes: c.idle}, noFlags)
 		if (err == nil) != c.ok {
 			t.Errorf("checkCounts(workers %d, min %d, idle %d) = %v, want ok %t", c.workers, c.min, c.idle, err, c.ok)
 		}
 	}
+	// With roles, the counts are theirs: --workers on top is refused.
+	one := 1
+	roles := &startOptions{workers: 3, roles: config.Roles{{Name: "worker", Role: config.Role{Max: &one}}}}
+	if err := checkCounts(roles, noFlags); err != nil {
+		t.Errorf("roles = %v", err)
+	}
+	if err := checkCounts(roles, func(f string) bool { return f == "workers" }); err == nil {
+		t.Error("--workers with roles accepted")
+	}
 }
+
+func noFlags(string) bool { return false }
 
 // Claude Code refuses an --autocompact outside 100K-1M: the master would
 // not start, so acw refuses it first. 0 passes no flag.
 func TestCheckCountsMasterAutocompact(t *testing.T) {
 	for v, ok := range map[int]bool{0: true, 100_000: true, 1_000_000: true, 99_999: false, 1_000_001: false, -1: false} {
-		err := checkCounts(&startOptions{workers: 1, masterAutocompact: v})
+		err := checkCounts(&startOptions{workers: 1, masterAutocompact: v}, noFlags)
 		if (err == nil) != ok {
 			t.Errorf("checkCounts(master-autocompact %d) = %v, want ok %t", v, err, ok)
 		}

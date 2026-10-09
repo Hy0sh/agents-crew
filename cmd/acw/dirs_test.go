@@ -53,19 +53,23 @@ func TestResolveWorkersOutsideDir(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	opts := &startOptions{workers: 2, workerKind: "claude", overrides: map[string]config.WorkerOverride{"1": {Dir: &outside}}}
-	workers, err := resolveWorkers(opts, repo)
+	one := 1
+	opts := &startOptions{workerKind: "claude", roles: config.Roles{
+		{Name: "analyst", Role: config.Role{Max: &one, Dir: &outside}},
+		{Name: "worker", Role: config.Role{Max: &one}},
+	}}
+	workers, err := buildSlots(opts, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if workers[0].Dir != outside || workers[1].Dir != "" {
-		t.Errorf("dirs = %q, %q; want worker 1 outside, worker 2 a coder", workers[0].Dir, workers[1].Dir)
+		t.Errorf("dirs = %q, %q; want analyst1 outside, worker1 a coder", workers[0].Dir, workers[1].Dir)
 	}
 
 	inside := repo
-	opts.overrides = map[string]config.WorkerOverride{"2": {Dir: &inside}}
-	if _, err := resolveWorkers(opts, repo); err == nil || !strings.Contains(err.Error(), "2") {
-		t.Errorf("resolveWorkers() with dir = the repo: %v; want a refusal naming worker 2", err)
+	opts.roles = config.Roles{{Name: "analyst", Role: config.Role{Max: &one, Dir: &inside}}}
+	if _, err := buildSlots(opts, repo); err == nil || !strings.Contains(err.Error(), "analyst") {
+		t.Errorf("buildSlots() with dir = the repo: %v; want a refusal naming the role", err)
 	}
 }
 

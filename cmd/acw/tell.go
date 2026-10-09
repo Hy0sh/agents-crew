@@ -42,7 +42,7 @@ func tellWorker(statusDir, label, text string) error {
 // tellByHand is acw tell: the worker must be open, the message is its
 // arguments or, without any, stdin (a heredoc expands nothing).
 func tellByHand(repo, arg string, words []string, stdin io.Reader, out io.Writer) error {
-	index, err := workerArg(repo, arg)
+	index, label, err := workerName(repo, arg)
 	if err != nil {
 		return err
 	}
@@ -52,7 +52,7 @@ func tellByHand(repo, arg string, words []string, stdin io.Reader, out io.Writer
 	}
 	w := pool.worker(index)
 	if w == nil {
-		return fmt.Errorf("worker%d is not open", index)
+		return fmt.Errorf("%s is not open", label)
 	}
 	text := strings.Join(words, " ")
 	if len(words) == 0 {
@@ -91,7 +91,7 @@ func commandWorker(repo, arg, command string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	index, err := workerArg(repo, arg)
+	index, label, err := workerName(repo, arg)
 	if err != nil {
 		return err
 	}
@@ -101,9 +101,9 @@ func commandWorker(repo, arg, command string, out io.Writer) error {
 	}
 	w := pool.worker(index)
 	if w == nil {
-		return fmt.Errorf("worker%d is not open", index)
+		return fmt.Errorf("%s is not open", label)
 	}
-	name := names.Worker(names.Slug(repo), index)
+	name := names.Agent(names.Slug(repo), label)
 	status, err := agentStatus(name)
 	if err != nil {
 		return err

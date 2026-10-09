@@ -1,8 +1,10 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -97,49 +99,91 @@ func TestLoadRejectsInvalidJSON(t *testing.T) {
 	}
 }
 
-func TestLoadWorkerOverrides(t *testing.T) {
-	writeConfig(t, `{"projects": {"/repo": {"worker-overrides": {
-		"1": {"model": "opus", "prompt": "~/planner.md"},
-		"3": {"kind": "codex", "model": ""}
+func TestLoadRoles(t *testing.T) {
+	writeConfig(t, `{"projects": {"/repo": {"roles": {
+		"worker": {"max": 3, "min": 1},
+		"planner": {"max": 1, "model": "opus", "prompt": "~/planner.md"},
+		"codexer": {"max": 2, "kind": "codex", "model": ""}
 	}}}}`)
 	p, err := Load("/repo")
 	if err != nil {
 		t.Fatal(err)
 	}
+	var order []string
+	for _, r := range p.Roles {
+		order = append(order, r.Name)
+	}
+	if !slices.Equal(order, []string{"worker", "planner", "codexer"}) {
+		t.Errorf("roles in order %v, want as written", order)
+	}
 	home, _ := os.UserHomeDir()
-	if got := *p.WorkerOverrides["1"].Prompt; got != filepath.Join(home, "planner.md") {
+	if got := *p.Roles[1].Prompt; got != filepath.Join(home, "planner.md") {
 		t.Errorf("prompt = %q, ~ not expanded", got)
 	}
-	three := p.WorkerOverrides["3"]
-	if *three.Kind != "codex" || three.Model == nil || *three.Model != "" || three.Prompt != nil {
-		t.Errorf(`override 3 = %+v; want kind codex, model set to "", no prompt`, three)
+	codexer := p.Roles[2]
+	if *codexer.Kind != "codex" || codexer.Model == nil || *codexer.Model != "" || codexer.Prompt != nil {
+		t.Errorf(`codexer = %+v; want kind codex, model set to "", no prompt`, codexer)
 	}
 }
 
-func TestLoadWorkerOverrideTasksAndKeep(t *testing.T) {
-	writeConfig(t, `{"projects": {"/repo": {"worker-overrides": {"5": {"tasks": ["need-review"], "keep": true}}}}}`)
-	p, err := Load("/repo")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if o := p.WorkerOverrides["5"]; len(o.Tasks) != 1 || o.Tasks[0] != "need-review" || o.Keep == nil || !*o.Keep {
-		t.Errorf("override 5 = %+v", o)
-	}
-}
-
-func TestLoadRejectsUnknownKeyInWorkerOverride(t *testing.T) {
-	writeConfig(t, `{"projects": {"/repo": {"worker-overrides": {"1": {"modle": "opus"}}}}}`)
+func TestLoadRejectsUnknownKeyInRole(t *testing.T) {
+	writeConfig(t, `{"projects": {"/repo": {"roles": {"worker": {"max": 1, "modle": "opus"}}}}}`)
 	_, err := Load("/repo")
 	if err == nil || !strings.Contains(err.Error(), "modle") {
 		t.Errorf("Load() error = %v; want one naming the unknown key", err)
 	}
 }
 
+// What roles can't mean is refused, each with what to write instead.
+func TestRolesRefuseBadOnes(t *testing.T) {
+	for name, raw := range map[string]string{
+		"max absent":   `{"roles":{"worker":{}}}`,
+		"max 0":        `{"roles":{"worker":{"max":0}}}`,
+		"min > max":    `{"roles":{"worker":{"max":1,"min":2}}}`,
+		"bad name":     `{"roles":{"rev1":{"max":1}}}`,
+		"master":       `{"roles":{"master":{"max":1}}}`,
+		"profile+dir":  `{"roles":{"a":{"max":1,"dir":"/d","profile":"api"}}}`,
+		"with workers": `{"workers":3,"roles":{"worker":{"max":1}}}`,
+		"with min":     `{"min-workers":1,"roles":{"worker":{"max":1}}}`,
+		"overrides":    `{"worker-overrides":{"4":{"model":"opus","tasks":["need-review"]}}}`,
+	} {
+		writeConfig(t, `{"projects": {"/repo": `+raw+`}}`)
+		if _, err := Load("/repo"); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+	writeConfig(t, `{"projects": {"/repo": {"roles":{"worker":{"max":1,"keep":true}}}}}`)
+	if _, err := Load("/repo"); err == nil {
+		t.Error("unknown role key accepted")
+	}
+}
+
+// worker-overrides is gone; its refusal shows the roles to write.
+func TestOverridesRefusalShowsRoles(t *testing.T) {
+	writeConfig(t, `{"projects": {"/repo": {"workers": 7, "min-workers": 3, "worker-overrides": {"4": {"model": "opus", "tasks": ["need-review"], "keep": true}}}}}`)
+	_, err := Load("/repo")
+	if err == nil || !strings.Contains(err.Error(), `"roles"`) || !strings.Contains(err.Error(), "need-review") || !strings.Contains(err.Error(), `"max": 6`) {
+		t.Errorf("err = %v, want the equivalent roles", err)
+	}
+}
+
+// Roles written back by Edit keep their order.
+func TestRolesMarshalInOrder(t *testing.T) {
+	var p Project
+	if err := json.Unmarshal([]byte(`{"roles":{"worker":{"max":4},"reviewer":{"max":2},"analyst":{"max":1}}}`), &p); err != nil {
+		t.Fatal(err)
+	}
+	out, err := json.Marshal(p.Roles)
+	if err != nil || !strings.HasPrefix(string(out), `{"worker":`) || !strings.Contains(string(out), `"reviewer":{"max":2},"analyst"`) {
+		t.Errorf("marshal = %s, %v", out, err)
+	}
+}
+
 func TestWithPresetReplacesWholeKeys(t *testing.T) {
 	writeConfig(t, `{"projects": {"/repo": {
-		"workers": 3, "profile": "light",
-		"worker-overrides": {"2": {"model": "haiku"}, "3": {"model": "haiku"}},
-		"presets": {"feature": {"workers": 4, "worker-overrides": {"1": {"prompt": "~/planner.md"}}}}
+		"profile": "light",
+		"roles": {"worker": {"max": 2}, "reviewer": {"max": 1, "model": "haiku"}},
+		"presets": {"feature": {"roles": {"planner": {"max": 1, "prompt": "~/planner.md"}}}, "mixed": {"workers": 5}}
 	}}}`)
 	p, err := Load("/repo")
 	if err != nil {
@@ -149,18 +193,31 @@ func TestWithPresetReplacesWholeKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if *got.Workers != 4 || *got.Profile != "light" {
-		t.Errorf("workers = %d, profile = %q; want the preset's workers and the entry's profile", *got.Workers, *got.Profile)
+	if *got.Profile != "light" {
+		t.Errorf("profile = %q; want the entry's", *got.Profile)
 	}
-	if len(got.WorkerOverrides) != 1 || got.WorkerOverrides["1"].Prompt == nil {
-		t.Errorf("worker-overrides = %v; the preset's must replace the entry's, not merge index by index", got.WorkerOverrides)
+	if len(got.Roles) != 1 || got.Roles[0].Name != "planner" {
+		t.Errorf("roles = %v; the preset's must replace the entry's, not merge role by role", got.Roles)
 	}
 	home, _ := os.UserHomeDir()
-	if *got.WorkerOverrides["1"].Prompt != filepath.Join(home, "planner.md") {
-		t.Errorf("prompt = %q, ~ not expanded in a preset", *got.WorkerOverrides["1"].Prompt)
+	if *got.Roles[0].Prompt != filepath.Join(home, "planner.md") {
+		t.Errorf("prompt = %q, ~ not expanded in a preset", *got.Roles[0].Prompt)
 	}
-	if *p.Workers != 3 {
+	if len(p.Roles) != 2 {
 		t.Error("WithPreset must not modify the entry it is called on")
+	}
+	// A preset's count replaces the entry's, whichever way it is written.
+	mixed, err := p.WithPreset("mixed")
+	if err != nil || mixed.Roles != nil || *mixed.Workers != 5 {
+		t.Errorf("preset workers over entry roles = %+v, %v; want workers 5, no roles", mixed, err)
+	}
+	writeConfig(t, `{"projects": {"/repo": {"workers": 4, "min-workers": 2, "presets": {"r": {"roles": {"worker": {"max": 1}}}}}}}`)
+	q, err := Load("/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, err := q.WithPreset("r"); err != nil || r.Workers != nil || r.MinWorkers != nil || len(r.Roles) != 1 {
+		t.Errorf("preset roles over entry workers = %+v, %v; want the roles only", r, err)
 	}
 }
 
@@ -176,7 +233,7 @@ func TestWithPresetUnknownNamesTheAvailableOnes(t *testing.T) {
 func TestLoadAgentDirs(t *testing.T) {
 	writeConfig(t, `{"projects": {"/repo": {
 		"master-dir": "~/studio",
-		"worker-overrides": {"1": {"dir": "~/docs"}},
+		"roles": {"analyst": {"max": 1, "dir": "~/docs"}},
 		"presets": {"p": {"master-dir": "~/other"}}
 	}}}`)
 	p, err := Load("/repo")
@@ -184,8 +241,8 @@ func TestLoadAgentDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 	home, _ := os.UserHomeDir()
-	if *p.MasterDir != filepath.Join(home, "studio") || *p.WorkerOverrides["1"].Dir != filepath.Join(home, "docs") {
-		t.Errorf("master-dir = %q, dir = %q; ~ not expanded", *p.MasterDir, *p.WorkerOverrides["1"].Dir)
+	if *p.MasterDir != filepath.Join(home, "studio") || *p.Roles[0].Dir != filepath.Join(home, "docs") {
+		t.Errorf("master-dir = %q, dir = %q; ~ not expanded", *p.MasterDir, *p.Roles[0].Dir)
 	}
 	if got := *p.Presets["p"].MasterDir; got != filepath.Join(home, "other") {
 		t.Errorf("preset master-dir = %q, ~ not expanded", got)
@@ -202,9 +259,10 @@ func TestLoadRejectsNestedPreset(t *testing.T) {
 	}
 }
 
-func TestSummaryListsWorkerOverrideIndexes(t *testing.T) {
-	p := &Project{WorkerOverrides: map[string]WorkerOverride{"3": {}, "1": {}}}
-	if got := p.Summary(); got != "worker-overrides=1,3" {
+func TestSummaryListsRoles(t *testing.T) {
+	four, two := 4, 2
+	p := &Project{Roles: Roles{{Name: "worker", Role: Role{Max: &four}}, {Name: "reviewer", Role: Role{Max: &two}}}}
+	if got := p.Summary(); got != "roles=worker:4,reviewer:2" {
 		t.Errorf("Summary() = %q", got)
 	}
 }
@@ -269,6 +327,24 @@ func TestEditKeepsOtherEntries(t *testing.T) {
 	}
 	if strings.Contains(got, "null") {
 		t.Errorf("unset keys written as null:\n%s", got)
+	}
+}
+
+// Edit never writes an entry acw would then refuse: workers next to
+// roles is refused, and the file is left as it was.
+func TestEditRefusesAnEntryLoadWouldRefuse(t *testing.T) {
+	writeConfig(t, `{"projects": {"/repo": {"roles": {"worker": {"max": 2}}}}}`)
+	before, _ := os.ReadFile(Path())
+	err := Edit("/repo", func(p *Project) error {
+		three := 3
+		p.Workers = &three
+		return nil
+	})
+	if err == nil {
+		t.Error("Edit wrote workers next to roles")
+	}
+	if after, _ := os.ReadFile(Path()); string(after) != string(before) {
+		t.Errorf("config changed:\n%s", after)
 	}
 }
 

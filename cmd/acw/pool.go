@@ -62,14 +62,24 @@ type poolWorker struct {
 	// typed: a watcher that dies in between leaves it busy with a task it
 	// never got, which the next watcher puts back (see recoverPool).
 	Dispatching *queuedTask `json:"dispatching,omitempty"`
+	// Label is its name, its slot's (see workerSpec.label), set when it
+	// opens.
+	Label string `json:"label,omitempty"`
 }
 
-func (w poolWorker) label() string { return fmt.Sprintf("worker%d", w.Index) }
+// label is the worker's name. A worker opened before roles has none
+// stored, and was named by its index.
+func (w poolWorker) label() string {
+	if w.Label != "" {
+		return w.Label
+	}
+	return fmt.Sprintf("worker%d", w.Index)
+}
 
 // poolState is pool.json.
 type poolState struct {
 	Plan             provisionPlan `json:"plan"`
-	MinWorkers       int           `json:"min_workers"`
+	MinWorkers       int           `json:"min_workers,omitempty"` // read from a pool written before roles only (see normalizeLegacy)
 	IdleCloseMinutes int           `json:"idle_close_minutes"`
 	Workers          []poolWorker  `json:"workers"`
 	// Held is how many stacks still take room with no open worker: kept
@@ -259,7 +269,30 @@ func readPoolFile(repo string) (poolState, error) {
 	if err := json.Unmarshal(content, &p); err != nil {
 		return p, fmt.Errorf("%s: %w", names.PoolFile(repo), err)
 	}
+	normalizeLegacy(&p)
 	return p, nil
+}
+
+// normalizeLegacy reads a pool.json written before roles as one role,
+// worker, ranked by index: its workers keep their names. Its general
+// workers share the floor min_workers set; a kept worker has a floor of
+// its own, one.
+func normalizeLegacy(p *poolState) {
+	for i := range p.Plan.Workers {
+		w := &p.Plan.Workers[i]
+		if w.Role != "" {
+			continue
+		}
+		w.Role, w.Rank = "worker", i+1
+		switch {
+		case w.Keep:
+			w.Group, w.Min = fmt.Sprintf("worker#%d", i+1), 1
+		case !w.Overridden:
+			w.Min = p.MinWorkers
+		default:
+			w.Group = fmt.Sprintf("worker#%d", i+1)
+		}
+	}
 }
 
 func writeJSON(path string, v any) error {
@@ -270,10 +303,21 @@ func writeJSON(path string, v any) error {
 	return writeAtomic(path, append(content, '\n'), 0o644)
 }
 
-// workerArg turns worker3, or its herdr name, into 3 (see clearLabel).
+// workerArg turns a worker's name, or its herdr name, into its slot (see
+// provisionPlan.slotOf).
 func workerArg(repo, arg string) (int, error) {
-	_, index, err := clearLabel(arg, names.Slug(repo))
+	index, _, err := workerName(repo, arg)
 	return index, err
+}
+
+// workerName is the slot and name of the worker arg names, in repo's
+// swarm.
+func workerName(repo, arg string) (int, string, error) {
+	p, err := readPoolFile(repo)
+	if err != nil {
+		return 0, "", err
+	}
+	return p.Plan.slotOf(arg, names.Slug(repo))
 }
 
 // addOptions are acw queue add's flags.
@@ -301,17 +345,14 @@ func queueAdd(repo, path string, o addOptions, now time.Time, out io.Writer) err
 		}
 	}
 	return withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
-		if index > len(p.Plan.Workers) {
-			return false, fmt.Errorf("worker%d is beyond this swarm's %d workers", index, len(p.Plan.Workers))
-		}
 		// A kind no worker takes would wait forever; a worker named with
 		// --worker must take the kind it is given.
 		if kind != "" {
 			if !slices.ContainsFunc(p.Plan.Workers, func(w workerSpec) bool { return slices.Contains(w.Tasks, kind) }) {
-				return false, fmt.Errorf("--kind %s: no worker takes it; list it under tasks in a worker-overrides entry", kind)
+				return false, fmt.Errorf("--kind %s: no worker takes it; list it under a role's tasks", kind)
 			}
 			if index != 0 && !slices.Contains(p.Plan.Workers[index-1].Tasks, kind) {
-				return false, fmt.Errorf("--kind %s: worker%d does not take it", kind, index)
+				return false, fmt.Errorf("--kind %s: %s does not take it", kind, p.Plan.labelOf(index))
 			}
 		}
 		// Only a task that was queued can be waited for: one already ended
@@ -400,7 +441,7 @@ func markDone(repo string, index, task int, now time.Time) (string, int, error) 
 	err := withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
 		w := p.worker(index)
 		if w == nil {
-			return false, fmt.Errorf("worker%d is not open", index)
+			return false, fmt.Errorf("%s is not open", p.Plan.labelOf(index))
 		}
 		if w.State != workerBusy {
 			msg = fmt.Sprintf("%s is already %s.", w.label(), w.State)
@@ -501,7 +542,7 @@ func pollWorkers(p poolState, agents []herdr.Agent, statusDir string, now time.T
 		}
 		spec := p.Plan.Workers[w.Index-1]
 		var poll workerPoll
-		if a, ok := herdr.FindAgent(agents, names.Worker(slug, w.Index)); ok && (a.Status == "idle" || a.Status == "done") {
+		if a, ok := herdr.FindAgent(agents, names.Agent(slug, w.label())); ok && (a.Status == "idle" || a.Status == "done") {
 			_, err := os.Stat(filepath.Join(statusDir, w.label()+".usage.json"))
 			poll.Ready = spec.Kind != "claude" || err == nil
 		} else if ok && (a.Status == "working" || a.Status == "blocked") {
@@ -581,9 +622,9 @@ func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, no
 				if w != nil {
 					continue
 				}
-				nw := poolWorker{Index: a.Worker, State: workerOpening, Stacked: a.Stacked, Since: now}
+				nw := poolWorker{Index: a.Worker, State: workerOpening, Stacked: a.Stacked, Since: now, Label: p.Plan.Workers[a.Worker-1].label()}
 				if p.Plan.Workers[a.Worker-1].Dir == "" {
-					nw.Worktree = names.WorkerWorktree(repo, a.Worker, now.Format("20060102150405"))
+					nw.Worktree = names.WorkerWorktree(repo, nw.label(), now.Format("20060102150405"))
 				}
 				p.Workers = append(p.Workers, nw)
 				opens = append(opens, a.Worker)
@@ -670,9 +711,9 @@ func (mem *poolMemory) parkFree(p poolState, w poolWorker, from string) {
 
 // stacksFullMessage tells the master why fewer than min-workers are open.
 func stacksFullMessage(p poolState) string {
-	msg := fmt.Sprintf("acw keeps fewer than min-workers (%d) open: max-stacks (%d) is reached", p.MinWorkers, p.Plan.MaxStacks)
+	msg := fmt.Sprintf("acw keeps fewer workers open than the roles' min: max-stacks (%d) is reached", p.Plan.MaxStacks)
 	if p.Held == 0 {
-		return msg + ". Tell me: max-stacks is below min-workers."
+		return msg + ". Tell me: max-stacks is below the sum of the roles' min."
 	}
 	return msg + fmt.Sprintf(", %d of them by worktrees no open worker holds (left by an earlier run). Tell me: `wtm list` in %s shows them, and `wtm remove <branch>` frees the ones no longer needed.", p.Held, p.Plan.Repo)
 }
@@ -799,7 +840,7 @@ func renderQueue(now time.Time, p poolState, q taskQueue) string {
 	for i, t := range q.Tasks {
 		fmt.Fprintf(&b, "  %d. #%d  %s", i+1, t.ID, firstLine(t.Brief))
 		if t.Worker != 0 {
-			fmt.Fprintf(&b, " · for worker%d", t.Worker)
+			fmt.Fprintf(&b, " · for %s", p.Plan.labelOf(t.Worker))
 		}
 		if t.Kind != "" {
 			fmt.Fprintf(&b, " · kind %s", t.Kind)

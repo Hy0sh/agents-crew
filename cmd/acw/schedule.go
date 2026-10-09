@@ -13,23 +13,23 @@ import (
 //
 // The rules:
 //   - a task named for a worker (Worker) waits for that one, opened if it
-//     is not; any other task goes to a general-purpose worker, never to
-//     one the config set apart (worker-overrides), which only takes the
-//     tasks named for it;
+//     is not; a task of a kind goes to a worker whose role lists it, a
+//     task of no kind to one whose role lists none;
 //   - a free worker gets the first task it may take, if its agent is
 //     ready for one; a task on a branch a clean free worker is on waits
 //     for that worker, or, if it can't take it, for it to be parked;
 //   - a free worker left on its task's branch goes back to its waiting
 //     branch, unless a queued task is for that branch; a task waits
 //     while its branch is being left;
-//   - a task no free worker can take opens the lowest worker not open,
-//     within the configured count and, for a worker in the code when the
+//   - a task no free worker can take opens the lowest slot not open that
+//     takes it (roles in config order, see buildSlots), within its
+//     role's max and, for a worker in the code when the
 //     repo has stacks, within max-stacks, which also counts the stacks
 //     kept with a closed worker's worktree; a worker already opening is
 //     counted for the first task waiting on it;
 //   - a held task (Error) is skipped;
-//   - general-purpose workers are opened up to min-workers with nothing
-//     queued, and never closed below it;
+//   - each role keeps its min workers open with nothing queued, and
+//     none of its workers is closed below it;
 //   - a free worker no task waits for is closed after idle-close-minutes,
 //     at once for a kind acw cannot reset between tasks, and never while
 //     its worktree holds changes: the master is told instead.
@@ -41,7 +41,7 @@ const (
 	actOpen
 	actClose
 	actDirty      // free long enough to close, but its worktree has changes
-	actStacksFull // min-workers not met: max-stacks is reached
+	actStacksFull // a role's min not met: max-stacks is reached
 	actPark       // free, clean, off its waiting branch: back on it
 )
 
@@ -133,13 +133,6 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 		return w.State == workerFree && !taken[w.Index] && polls[w.Index].Ready
 	}
 	counted := map[int]bool{} // workers of a kind coming up, already counted for a task
-
-	// Kept workers open with the swarm, whatever is queued.
-	for i := 1; i <= n; i++ {
-		if spec(i).Keep && canOpen(i) {
-			openWorker(i)
-		}
-	}
 
 	// A clean free worker on the branch of a task further down the queue is
 	// kept for that one: given an earlier task elsewhere, it would leave
@@ -235,28 +228,34 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 		}
 	}
 
-	// The floor: general-purpose workers kept open with nothing queued,
-	// so a task never waits for an opening, and min-workers equal to
-	// workers is the fixed swarm of before.
-	// A kept worker is on top of it, not part of it.
-	up := 0
+	// The floors: each role keeps its min workers open with nothing
+	// queued, so a task never waits for an opening; min equal to max is a
+	// fixed role. Counted per role (see workerSpec.group).
+	up := map[string]int{}
 	for _, w := range p.Workers {
-		if w.State != workerClosing && !spec(w.Index).Keep {
-			up++
+		if w.State != workerClosing {
+			up[spec(w.Index).group()]++
 		}
 	}
 	for _, a := range actions {
-		if a.Kind == actOpen && !spec(a.Worker).Keep {
-			up++
+		if a.Kind == actOpen {
+			up[spec(a.Worker).group()]++
 		}
 	}
-	for i := 1; i <= n && up < p.MinWorkers; i++ {
-		if !spec(i).Overridden && canOpen(i) {
+	short := false
+	for i := 1; i <= n; i++ {
+		s := spec(i)
+		if up[s.group()] >= s.Min {
+			continue
+		}
+		if canOpen(i) {
 			openWorker(i)
-			up++
+			up[s.group()]++
+		} else if !open[i] {
+			short = true
 		}
 	}
-	if up < p.MinWorkers && p.Plan.Stacks && stacks >= p.Plan.MaxStacks {
+	if short && p.Plan.Stacks && stacks >= p.Plan.MaxStacks {
 		actions = append(actions, poolAction{Kind: actStacksFull})
 	}
 
@@ -283,7 +282,7 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 
 	idle := time.Duration(p.IdleCloseMinutes) * time.Minute
 	for _, w := range p.Workers {
-		if w.State != workerFree || taken[w.Index] || spec(w.Index).Keep || up <= p.MinWorkers {
+		if w.State != workerFree || taken[w.Index] || up[spec(w.Index).group()] <= spec(w.Index).Min {
 			continue
 		}
 		if slices.ContainsFunc(q.Tasks, func(t queuedTask) bool {
@@ -306,7 +305,7 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 		if !polls[w.Index].Clean {
 			kind = actDirty
 		} else {
-			up--
+			up[spec(w.Index).group()]--
 		}
 		actions = append(actions, poolAction{Kind: kind, Worker: w.Index})
 	}
