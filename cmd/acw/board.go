@@ -51,17 +51,16 @@ func prunedWorkers(last map[string]board.Worker, labels []string) (gone []string
 	return gone
 }
 
-// addDecision records a decision for repo, its text from args or, without
-// any, from in. Unlike record, it returns the error: the master must know
-// its decision was not kept.
-func addDecision(repo, worker, subject, why string, args []string, in io.Reader, now time.Time) error {
+// addDecision records d, its text from args or, without any, from in.
+// Unlike record, it returns the error: the master must know its decision
+// was not kept.
+func addDecision(d board.Decision, args []string, in io.Reader) error {
 	text, err := readText(args, in, "decision")
 	if err != nil {
 		return err
 	}
-	return withBoard(func(b *board.DB) error {
-		return b.AddDecision(board.Decision{Repo: repo, At: now, Worker: worker, Subject: subject, Text: text, Why: strings.TrimSpace(why)})
-	})
+	d.Text, d.Why = text, strings.TrimSpace(d.Why)
+	return withBoard(func(b *board.DB) error { return b.AddDecision(d) })
 }
 
 // openBrowser opens url, quietly: the URL is printed anyway.
@@ -114,7 +113,7 @@ func boardCommand() *cobra.Command {
 				}
 				worker = fmt.Sprintf("worker%d", index)
 			}
-			if err := addDecision(repo, worker, subject, why, args, cmd.InOrStdin(), time.Now()); err != nil {
+			if err := addDecision(board.Decision{Repo: repo, At: time.Now(), Worker: worker, Subject: subject, Why: why}, args, cmd.InOrStdin()); err != nil {
 				return err
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "decision recorded")

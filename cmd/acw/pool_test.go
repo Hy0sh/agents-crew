@@ -303,9 +303,9 @@ func TestRunPoolTellsAShortFloorOnce(t *testing.T) {
 	p := testPool(3, 2)
 	p.Plan.Repo, p.Plan.Inbox = repo, names.Inbox(repo)
 	p.MinWorkers, p.Held = 3, 2
-	told := false
+	mem := newPoolMemory()
 	poll := func() {
-		runPool(repo, p, taskQueue{}, nil, t0, map[int]bool{}, &told)
+		runPool(repo, p, taskQueue{}, nil, t0, mem)
 	}
 	count := func() int {
 		inbox, _ := os.ReadFile(p.Plan.Inbox)

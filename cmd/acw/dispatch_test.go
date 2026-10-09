@@ -106,13 +106,14 @@ func TestParkFree(t *testing.T) {
 	p := poolState{Plan: provisionPlan{Repo: repo, Inbox: inbox, Workers: []workerSpec{{Kind: "claude"}, {Kind: "claude"}}}, IdleCloseMinutes: 10,
 		Workers: []poolWorker{{Index: 1, Worktree: wts[0], State: workerFree, Since: t0}}}
 	home1 := names.WorkerBranch(1, "20261008170000")
+	mem := newPoolMemory()
 
 	git(wts[0], "switch", "-q", "-c", "feat/x")
-	poll := pollWorkers(p, nil, names.StatusDir(repo), t0)[1]
+	poll := pollWorkers(p, nil, names.StatusDir(repo), t0, mem)[1]
 	if poll.Branch != "feat/x" || poll.Home != home1 || !poll.Clean || poll.Parking {
 		t.Fatalf("poll = %+v", poll)
 	}
-	parkFree(p, p.Workers[0], "feat/x")
+	mem.parkFree(p, p.Workers[0], "feat/x")
 	if onBranch(t, wts[0]) != home1 {
 		t.Errorf("parked on %s, want %s", onBranch(t, wts[0]), home1)
 	}
@@ -121,8 +122,8 @@ func TestParkFree(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(wts[0], "wip.txt"), []byte("wip"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	parkFree(p, p.Workers[0], "feat/x")
-	if poll := pollWorkers(p, nil, names.StatusDir(repo), t0)[1]; !poll.Parking || onBranch(t, wts[0]) != "feat/x" {
+	mem.parkFree(p, p.Workers[0], "feat/x")
+	if poll := pollWorkers(p, nil, names.StatusDir(repo), t0, mem)[1]; !poll.Parking || onBranch(t, wts[0]) != "feat/x" {
 		t.Errorf("after a failed park: poll = %+v, on %s", poll, onBranch(t, wts[0]))
 	}
 	if told, _ := os.ReadFile(inbox); !strings.Contains(string(told), "worker1 is free but stays on feat/x") {
@@ -130,10 +131,10 @@ func TestParkFree(t *testing.T) {
 	}
 	os.Remove(filepath.Join(wts[0], "wip.txt"))
 	git(wts[0], "switch", "-q", "-c", "feat/y")
-	if poll := pollWorkers(p, nil, names.StatusDir(repo), t0)[1]; poll.Parking {
+	if poll := pollWorkers(p, nil, names.StatusDir(repo), t0, mem)[1]; poll.Parking {
 		t.Errorf("on another branch: poll = %+v, want it moved again", poll)
 	}
-	parkFree(p, p.Workers[0], "feat/y")
+	mem.parkFree(p, p.Workers[0], "feat/y")
 }
 
 func TestDispatchRefusesAnEmptyBrief(t *testing.T) {
