@@ -767,8 +767,9 @@ acw --preset feature
 - A preset takes the entry's keys. Each key it sets **replaces the entry's
   whole value**, `roles` included: merged role by role, a preset would
   inherit roles written for another composition of the swarm. A key it
-  leaves out keeps the entry's value; a preset's `workers` over the
-  entry's `roles` is refused.
+  leaves out keeps the entry's value. The count of workers is one value
+  written two ways: a preset's `roles` replace the entry's `workers` and
+  `min-workers`, and the other way round.
 - A pipeline (plan, then code, then review) is a different way of
   dispatching, not only different workers: give the preset its own `brief`,
   or the master will use the roles as interchangeable task runners. A mode

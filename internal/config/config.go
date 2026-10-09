@@ -386,8 +386,9 @@ func expandPaths(p Project) {
 // WithPreset returns the entry with the named preset laid over it. A key
 // the preset sets replaces the entry's whole value, roles included:
 // merged role by role, a preset would inherit roles written for another
-// composition of the swarm. The result is checked as a whole: a preset's
-// workers over the entry's roles is refused.
+// composition of the swarm. A preset's count of workers (roles, or
+// workers and min-workers) replaces the entry's, whichever way it is
+// written; the result is checked as a whole.
 func (p *Project) WithPreset(name string) (*Project, error) {
 	preset, ok := p.Presets[name]
 	if !ok {
@@ -398,6 +399,14 @@ func (p *Project) WithPreset(name string) (*Project, error) {
 		return nil, fmt.Errorf("unknown preset %q (%s)", name, available)
 	}
 	merged := *p
+	// The count of workers is one value written two ways: the preset's
+	// replaces the entry's, whichever way each is written.
+	if preset.Roles != nil {
+		merged.Workers, merged.MinWorkers = nil, nil
+	}
+	if preset.Workers != nil || preset.MinWorkers != nil {
+		merged.Roles = nil
+	}
 	dst, src := reflect.ValueOf(&merged).Elem(), reflect.ValueOf(preset)
 	for i := range src.NumField() {
 		// Every field is a pointer or a map: nil is exactly "not set".

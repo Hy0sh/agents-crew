@@ -206,8 +206,18 @@ func TestWithPresetReplacesWholeKeys(t *testing.T) {
 	if len(p.Roles) != 2 {
 		t.Error("WithPreset must not modify the entry it is called on")
 	}
-	if _, err := p.WithPreset("mixed"); err == nil {
-		t.Error("a preset's workers over the entry's roles accepted")
+	// A preset's count replaces the entry's, whichever way it is written.
+	mixed, err := p.WithPreset("mixed")
+	if err != nil || mixed.Roles != nil || *mixed.Workers != 5 {
+		t.Errorf("preset workers over entry roles = %+v, %v; want workers 5, no roles", mixed, err)
+	}
+	writeConfig(t, `{"projects": {"/repo": {"workers": 4, "min-workers": 2, "presets": {"r": {"roles": {"worker": {"max": 1}}}}}}}`)
+	q, err := Load("/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, err := q.WithPreset("r"); err != nil || r.Workers != nil || r.MinWorkers != nil || len(r.Roles) != 1 {
+		t.Errorf("preset roles over entry workers = %+v, %v; want the roles only", r, err)
 	}
 }
 
