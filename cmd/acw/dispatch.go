@@ -87,9 +87,10 @@ func dispatchByHand(repo, arg, briefPath string, br branchRequest, out io.Writer
 			if w.State != from {
 				return false, fmt.Errorf("%s is %s, not %s", label, w.State, from)
 			}
-			w.State, w.Task, w.Since, w.Used, w.TaskBranch = to, 0, time.Now(), true, ""
+			w.State, w.Task, w.Since, w.Used, w.TaskBranch, w.Current = to, 0, time.Now(), true, "", nil
 			if to == workerBusy {
 				w.TaskBranch = br.Branch
+				w.Current = &queuedTask{Brief: text, Branch: br.Branch, Base: br.Base, AddedAt: w.Since}
 			}
 			return true, nil
 		})

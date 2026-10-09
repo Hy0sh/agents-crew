@@ -92,7 +92,7 @@ func TestRecoverPool(t *testing.T) {
 	t45 := queuedTask{ID: 45, Brief: "health proof", Branch: "feat/h"}
 	repo := testSwarm(t, 3,
 		poolWorker{Index: 1, State: workerBusy, Task: 40},
-		poolWorker{Index: 2, State: workerBusy, Task: 45, TaskBranch: "feat/h", Dispatching: &t45, Since: t0},
+		poolWorker{Index: 2, State: workerBusy, Task: 45, TaskBranch: "feat/h", Dispatching: &t45, Current: &t45, Since: t0},
 		poolWorker{Index: 3, State: workerOpening, Worktree: filepath.Join(t.TempDir(), "gone")})
 	p, q, _ := readPool(repo)
 	p.Plan.Repo, p.Plan.Inbox = repo, names.Inbox(repo)
@@ -109,7 +109,7 @@ func TestRecoverPool(t *testing.T) {
 	if ids := queueIDs(t, repo); !slices.Equal(ids, []int{45, 47}) || q.Tasks[0].Brief != "health proof" {
 		t.Errorf("queue = %v, want #45 back first", ids)
 	}
-	if w := p.worker(2); w == nil || w.State != workerFree || w.Task != 0 || w.Dispatching != nil || w.TaskBranch != "" || !w.Since.After(t0) {
+	if w := p.worker(2); w == nil || w.State != workerFree || w.Task != 0 || w.Dispatching != nil || w.Current != nil || w.TaskBranch != "" || !w.Since.After(t0) {
 		t.Errorf("worker2 = %+v, want free, idle from now", w)
 	}
 	if w := p.worker(1); w == nil || w.State != workerBusy || w.Task != 40 {
@@ -290,7 +290,7 @@ func TestQueueConcurrentAddsAllLand(t *testing.T) {
 }
 
 func TestMarkDone(t *testing.T) {
-	repo := testSwarm(t, 2, poolWorker{Index: 1, State: workerBusy, Task: 3})
+	repo := testSwarm(t, 2, poolWorker{Index: 1, State: workerBusy, Task: 3, Current: &queuedTask{ID: 3, Brief: "x"}})
 	msg, finished, err := markDone(repo, 1, 3, t0)
 	if err != nil || !strings.Contains(msg, "free") {
 		t.Fatalf("markDone() = %q, %v", msg, err)
@@ -299,7 +299,7 @@ func TestMarkDone(t *testing.T) {
 		t.Errorf("finished = %d, want 3", finished)
 	}
 	p, _, _ := readPool(repo)
-	if w := p.worker(1); w.State != workerFree || w.Task != 0 || !w.Since.Equal(t0) {
+	if w := p.worker(1); w.State != workerFree || w.Task != 0 || !w.Since.Equal(t0) || w.Current != nil {
 		t.Errorf("worker1 = %+v, want free since now, no task", w)
 	}
 	if msg, finished, err := markDone(repo, 1, 0, t0); err != nil || !strings.Contains(msg, "already free") {

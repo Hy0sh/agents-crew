@@ -62,6 +62,9 @@ type poolWorker struct {
 	// typed: a watcher that dies in between leaves it busy with a task it
 	// never got, which the next watcher puts back (see recoverPool).
 	Dispatching *queuedTask `json:"dispatching,omitempty"`
+	// Current is the task it is busy with, brief included, until it is
+	// free again: what acw stop keeps for the next master.
+	Current *queuedTask `json:"current,omitempty"`
 	// Label is its name, its slot's (see workerSpec.label), set when it
 	// opens.
 	Label string `json:"label,omitempty"`
@@ -74,6 +77,11 @@ func (w poolWorker) label() string {
 		return w.Label
 	}
 	return fmt.Sprintf("worker%d", w.Index)
+}
+
+// free makes w free from now, with no task.
+func (w *poolWorker) free(now time.Time) {
+	w.State, w.Task, w.Since, w.TaskBranch, w.Dispatching, w.Current = workerFree, 0, now, "", nil, nil
 }
 
 // poolState is pool.json.
@@ -452,7 +460,7 @@ func markDone(repo string, index, task int, now time.Time) (string, int, error) 
 		}
 		msg = fmt.Sprintf("%s is free (task #%d done).", w.label(), w.Task)
 		finished = w.Task
-		w.State, w.Task, w.Since, w.TaskBranch, w.Dispatching = workerFree, 0, now, "", nil
+		w.free(now)
 		afterMergeOf(q, finished, prURL(repo, w.label()), &msg)
 		return true, nil
 	})
@@ -616,7 +624,7 @@ func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, no
 				t := q.Tasks[i]
 				q.Tasks = slices.Delete(q.Tasks, i, i+1)
 				w.State, w.Task, w.Since, w.Used, w.TaskBranch = workerBusy, t.ID, now, true, t.Branch
-				w.Dispatching = &t
+				w.Dispatching, w.Current = &t, &t
 				assigns = append(assigns, assignment{*w, t})
 			case actOpen:
 				if w != nil {
@@ -754,7 +762,7 @@ func assignTask(repo string, plan provisionPlan, w poolWorker, t queuedTask) {
 	t.Error = err.Error()
 	_ = withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
 		if pw := p.worker(w.Index); pw != nil && pw.State == workerBusy && pw.Task == t.ID {
-			pw.State, pw.Task, pw.Since, pw.TaskBranch, pw.Dispatching = workerFree, 0, time.Now(), "", nil
+			pw.free(time.Now())
 		}
 		q.Tasks = slices.Insert(q.Tasks, 0, t)
 		return true, nil
@@ -782,7 +790,7 @@ func recoverPool(repo string) {
 			if w.State == workerBusy && w.Dispatching != nil && w.Dispatching.ID == w.Task {
 				q.Tasks = slices.Insert(q.Tasks, 0, *w.Dispatching)
 				told = append(told, fmt.Sprintf("task #%d never reached %s (the watcher stopped while handing it out): back first in the queue, %s free again.", w.Task, w.label(), w.label()))
-				w.State, w.Task, w.Since, w.TaskBranch, w.Dispatching = workerFree, 0, time.Now(), "", nil
+				w.free(time.Now())
 				changed = true
 			}
 		}
