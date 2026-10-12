@@ -51,6 +51,8 @@ type Wait struct {
 	// waiting for the master to discuss it.
 	Doc     bool `json:"doc"`
 	Refused bool `json:"refused"`
+	// Hint replaces done on a wait the page can't settle: what to do instead.
+	Hint string `json:"hint"`
 }
 
 // Ticket is a ticket key and what the swarm holds of it.
@@ -248,6 +250,9 @@ func userWaits(d Day, workerKey, prKeyByURL map[string]string) []Wait {
 			wait.Text = w.Worker + " is stopped on a prompt: a tool approval or a question"
 		case strings.HasSuffix(w.State, "_ready"):
 			wait.Text = readyText(w)
+			// A done here would tell the master it was read; it is read on
+			// this page only once parked with its document.
+			wait.Hint = "Not parked yet: ask the master to park it with its document, to read it here"
 		case w.BlockedOn != "":
 			wait.Text = w.Worker + " waits: " + w.BlockedOn
 		default:

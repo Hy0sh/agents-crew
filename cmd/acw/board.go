@@ -20,6 +20,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Hy0sh/agents-crew/internal/board"
+	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/names"
 )
 
@@ -146,7 +147,7 @@ func boardCommand() *cobra.Command {
 		},
 	}
 	decisionRepo = repoFlag(decision)
-	decision.Flags().StringVar(&worker, "worker", "", "the worker it concerns, by its name (worker2, reviewer1)")
+	decision.Flags().StringVar(&worker, "worker", "", "the worker it concerns, by its name (worker2, reviewer1); left out for the master's or the user's own")
 	decision.Flags().StringVar(&subject, "subject", "", "what it is about: a ticket, a PR, a topic")
 	decision.Flags().StringVar(&why, "why", "", "the reason, in one line")
 	cmd.AddCommand(decision, parkCommand(), parkedCommand(), editCommand(), resumeCommand())
@@ -259,7 +260,12 @@ func parkCommand() *cobra.Command {
 					return err
 				}
 				s, _ := readWorkerStatus(filepath.Join(names.StatusDir(repo), worker+".json"))
-				kind, branch = docKind(s.State), s.Branch
+				kind = docKind(s.State)
+				// A plan names the branch it will cut: a --branch on it
+				// would fail to fetch, so the accept only suggests one there is.
+				if gitutil.HasBranch(repo, s.Branch) {
+					branch = s.Branch
+				}
 			}
 			text, err := readText(args, cmd.InOrStdin(), "question")
 			if err != nil {
