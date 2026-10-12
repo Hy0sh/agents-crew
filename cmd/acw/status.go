@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Hy0sh/agents-crew/internal/board"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
 )
@@ -121,7 +122,13 @@ func collectStatus(repo string) (rows []statusRow, unread int, lastAt time.Time,
 		return nil, 0, time.Time{}, fmt.Errorf("herdr agent list: %w", err)
 	}
 	rows = scanWorkers(statusDir, agents, names.Slug(repo), statusLabels(repo))
+	// What the PR watch last saw: a PR on auto-merge merges on its own.
+	var auto map[string]bool
+	_ = withBoard(func(b *board.DB) (err error) { auto, err = b.AutoMergeURLs(repo); return err })
 	for i, r := range rows {
+		if r.PR != "" && auto[normalizePRURL(r.PR)] {
+			rows[i].PR += " (auto-merge)"
+		}
 		if r.Name != "" {
 			if screen, err := herdr.AgentScreen(r.Name); err == nil {
 				rows[i].Busy = busyOnScreen(screen)

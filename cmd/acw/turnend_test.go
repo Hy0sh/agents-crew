@@ -97,6 +97,38 @@ func TestMarkToldClearsReady(t *testing.T) {
 // A message the master left goes to the worker as the Stop hook's block
 // decision, instead of a ping: the turn goes on with it. The turn end
 // that follows is its answer, and reaches the master.
+// A worker the master already freed ends a last turn: no ping, its task
+// is closed. A busy one, or one the master spoke to, still pings.
+func TestTurnEndQuietOnceFreed(t *testing.T) {
+	dir := t.TempDir()
+	inbox := filepath.Join(dir, "inbox")
+	at := time.Date(2026, 10, 12, 21, 0, 0, 0, time.UTC)
+	turn := func(state, pool string, told bool) bool {
+		t.Helper()
+		os.Remove(inbox)
+		writeJSON(filepath.Join(dir, "pool.json"), poolState{Workers: []poolWorker{{Index: 1, Label: "worker1", State: pool}}})
+		os.WriteFile(filepath.Join(dir, "worker1.json"), []byte(`{"state": "`+state+`", "updated_at": "`+state+`"}`), 0o644)
+		if told {
+			markTold(dir, "worker1")
+		}
+		at = at.Add(time.Minute)
+		if err := turnEnd(dir, "worker1", inbox, "master-x", at, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+		_, err := os.Stat(inbox)
+		return err == nil
+	}
+	if !turn("coding", workerBusy, false) {
+		t.Error("a busy worker's moved status must ping")
+	}
+	if turn("done", workerFree, false) {
+		t.Error("a freed worker's last turn must not ping")
+	}
+	if !turn("answered", workerFree, true) {
+		t.Error("a freed worker the master spoke to must still answer")
+	}
+}
+
 func TestTurnEndHandsTheMastersMessageToTheWorker(t *testing.T) {
 	dir := t.TempDir()
 	inbox := filepath.Join(dir, "inbox")

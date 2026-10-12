@@ -66,6 +66,7 @@ var migrations = []string{
 	`ALTER TABLE handled ADD COLUMN proof TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE handled ADD COLUMN kind TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE handled ADD COLUMN brief TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE prs ADD COLUMN auto_merge INTEGER NOT NULL DEFAULT 0`,
 }
 
 type DB struct{ sql *sql.DB }
@@ -160,6 +161,9 @@ type PR struct {
 	Status string `json:"status"`
 	CI     string `json:"ci"`
 	Review string `json:"review"`
+	// AutoMerge is set while GitHub merges it on its own once green and
+	// approved.
+	AutoMerge bool `json:"auto_merge"`
 	// SinceReady and SinceHole are when the watcher first saw the PR
 	// ready for its merge, or with review asks and nobody on it; zero
 	// while it isn't. A later write keeps the first date.
@@ -308,15 +312,16 @@ func (b *DB) UpsertPR(p PR) error {
 	// The worker and the head are kept when the new row has none: once
 	// its worker moves on, nothing names the owner any more, and a row
 	// from a status file knows no head. A since stays the first one seen.
-	_, err := b.sql.Exec(`INSERT INTO prs (repo, number, url, title, worker, base, status, ci, review, updated_at, head, since_ready, since_hole)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+	_, err := b.sql.Exec(`INSERT INTO prs (repo, number, url, title, worker, base, status, ci, review, updated_at, head, since_ready, since_hole, auto_merge)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT (repo, number) DO UPDATE SET url=excluded.url, title=excluded.title,
 		worker=CASE WHEN excluded.worker <> '' THEN excluded.worker ELSE prs.worker END,
 		head=CASE WHEN excluded.head <> '' THEN excluded.head ELSE prs.head END,
 		base=excluded.base, status=excluded.status, ci=excluded.ci, review=excluded.review, updated_at=excluded.updated_at,
 		since_ready=CASE WHEN excluded.since_ready = 0 THEN 0 WHEN prs.since_ready <> 0 THEN prs.since_ready ELSE excluded.since_ready END,
-		since_hole=CASE WHEN excluded.since_hole = 0 THEN 0 WHEN prs.since_hole <> 0 THEN prs.since_hole ELSE excluded.since_hole END`,
-		p.Repo, p.Number, p.URL, p.Title, p.Worker, p.Base, p.Status, p.CI, p.Review, p.UpdatedAt.Unix(), p.Head, unix(p.SinceReady), unix(p.SinceHole))
+		since_hole=CASE WHEN excluded.since_hole = 0 THEN 0 WHEN prs.since_hole <> 0 THEN prs.since_hole ELSE excluded.since_hole END,
+		auto_merge=excluded.auto_merge`,
+		p.Repo, p.Number, p.URL, p.Title, p.Worker, p.Base, p.Status, p.CI, p.Review, p.UpdatedAt.Unix(), p.Head, unix(p.SinceReady), unix(p.SinceHole), p.AutoMerge)
 	return err
 }
 
@@ -575,6 +580,25 @@ func (b *DB) BranchPlan(repo, branch string) (Parked, bool, error) {
 	return p, err == nil, err
 }
 
+// AutoMergeURLs is repo's open PRs on auto-merge, by URL, as the PR watch
+// last saw them.
+func (b *DB) AutoMergeURLs(repo string) (map[string]bool, error) {
+	rows, err := b.sql.Query(`SELECT url FROM prs WHERE repo = ? AND auto_merge = 1 AND status IN ('open', 'conflicting')`, repo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var url string
+		if err := rows.Scan(&url); err != nil {
+			return nil, err
+		}
+		out[url] = true
+	}
+	return out, rows.Err()
+}
+
 // TicketKey is the first ticket key s names (SHOP-12), "" without.
 func TicketKey(s string) string { return ticketKey.FindString(s) }
 
@@ -622,14 +646,14 @@ func (b *DB) Board(repo string, day, now time.Time) (Day, error) {
 			d.Workers = append(d.Workers, w)
 		}
 		rows.Close()
-		rows, err = b.sql.Query(`SELECT number, url, title, worker, head, base, status, ci, review, since_ready, since_hole, updated_at FROM prs WHERE repo = ? AND updated_at >= ? AND updated_at < ? ORDER BY number DESC`, repo, start, end)
+		rows, err = b.sql.Query(`SELECT number, url, title, worker, head, base, status, ci, review, since_ready, since_hole, updated_at, auto_merge FROM prs WHERE repo = ? AND updated_at >= ? AND updated_at < ? ORDER BY number DESC`, repo, start, end)
 		if err != nil {
 			return d, err
 		}
 		for rows.Next() {
 			p := PR{Repo: repo}
 			var ready, hole, updated int64
-			if err := rows.Scan(&p.Number, &p.URL, &p.Title, &p.Worker, &p.Head, &p.Base, &p.Status, &p.CI, &p.Review, &ready, &hole, &updated); err != nil {
+			if err := rows.Scan(&p.Number, &p.URL, &p.Title, &p.Worker, &p.Head, &p.Base, &p.Status, &p.CI, &p.Review, &ready, &hole, &updated, &p.AutoMerge); err != nil {
 				rows.Close()
 				return d, err
 			}

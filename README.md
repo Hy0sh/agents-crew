@@ -824,7 +824,8 @@ The worker named is the one whose status file holds the PR's `pr_url`.
 | a conflict with the base, or its resolution | a CI still running |
 | a new review | a push of yours (workers push under your account) |
 | more unresolved review threads | a review or thread reply of yours |
-| CI turned red, or green again after a red | a resolved thread |
+| CI turned red, naming the failing jobs and whether it blocks the PR's auto-merge; or green again after a red | a resolved thread |
+| auto-merge turned on or off (the board marks a PR on auto-merge, in red when its CI blocks it; `acw status` too, on a worker's PR) | |
 | a head commit pushed by someone else (a reviewer, GitHub's "Update branch") | |
 | a new PR, or a draft marked ready for review (the search leaves drafts out); a PR merged, closed or turned back to draft | |
 

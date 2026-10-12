@@ -113,12 +113,34 @@ func turnEnd(statusDir, label, inbox, masterName string, now time.Time, out io.W
 		fmt.Fprintln(os.Stderr, "turn end mark:", err)
 	}
 	err := normalizeStatus(filepath.Join(statusDir, label+".json"), now)
-	if delta, ping := statusDelta(statusDir, label, now); ping {
+	// A worker the master already freed ends a last turn: its task is
+	// closed, the ping would be noise. One the master spoke to since
+	// still answers.
+	_, toldErr := os.Stat(filepath.Join(statusDir, label+".told"))
+	quiet := toldErr != nil && freeInPool(statusDir, label)
+	if delta, ping := statusDelta(statusDir, label, now); ping && !quiet {
 		if derr := deliver(inbox, masterName, label+pingHead+delta+pingTail); err == nil {
 			err = derr
 		}
 	}
 	return err
+}
+
+// freeInPool reports whether the pool in statusDir has label open and
+// free, with no task. An unreadable pool says no: a ping too many is
+// better than one missing.
+func freeInPool(statusDir, label string) bool {
+	var p poolState
+	content, err := os.ReadFile(filepath.Join(statusDir, "pool.json"))
+	if err != nil || json.Unmarshal(content, &p) != nil {
+		return false
+	}
+	for _, w := range p.Workers {
+		if w.label() == label {
+			return w.State == workerFree
+		}
+	}
+	return false
 }
 
 // masterMessage is how a message from the master reaches a worker; its

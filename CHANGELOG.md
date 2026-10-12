@@ -6,6 +6,19 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- The PR watch's "CI red" names the failing jobs, and says when the red
+  blocks the PR's auto-merge; auto-merge turned on or off is a line of its
+  own. The board marks a PR on auto-merge, in red when its CI blocks it,
+  and `acw status` marks a worker's PR on auto-merge.
+
+### Fixed
+
+- A worker the master already freed with `acw done` no longer pings it at
+  the end of its last turn: that task is closed. One the master spoke to
+  since still answers.
+
 ## [0.25.0] - 2026-10-12
 
 ### Added

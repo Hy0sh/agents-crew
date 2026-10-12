@@ -53,6 +53,11 @@ type prState struct {
 	Base      string
 	Mergeable string // MERGEABLE, CONFLICTING, or UNKNOWN while GitHub computes it
 	CI        string // red, green or running
+	// Failing names the checks that failed, so a red CI says which job.
+	Failing []string
+	// AutoMerge is set while GitHub merges it on its own once green and
+	// approved: a red CI then blocks that merge without a word.
+	AutoMerge bool
 	// LastFinal is the last red or green seen, kept across running, so
 	// green after a red can be told from green after a green.
 	LastFinal   string
@@ -74,9 +79,11 @@ const prSearchQuery = `query($q: String!) {
     nodes {
       ... on PullRequest {
         number url title headRefName baseRefName mergeable
+        autoMergeRequest { enabledAt }
         reviews(last: 100) { nodes { state author { login } } }
         reviewThreads(first: 100) { nodes { isResolved } }
-        commits(last: 1) { nodes { commit { oid committer { name user { login } } statusCheckRollup { state } } } }
+        commits(last: 1) { nodes { commit { oid committer { name user { login } } statusCheckRollup { state
+          contexts(first: 100) { nodes { ... on CheckRun { name conclusion } ... on StatusContext { context state } } } } } } }
         timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT]) { filteredCount }
       }
     }
@@ -98,7 +105,9 @@ type prSearchResponse struct {
 				HeadRefName string
 				BaseRefName string
 				Mergeable   string
-				Reviews     struct {
+				// AutoMergeRequest is null unless auto-merge is on.
+				AutoMergeRequest *struct{ EnabledAt string }
+				Reviews          struct {
 					Nodes []struct {
 						State  string
 						Author struct{ Login string }
@@ -115,7 +124,14 @@ type prSearchResponse struct {
 								Name string
 								User *struct{ Login string }
 							}
-							StatusCheckRollup *struct{ State string }
+							StatusCheckRollup *struct {
+								State    string
+								Contexts struct {
+									// A CheckRun has name and conclusion,
+									// a StatusContext context and state.
+									Nodes []struct{ Name, Conclusion, Context, State string }
+								}
+							}
 						}
 					}
 				}
@@ -158,10 +174,19 @@ func parsePRSearch(data []byte) (viewer string, prs []prState, err error) {
 			if commit.Committer.User != nil {
 				pr.Committer = commit.Committer.User.Login
 			}
-			if commit.StatusCheckRollup != nil {
-				pr.CI = ciVerdict(commit.StatusCheckRollup.State)
+			if r := commit.StatusCheckRollup; r != nil {
+				pr.CI = ciVerdict(r.State)
+				for _, c := range r.Contexts.Nodes {
+					switch {
+					case c.Name != "" && slices.Contains([]string{"FAILURE", "TIMED_OUT", "STARTUP_FAILURE", "ACTION_REQUIRED"}, c.Conclusion):
+						pr.Failing = append(pr.Failing, c.Name)
+					case c.Context != "" && ciVerdict(c.State) == "red":
+						pr.Failing = append(pr.Failing, c.Context)
+					}
+				}
 			}
 		}
+		pr.AutoMerge = n.AutoMergeRequest != nil
 		prs = append(prs, pr)
 	}
 	return r.Data.Viewer.Login, prs, nil
@@ -272,7 +297,17 @@ func prEvents(old, pr prState, viewer string) []string {
 		events = append(events, fmt.Sprintf("open threads %d → %d", old.OpenThreads, pr.OpenThreads))
 	}
 	if pr.CI == "red" && old.CI != "red" {
-		events = append(events, "CI red")
+		red := "CI red"
+		if len(pr.Failing) > 0 {
+			red += " (failing: " + strings.Join(pr.Failing, ", ") + ")"
+		}
+		if pr.AutoMerge {
+			red += ", which blocks its auto-merge"
+		}
+		events = append(events, red)
+	}
+	if pr.AutoMerge != old.AutoMerge {
+		events = append(events, map[bool]string{true: "auto-merge on", false: "auto-merge off"}[pr.AutoMerge])
 	}
 	if pr.CI == "green" && old.CI != "green" && old.LastFinal == "red" {
 		events = append(events, "CI green again")

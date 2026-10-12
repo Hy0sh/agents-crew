@@ -275,6 +275,8 @@ function prChip(p) {
   c.title = "CI " + (p.ci || "unknown");
   const bits = [p.status !== "open" ? p.status : "", p.base ? "on " + p.base : "", p.review || (p.status === "open" ? "no review" : ""), p.worker].filter(Boolean);
   c.append(document.createTextNode(bits.join(" · ")));
+  // A red CI stops an auto-merge without a word: said in red.
+  if (p.auto_merge) c.append(" ", p.ci === "red" ? pill("auto-merge blocked", "bad") : pill("auto-merge", "ok"));
   return c;
 }
 function decisionList(ds) {
