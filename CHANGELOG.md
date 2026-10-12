@@ -22,15 +22,18 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   worker2's report"), and the master parks it with `--doc` like a plan,
   its own documents included. What goes into a PR, proof and files for
   agents are not concerned.
+- `acw board`: the document reader moves by its header and resizes by its
+  corner; it stays on screen and keeps its place for the next document.
 
 ### Changed
 
-- `acw board park --doc` refuses a document in `/tmp`, emptied before the
-  user may read it, and a file that is not text (a PDF, a spreadsheet),
-  which the page can't show: a markdown note giving its path is parked
-  instead.
-- `acw board`: the document reader moves by its header and resizes by its
-  corner; it stays on screen and keeps its place for the next document.
+- `acw board park --doc` keeps a copy of the document, next to the
+  board's base, and the page shows that copy: a document left in `/tmp`
+  survives until the user reads it, and what they accept is the version
+  they read, whatever happens to the file after.
+- `acw board park --doc` refuses a file that is not text (a PDF, a
+  spreadsheet), which the page can't show: a markdown note giving its
+  path is parked instead.
 
 ### Fixed
 
