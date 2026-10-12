@@ -6,6 +6,18 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Fixed
+
+- `acw board`: a worker's `*_ready` not parked yet no longer offers Done,
+  which told the master the document was read; it says to have it parked.
+- `acw board park --doc` keeps the worker's branch only when it exists:
+  the accept no longer suggests a `--branch` a plan has not cut yet.
+- The master's brief says to leave `--worker` out of a decision that
+  concerns no worker, instead of passing `master`, which is refused.
+- `acw board park --doc` no longer needs `--worker`: the master parks a
+  document of its own (the report of a run it did), read on the page as
+  the master's.
+
 ### Added
 
 - `acw board`: the document reader moves by its header and resizes by its

@@ -72,6 +72,14 @@ func TestViewWaits(t *testing.T) {
 	if len(v.Parked) != 1 || v.Parked[0].ID != 7 {
 		t.Errorf("parked on a third party = %+v, want #7 only", v.Parked)
 	}
+	// A plan not parked yet has no document here: no done, which would
+	// tell the master it was read.
+	if w := v.Waits[2]; w.Hint == "" || w.Doc {
+		t.Errorf("%s: hint %q, doc %v; want a hint, no document", w.Text, w.Hint, w.Doc)
+	}
+	if w := v.Waits[3]; w.Hint != "" {
+		t.Errorf("%s: hint %q, want none", w.Text, w.Hint)
+	}
 	if !v.PRWatch {
 		t.Error("PRs with CI: the PR watch runs")
 	}
@@ -96,9 +104,10 @@ func TestViewParkedDocument(t *testing.T) {
 	d := Day{Live: true, Parked: []Parked{
 		{ID: 3, Ticket: "SHOP-9", Worker: "worker2", On: "me", Text: "Approve the plan", Kind: "plan", DocPath: "/p.md", CreatedAt: noon},
 		{ID: 4, Worker: "reviewer1", On: "me", Text: "Read the verdict", Kind: "verdict", DocPath: "/v.md", CreatedAt: noon, Refused: true},
+		{ID: 5, On: "me", Text: "Read the dry-run report", Kind: "document", DocPath: "/r.md", CreatedAt: noon},
 	}}
 	v := BuildView(d, noon)
-	if len(v.Waits) != 2 || v.Waits[0].Text != "Read worker2's plan" || !v.Waits[0].Doc || v.Waits[0].Refused || v.Waits[0].Detail != "Approve the plan" {
+	if len(v.Waits) != 3 || v.Waits[2].Text != "Read the master's document" || v.Waits[0].Text != "Read worker2's plan" || !v.Waits[0].Doc || v.Waits[0].Refused || v.Waits[0].Detail != "Approve the plan" {
 		t.Errorf("waits = %+v", v.Waits)
 	}
 	if !v.Waits[1].Refused || v.Waits[1].Text != "Read reviewer1's verdict" {

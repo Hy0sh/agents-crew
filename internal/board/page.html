@@ -175,7 +175,7 @@ function wait(w, withButton) {
     b.type = "button";
     b.addEventListener("click", () => openDoc(w));
     top.append(b);
-  } else if (withButton) {
+  } else if (withButton && !w.hint) {
     const b = el("button", "done-btn", "Done");
     b.type = "button";
     b.addEventListener("click", () => markDone(w, b));
@@ -183,6 +183,7 @@ function wait(w, withButton) {
   }
   r.append(top);
   if (w.detail && w.detail !== w.text) r.append(el("div", "meta", w.detail));
+  if (withButton && w.hint) r.append(el("div", "flag", w.hint));
   if (w.refused) r.append(el("div", "flag", "Refused: the master waits for you in the terminal"));
   if (w.marked_at) r.append(el("div", "flag", (withButton ? "Still waiting, marked done at " : "Marked done at ") + hm(w.marked_at)));
   return r;

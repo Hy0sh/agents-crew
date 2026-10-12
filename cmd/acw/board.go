@@ -20,6 +20,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Hy0sh/agents-crew/internal/board"
+	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/names"
 )
 
@@ -146,7 +147,7 @@ func boardCommand() *cobra.Command {
 		},
 	}
 	decisionRepo = repoFlag(decision)
-	decision.Flags().StringVar(&worker, "worker", "", "the worker it concerns, by its name (worker2, reviewer1)")
+	decision.Flags().StringVar(&worker, "worker", "", "the worker it concerns, by its name (worker2, reviewer1); left out for the master's or the user's own")
 	decision.Flags().StringVar(&subject, "subject", "", "what it is about: a ticket, a PR, a topic")
 	decision.Flags().StringVar(&why, "why", "", "the reason, in one line")
 	cmd.AddCommand(decision, parkCommand(), parkedCommand(), editCommand(), resumeCommand())
@@ -249,17 +250,24 @@ func parkCommand() *cobra.Command {
 			}
 			kind, branch := "", ""
 			if doc != "" {
-				if worker == "" {
-					return errors.New("--doc needs --worker: parking its document frees it")
-				}
 				if on != "me" {
 					return errors.New("--doc goes with --on me: only the user reads documents, on acw board")
 				}
 				if err := checkDocPath(repo, doc); err != nil {
 					return err
 				}
-				s, _ := readWorkerStatus(filepath.Join(names.StatusDir(repo), worker+".json"))
-				kind, branch = docKind(s.State), s.Branch
+				// Without --worker, the master's own document: no state, no
+				// branch, nobody to free.
+				var s workerStatus
+				if worker != "" {
+					s, _ = readWorkerStatus(filepath.Join(names.StatusDir(repo), worker+".json"))
+				}
+				kind = docKind(s.State)
+				// A plan names the branch it will cut: a --branch on it
+				// would fail to fetch, so the accept only suggests one there is.
+				if gitutil.HasBranch(repo, s.Branch) {
+					branch = s.Branch
+				}
 			}
 			text, err := readText(args, cmd.InOrStdin(), "question")
 			if err != nil {
@@ -273,7 +281,7 @@ func parkCommand() *cobra.Command {
 				}
 				return err
 			})
-			if err != nil || doc == "" {
+			if err != nil || doc == "" || worker == "" {
 				return err
 			}
 			// The user may take days to read it: the worker waits on nothing.
@@ -288,7 +296,7 @@ func parkCommand() *cobra.Command {
 	cmd.Flags().StringVar(&ticket, "ticket", "", "the ticket key it belongs to")
 	cmd.Flags().StringVar(&on, "on", "", "who the answer is waited from: client, me (the user), or a name")
 	cmd.Flags().StringVar(&worker, "worker", "", "the worker it came from, by its name (worker2, reviewer1)")
-	cmd.Flags().StringVar(&doc, "doc", "", "a document to approve (plan, verdict, review draft): its absolute path, outside the repo's worktrees; the user reads it on acw board, and the worker is freed")
+	cmd.Flags().StringVar(&doc, "doc", "", "a document to approve (plan, verdict, review draft): its absolute path, outside the repo's worktrees; the user reads it on acw board, and the --worker is freed (left out for the master's own)")
 	return cmd
 }
 

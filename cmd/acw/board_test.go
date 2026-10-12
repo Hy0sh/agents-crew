@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -269,7 +270,6 @@ func TestParkDocument(t *testing.T) {
 		{"--worker", "worker1", "--doc", filepath.Join(t.TempDir(), "gone.md")},
 		{"--worker", "worker1", "--doc", t.TempDir()},
 		{"--worker", "worker1", "--doc", inTree},
-		{"--doc", doc},
 		{"--worker", "worker1", "--doc", doc, "--on", "client"}, // only the user reads documents on the page
 	} {
 		if _, err := run(bad...); err == nil {
@@ -284,9 +284,9 @@ func TestParkDocument(t *testing.T) {
 		t.Errorf("worker1 = %+v, want free", p.worker(1))
 	}
 	d := boardDay(t, repo, time.Now())
-	// The branch is kept: the worker is on another task by the time the
-	// user accepts, and the follow-up goes back to it.
-	if len(d.Parked) != 1 || d.Parked[0].DocPath != doc || d.Parked[0].Kind != "plan" || d.Parked[0].Worker != "worker1" || d.Parked[0].Branch != "fix/vat" {
+	// A plan's branch is not cut yet: the accept must not suggest a
+	// --branch that would fail to fetch.
+	if len(d.Parked) != 1 || d.Parked[0].DocPath != doc || d.Parked[0].Kind != "plan" || d.Parked[0].Worker != "worker1" || d.Parked[0].Branch != "" {
 		t.Errorf("parked = %+v", d.Parked)
 	}
 	cmd := boardCommand()
@@ -297,12 +297,29 @@ func TestParkDocument(t *testing.T) {
 	if !strings.Contains(shown.String(), "document: "+doc) {
 		t.Errorf("parked 1 = %q, want the document's path", shown.String())
 	}
+	// A branch that exists is kept: the worker is on another task by the
+	// time the user accepts, and the follow-up goes back to it.
+	for _, args := range [][]string{{"init", "-q"}, {"-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "init"}, {"branch", "fix/vat"}} {
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
 	if out, err := run("--worker", "worker1", "--doc", doc); err != nil || !strings.Contains(out, "already free") {
 		t.Errorf("park --doc of a free worker = %q, %v; want parked, already free", out, err)
 	}
+	if d := boardDay(t, repo, time.Now()); len(d.Parked) != 2 || d.Parked[1].Branch != "fix/vat" {
+		t.Errorf("parked = %+v, want #2 on fix/vat", d.Parked)
+	}
+	// The master's own document: no worker to free, no branch.
+	if out, err := run("--doc", doc); err != nil || !strings.Contains(out, "#3 parked") || strings.Contains(out, "free") {
+		t.Errorf("park --doc without a worker = %q, %v; want parked, nobody freed", out, err)
+	}
+	if d := boardDay(t, repo, time.Now()); len(d.Parked) != 3 || d.Parked[2].Worker != "" || d.Parked[2].Kind != "document" || d.Parked[2].Branch != "" {
+		t.Errorf("parked = %+v, want #3 the master's document", d.Parked)
+	}
 	// Parked, then its worker can't be freed (closed meanwhile): no error,
 	// or the master would park it a second time.
-	if out, err := run("--worker", "worker2", "--doc", doc); err != nil || !strings.Contains(out, "#3 parked") || !strings.Contains(out, "worker2") {
+	if out, err := run("--worker", "worker2", "--doc", doc); err != nil || !strings.Contains(out, "#4 parked") || !strings.Contains(out, "worker2") {
 		t.Errorf("park --doc of a closed worker = %q, %v; want parked, a warning", out, err)
 	}
 }

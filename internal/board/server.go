@@ -219,7 +219,7 @@ func answerDoc(b *DB, req doneRequest, at time.Time, notify func(repo, msg strin
 	if p.ClosedAt != nil {
 		return fmt.Errorf("#%d was already closed on %s, with: %s", id, p.ClosedAt.Local().Format("02/01 15:04"), p.Answer)
 	}
-	what := fmt.Sprintf("parked #%d (%s of %s", id, p.Kind, p.Worker)
+	what := fmt.Sprintf("parked #%d (%s of %s", id, p.Kind, p.From())
 	if p.Ticket != "" {
 		what += ", " + p.Ticket
 	}
