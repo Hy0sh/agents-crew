@@ -37,6 +37,7 @@ var projectKeys = []projectKey{
 	{name: "worker-model", usage: "model for the workers; empty passes no --model"},
 	{name: "master-autocompact", usage: "context size in tokens at which a claude master compacts; 0 leaves Claude Code's own"},
 	{name: "pr-watch", usage: "follow your open pull requests and tell the master what changed"},
+	{name: "board", usage: "open acw board along with the swarm; acw stop stops it"},
 	{name: "profile", usage: "wtm stack profile workers start on"},
 	{name: "silence-minutes", usage: "how long a working worker may show no activity before the master hears of it"},
 	{name: "master-dir", usage: "absolute folder outside the repo the master starts in"},

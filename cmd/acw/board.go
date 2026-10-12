@@ -73,8 +73,19 @@ func openBrowser(url string) {
 	_ = exec.Command(name, url).Start()
 }
 
+// waitGone returns once path no longer exists, checked every so often.
+func waitGone(path string, every time.Duration) {
+	for {
+		if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+			return
+		}
+		time.Sleep(every)
+	}
+}
+
 func boardCommand() *cobra.Command {
 	var port int
+	var untilStop string
 	cmd := &cobra.Command{
 		Use:   "board",
 		Short: "Open a local page of what waits on you, where each ticket stands, and how the swarm runs",
@@ -92,10 +103,23 @@ func boardCommand() *cobra.Command {
 			url := "http://" + ln.Addr().String() + "/"
 			fmt.Fprintf(cmd.OutOrStdout(), "acw board on %s (Ctrl-C stops it)\n", url)
 			openBrowser(url)
-			return http.Serve(ln, board.Handler(b, time.Now, notifyMaster))
+			srv := &http.Server{Handler: board.Handler(b, time.Now, notifyMaster)}
+			if untilStop != "" {
+				go func() {
+					waitGone(names.StatusDir(untilStop), 2*time.Second)
+					srv.Close()
+				}()
+			}
+			if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
+				return err
+			}
+			return nil
 		},
 	}
 	cmd.Flags().IntVar(&port, "port", 0, "port on 127.0.0.1 (default: a free one)")
+	// Set by acw --board: acw stop removes the swarm's status dir.
+	cmd.Flags().StringVar(&untilStop, "until-stop", "", "stop once the swarm of this repo is stopped")
+	_ = cmd.Flags().MarkHidden("until-stop")
 
 	var worker, subject, why string
 	var decisionRepo func() (string, error)

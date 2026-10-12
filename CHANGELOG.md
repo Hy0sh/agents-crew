@@ -6,6 +6,12 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `acw --board` (per-project: `board`): `acw board` opens along with the
+  swarm, in the background, so a second terminal is no longer needed;
+  `acw stop` stops it.
+
 ## [0.23.0] - 2026-10-09
 
 ### Added
