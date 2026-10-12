@@ -36,7 +36,7 @@ func queueCommand() *cobra.Command {
 
 	var o addOptions
 	add := &cobra.Command{
-		Use:   "add <brief-file> [--branch <b>] [--base <ref>] [--worker <worker>] [--kind <kind>] [--after <id>]... [--after-merge <id>]... [--top]",
+		Use:   "add <brief-file> [--branch <b>] [--base <ref>] [--worker <worker>] [--kind <kind>] [--after <id>]... [--after-merge <id>]... [--after-accept <parked>]... [--top]",
 		Short: "Queue a task: the brief is copied in, the file may change afterwards",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -53,6 +53,7 @@ func queueCommand() *cobra.Command {
 	add.Flags().StringVar(&o.Kind, "kind", "", "only the workers whose worker-overrides tasks list this kind take it (a reviewer for need-review)")
 	add.Flags().IntSliceVar(&o.After, "after", nil, "hold it until this task is ended with acw done (repeatable): a rebase that needs the pushed result of the task before it")
 	add.Flags().IntSliceVar(&o.AfterMerge, "after-merge", nil, "hold it until the PR this task ended with is merged (repeatable; needs pr-watch): a follow-up that builds on the merged code")
+	add.Flags().Int64SliceVar(&o.AfterAccept, "after-accept", nil, "hold it until the user accepts this parked document on acw board (repeatable): the implementation queued with its plan")
 	add.Flags().BoolVar(&o.Top, "top", false, "first in the queue instead of last")
 
 	move := &cobra.Command{

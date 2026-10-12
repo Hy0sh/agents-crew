@@ -225,6 +225,7 @@ func runWatch(plan watchPlan, interval time.Duration) {
 				fmt.Fprintln(os.Stderr, "message to the master:", err)
 			}
 		}
+		resolveAccepts(plan.Repo, queue)
 		if prs != nil && now.Sub(prs.last) >= prWatchEvery {
 			prs.last = now
 			owners := prOwners(statusDir, labels)
@@ -361,6 +362,60 @@ func eventMessage(statusDir, agentName string, e watchEvent) string {
 		return silentMessage(e.Label, e.For)
 	default:
 		return pingMessage(e.Label)
+	}
+}
+
+// resolveAccepts reads on the board the parked documents queued tasks wait
+// for (see AfterAccept): accepted, they let them go; refused or answered
+// otherwise, the tasks are held with the reason. Nothing is read while no
+// task waits for one.
+func resolveAccepts(repo string, queue taskQueue) {
+	var pending []int64
+	for _, t := range queue.Tasks {
+		if t.Error == "" {
+			pending = append(pending, awaitingAccept(t, queue)...)
+		}
+	}
+	if len(pending) == 0 {
+		return
+	}
+	accepted, refused := map[int64]bool{}, map[int64]string{}
+	record("accepts", func(b *board.DB) error {
+		for _, id := range pending {
+			p, err := b.GetParked(id)
+			switch {
+			case err != nil:
+				refused[id] = err.Error()
+			case p.ClosedAt != nil && p.Answer == "accepted":
+				accepted[id] = true
+			case p.ClosedAt != nil:
+				refused[id] = "answered: " + p.Answer
+			case p.Refused:
+				refused[id] = "refused on acw board"
+			}
+		}
+		return nil
+	})
+	if len(accepted)+len(refused) == 0 {
+		return
+	}
+	if err := withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
+		for id := range accepted {
+			if !slices.Contains(q.Accepted, id) {
+				q.Accepted = append(q.Accepted, id)
+			}
+		}
+		for j := range q.Tasks {
+			t := &q.Tasks[j]
+			for _, id := range awaitingAccept(*t, *q) {
+				if why, ok := refused[id]; ok && t.Error == "" {
+					t.Error = fmt.Sprintf("parked #%d was not accepted (%s): remove this task, or park a new version and queue it again", id, why)
+				}
+			}
+		}
+		return true, nil
+	}); err != nil {
+		fmt.Fprintln(os.Stderr, "accepts:", err)
 	}
 }
 

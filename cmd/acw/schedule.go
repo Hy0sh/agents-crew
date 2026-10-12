@@ -140,7 +140,7 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 	// another worker to switch back to it.
 	reserved := map[int]bool{}
 	for _, t := range q.Tasks {
-		if t.Error != "" || len(waitingFor(t, p, q)) > 0 {
+		if held(t, p, q) {
 			continue
 		}
 		if h := freeHolder(p, polls, t.Branch); h != nil && polls[h.Index].Clean && canTake(spec(h.Index), *h, t) {
@@ -156,7 +156,7 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 		}
 	}
 	for _, t := range q.Tasks {
-		if t.Error != "" || len(waitingFor(t, p, q)) > 0 {
+		if held(t, p, q) {
 			continue
 		}
 		// Its branch is being left by a worker (back to its waiting

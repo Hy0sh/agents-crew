@@ -129,7 +129,7 @@ func (r reviewData) brief() string {
 
 	line("\n## The plan\n")
 	if r.Plan.DocPath != "" {
-		line("%s (accepted, parked #%d).", r.Plan.DocPath, r.Plan.ID)
+		line("%s (accepted, parked #%d). Accepted is not proven: report also what the plan let through, not only how the diff follows it.", r.Plan.DocPath, r.Plan.ID)
 	} else {
 		line("No accepted plan was found for this branch.")
 	}
