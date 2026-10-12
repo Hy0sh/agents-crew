@@ -134,6 +134,23 @@ func TestBlockedMessage(t *testing.T) {
 	}
 }
 
+// A long command pushes its own head out of the pane's tail: it is named
+// first, whole, with or without the box Claude Code draws around it.
+func TestBlockedMessageQuotesALongCommand(t *testing.T) {
+	long := "Bash command\n\n  wtm exec feat/x -- sh -c '\n" + strings.Repeat("    step\n", 14) + "  '\n  Run the migrations\n\nDo you want to proceed?\n❯ 1. Yes\n  2. No\n"
+	got := blockedMessage("worker2", 1, long)
+	if !strings.HasPrefix(got, "worker2 is blocked on the approval of this command:\n  wtm exec feat/x -- sh -c '\n") || !strings.Contains(got, "  Run the migrations\nworker2 is blocked") {
+		t.Errorf("blockedMessage() = %q, want the whole command first", got)
+	}
+	boxed := "╭────╮\n│ Bash command │\n│ │\n│   git push --force │\n│ │\n│ Do you want to proceed? │\n"
+	if got := pendingCommand(boxed); got != "  git push --force" {
+		t.Errorf("pendingCommand(boxed) = %q", got)
+	}
+	if got := pendingCommand("a question, no command\n❯ 1. Yes\n"); got != "" {
+		t.Errorf("pendingCommand(no box) = %q, want nothing", got)
+	}
+}
+
 func TestSilentMessage(t *testing.T) {
 	if got := silentMessage("worker1", 31*time.Minute+20*time.Second); !strings.HasPrefix(got, "worker1 has been working for 31 min") {
 		t.Errorf("silentMessage() = %q", got)
@@ -159,6 +176,38 @@ func TestWatcherSuspectsAHookedWorkerIdleWithoutATurnEnd(t *testing.T) {
 	}
 	if got := w.observe(t0.Add(40*time.Second), []workerView{v}); len(got) != 0 {
 		t.Errorf("still idle = %v, want no repeat", got)
+	}
+}
+
+// A brief whose first command raises a prompt before any poll sees the
+// worker working: idle since the brief with no turn end is the same wait,
+// on the first task as on the next one.
+func TestWatcherSuspectsAnIdleRightAfterABrief(t *testing.T) {
+	w := newWatcher(30 * time.Minute)
+	v := workerView{Label: "worker1", Hooked: true, Status: "working", TurnEnd: t0}
+	w.observe(t0, []workerView{v})
+	v.Status, v.TurnEnd = "idle", t0.Add(time.Minute) // a first task, ended
+	w.observe(t0.Add(time.Minute), []workerView{v})
+	for task := 1; task <= 2; task++ {
+		at := t0.Add(time.Duration(task) * 10 * time.Minute)
+		v.Told = at // the next brief, typed into the idle worker
+		if got := w.observe(at.Add(5*time.Second), []workerView{v}); len(got) != 0 {
+			t.Errorf("task %d, idle 5s after its brief = %v, still within the grace", task, got)
+		}
+		if got := kinds(w.observe(at.Add(25*time.Second), []workerView{v})); !slices.Equal(got, []eventKind{eventIdleNoTurnEnd}) {
+			t.Errorf("task %d, idle 25s after its brief, no turn end = %v, want one suspected wait", task, got)
+		}
+		if got := w.observe(at.Add(40*time.Second), []workerView{v}); len(got) != 0 {
+			t.Errorf("task %d, still idle = %v, want no repeat", task, got)
+		}
+		v.TurnEnd = at.Add(time.Minute) // answered, the turn ends
+		w.observe(at.Add(time.Minute), []workerView{v})
+	}
+	// A brief answered within a poll: its turn end is newer, nothing to say.
+	v.Told = t0.Add(time.Hour)
+	v.TurnEnd = v.Told.Add(3 * time.Second)
+	if got := w.observe(v.Told.Add(30*time.Second), []workerView{v}); len(got) != 0 {
+		t.Errorf("a brief answered at once = %v, want nothing", got)
 	}
 }
 
