@@ -6,6 +6,8 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-10-12
+
 ### Added
 
 - The PR watch's "CI red" names the failing jobs, and says when the red
@@ -1037,7 +1039,8 @@ project: 7 PRs, 3 merged. Each entry names what actually went wrong.
   anything, with a clear message and install instructions if not; `wtm` is
   checked too but stays optional.
 
-[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.25.0...HEAD
+[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.26.0...HEAD
+[0.26.0]: https://github.com/Hy0sh/agents-crew/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/Hy0sh/agents-crew/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/Hy0sh/agents-crew/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/Hy0sh/agents-crew/compare/v0.22.0...v0.23.0
