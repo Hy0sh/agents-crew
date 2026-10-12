@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -223,6 +224,18 @@ func checkDocPath(repo, path string) error {
 	}
 	if rel, err := filepath.Rel(names.WorktreesDir(repo), path); err == nil && !strings.HasPrefix(rel, "..") {
 		return fmt.Errorf("--doc %s: inside a worktree or the status dir, both gone at acw stop: have the worker write it outside the repo (e.g. ~/.claude/plans)", path)
+	}
+	// The user may read it days later: the machine empties /tmp by then.
+	for _, tmp := range []string{"/tmp/", "/private/tmp/"} {
+		if strings.HasPrefix(path, tmp) {
+			return fmt.Errorf("--doc %s: /tmp is emptied before the user may read it: move it outside (e.g. ~/.claude/plans)", path)
+		}
+	}
+	// The page renders markdown: a PDF or a spreadsheet shows nothing.
+	if info.Size() <= 1<<20 {
+		if content, err := os.ReadFile(path); err == nil && !utf8.Valid(content) {
+			return fmt.Errorf("--doc %s: not a text file, the page can't show it: park a markdown note that gives its path", path)
+		}
 	}
 	return nil
 }

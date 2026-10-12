@@ -101,7 +101,7 @@ func TestBuildLeansOnTheWatcherInsteadOfWaits(t *testing.T) {
 // never shown in the terminal.
 func TestBuildParksEveryLongDocument(t *testing.T) {
 	got := Build(params("claude", 2, 2))
-	for _, want := range []string{"every report or file generated for me is read on my page, never in the terminal", "`report_ready`"} {
+	for _, want := range []string{"every document written for me to read", "never in the terminal", "`report_ready`", "Not concerned: what goes into a PR"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("brief missing %q", want)
 		}
