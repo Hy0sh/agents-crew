@@ -6,6 +6,32 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- The PR watch's "CI red" names the failing jobs, and says when the red
+  blocks the PR's auto-merge; auto-merge turned on or off is a line of its
+  own. The board marks a PR on auto-merge, in red when its CI blocks it,
+  and `acw status` marks a worker's PR on auto-merge.
+- `acw queue add --after-accept <parked>`: the implementation is queued
+  with its plan and goes when the user accepts that plan on `acw board`;
+  a refusal holds it with the reason. A worker given an accepted plan
+  implements it as written, and stops `blocked` on a gap instead of
+  fixing it on the fly; the review brief asks also for what the plan let
+  through.
+- A worker blocked on an approval: the watcher's message names the command
+  waiting for it first, whole, however long: the pane's last lines cut a
+  long `sh -c` script off its head.
+
+### Fixed
+
+- A worker the master already freed with `acw done` no longer pings it at
+  the end of its last turn: that task is closed. One the master spoke to
+  since still answers.
+- A prompt raised by a task's first command, before any poll saw the
+  worker working, went unreported when herdr showed it idle rather than
+  blocked: idle with no turn end since its brief or message is now that
+  wait, reported after 15 s.
+
 ## [0.25.0] - 2026-10-12
 
 ### Added

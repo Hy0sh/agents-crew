@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -34,11 +35,14 @@ const searchFixture = `{"data": {
   "viewer": {"login": "me"},
   "search": {"nodes": [
     {"number": 12, "url": "https://github.com/some-org/some-repo/pull/12", "title": "Export orders as CSV", "baseRefName": "main", "mergeable": "CONFLICTING",
+     "autoMergeRequest": {"enabledAt": "2026-10-12T18:00:00Z"},
      "reviews": {"nodes": [{"state": "CHANGES_REQUESTED", "author": {"login": "alice"}},
                            {"state": "APPROVED", "author": {"login": "bob"}},
                            {"state": "COMMENTED", "author": {"login": "me"}}]},
      "reviewThreads": {"nodes": [{"isResolved": false}, {"isResolved": true}, {"isResolved": false}]},
-     "commits": {"nodes": [{"commit": {"oid": "abc", "committer": {"name": "Me", "user": {"login": "me"}}, "statusCheckRollup": {"state": "FAILURE"}}}]}},
+     "commits": {"nodes": [{"commit": {"oid": "abc", "committer": {"name": "Me", "user": {"login": "me"}}, "statusCheckRollup": {"state": "FAILURE",
+       "contexts": {"nodes": [{"name": "lint", "conclusion": "SUCCESS"}, {"name": "test (shard 2)", "conclusion": "FAILURE"},
+                              {"name": "build", "conclusion": null}, {"context": "ci/legacy", "state": "ERROR"}]}}}}]}},
     {"number": 13, "url": "https://github.com/some-org/some-repo/pull/13", "mergeable": "UNKNOWN",
      "reviews": {"nodes": []}, "reviewThreads": {"nodes": []},
      "commits": {"nodes": [{"commit": {"oid": "def", "committer": {"name": "Someone", "user": null}, "statusCheckRollup": null}}]}}
@@ -53,8 +57,9 @@ func TestParsePRSearch(t *testing.T) {
 	// The viewer's own review (a reply to a thread is one) is not counted:
 	// it must not wake the master.
 	want12 := prState{Number: 12, URL: "https://github.com/some-org/some-repo/pull/12", Title: "Export orders as CSV", Base: "main", Mergeable: "CONFLICTING", CI: "red",
-		Reviews: 2, LastReview: "APPROVED by bob", OpenThreads: 2, HeadOID: "abc", Committer: "me"}
-	if prs[0] != want12 {
+		Reviews: 2, LastReview: "APPROVED by bob", OpenThreads: 2, HeadOID: "abc", Committer: "me",
+		Failing: []string{"test (shard 2)", "ci/legacy"}, AutoMerge: true}
+	if !reflect.DeepEqual(prs[0], want12) {
 		t.Errorf("PR 12 = %+v, want %+v", prs[0], want12)
 	}
 	if prs[0].Title != "Export orders as CSV" || prs[0].Base != "main" {
@@ -64,7 +69,7 @@ func TestParsePRSearch(t *testing.T) {
 	// is named by the commit.
 	want13 := prState{Number: 13, URL: "https://github.com/some-org/some-repo/pull/13", Mergeable: "UNKNOWN", CI: "running",
 		HeadOID: "def", Committer: "Someone"}
-	if prs[1] != want13 {
+	if !reflect.DeepEqual(prs[1], want13) {
 		t.Errorf("PR 13 = %+v, want %+v", prs[1], want13)
 	}
 }
@@ -164,6 +169,22 @@ func TestDiffPRsReadyForReview(t *testing.T) {
 	_, prs, _ := parsePRSearch(searchResponse(`{"number": 3, "timelineItems": {"totalCount": 5, "filteredCount": 1}}`, `{"number": 4, "timelineItems": {"totalCount": 7, "filteredCount": 0}}`))
 	if len(prs) != 2 || !prs[0].WasDraft || prs[1].WasDraft {
 		t.Errorf("parsed = %+v", prs)
+	}
+}
+
+// A red CI names its failing jobs, and says when it blocks an
+// auto-merge; turning auto-merge on or off is a line of its own.
+func TestPREventsCIAndAutoMerge(t *testing.T) {
+	old := prState{CI: "green", LastFinal: "green"}
+	red := prState{CI: "red", Failing: []string{"test (shard 2)"}, AutoMerge: true}
+	if got, want := prEvents(old, red, "me"), []string{"CI red (failing: test (shard 2)), which blocks its auto-merge", "auto-merge on"}; !slices.Equal(got, want) {
+		t.Errorf("events = %q, want %q", got, want)
+	}
+	if got := prEvents(prState{CI: "green", AutoMerge: true}, prState{CI: "green"}, "me"); !slices.Equal(got, []string{"auto-merge off"}) {
+		t.Errorf("events = %q, want auto-merge off", got)
+	}
+	if got := prEvents(old, prState{CI: "red"}, "me"); !slices.Equal(got, []string{"CI red"}) {
+		t.Errorf("events = %q, want a bare CI red without checks named", got)
 	}
 }
 

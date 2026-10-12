@@ -179,7 +179,7 @@ replaces with its own (`ctx 34% · 5h 78%`) to record that usage.
 
 ```sh
 acw queue                                   # workers and queue
-acw queue add <brief-file> [--branch <b>] [--worker <worker>] [--kind <kind>] [--after <id>]... [--after-merge <id>]... [--top]
+acw queue add <brief-file> [--branch <b>] [--worker <worker>] [--kind <kind>] [--after <id>]... [--after-merge <id>]... [--after-accept <parked>]... [--top]
 acw queue move <id> <position>
 acw queue remove <id>
 acw queue review <id> [--kind <kind>] [--note <text>] [--plan <parked>]
@@ -336,6 +336,12 @@ free worker whose agent is idle, with the same steps as `acw dispatch`
   merged. That is a follow-up that builds on merged code, where `--after`
   would let it go at the done, before the review. A task ended without a
   PR holds what waits for its merge, and can't be named afterwards.
+- A task queued `--after-accept <parked>` (repeatable) waits until you
+  accept that parked document on `acw board`: the implementation is
+  queued along with its plan, and goes on your go. A refusal holds it,
+  with the reason; a document already accepted holds nothing. The worker
+  implements an accepted plan as written, and stops `blocked` on a gap
+  between the plan and the code instead of fixing it on the fly.
 
 **Opening a worker.** A task no free worker can take opens the lowest
 worker not open, up to `workers`. For a worker in the code, when the repo
@@ -824,7 +830,8 @@ The worker named is the one whose status file holds the PR's `pr_url`.
 | a conflict with the base, or its resolution | a CI still running |
 | a new review | a push of yours (workers push under your account) |
 | more unresolved review threads | a review or thread reply of yours |
-| CI turned red, or green again after a red | a resolved thread |
+| CI turned red, naming the failing jobs and whether it blocks the PR's auto-merge; or green again after a red | a resolved thread |
+| auto-merge turned on or off (the board marks a PR on auto-merge, in red when its CI blocks it; `acw status` too, on a worker's PR) | |
 | a head commit pushed by someone else (a reviewer, GitHub's "Update branch") | |
 | a new PR, or a draft marked ready for review (the search leaves drafts out); a PR merged, closed or turned back to draft | |
 

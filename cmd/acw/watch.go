@@ -130,6 +130,9 @@ func runWatch(plan watchPlan, interval time.Duration) {
 			if info, err := os.Stat(filepath.Join(statusDir, label+".turn")); err == nil {
 				v.TurnEnd = info.ModTime()
 			}
+			if info, err := os.Stat(filepath.Join(statusDir, label+".told")); err == nil {
+				v.Told = info.ModTime()
+			}
 			views = append(views, v)
 			if pw.State == workerBusy && (a.Status == "idle" || a.Status == "done") {
 				blocking, err := tellIdle(statusDir, label, name)
@@ -222,6 +225,7 @@ func runWatch(plan watchPlan, interval time.Duration) {
 				fmt.Fprintln(os.Stderr, "message to the master:", err)
 			}
 		}
+		resolveAccepts(plan.Repo, queue)
 		if prs != nil && now.Sub(prs.last) >= prWatchEvery {
 			prs.last = now
 			owners := prOwners(statusDir, labels)
@@ -361,6 +365,60 @@ func eventMessage(statusDir, agentName string, e watchEvent) string {
 	}
 }
 
+// resolveAccepts reads on the board the parked documents queued tasks wait
+// for (see AfterAccept): accepted, they let them go; refused or answered
+// otherwise, the tasks are held with the reason. Nothing is read while no
+// task waits for one.
+func resolveAccepts(repo string, queue taskQueue) {
+	var pending []int64
+	for _, t := range queue.Tasks {
+		if t.Error == "" {
+			pending = append(pending, awaitingAccept(t, queue)...)
+		}
+	}
+	if len(pending) == 0 {
+		return
+	}
+	accepted, refused := map[int64]bool{}, map[int64]string{}
+	record("accepts", func(b *board.DB) error {
+		for _, id := range pending {
+			p, err := b.GetParked(id)
+			switch {
+			case err != nil:
+				refused[id] = err.Error()
+			case p.ClosedAt != nil && p.Answer == "accepted":
+				accepted[id] = true
+			case p.ClosedAt != nil:
+				refused[id] = "answered: " + p.Answer
+			case p.Refused:
+				refused[id] = "refused on acw board"
+			}
+		}
+		return nil
+	})
+	if len(accepted)+len(refused) == 0 {
+		return
+	}
+	if err := withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
+		for id := range accepted {
+			if !slices.Contains(q.Accepted, id) {
+				q.Accepted = append(q.Accepted, id)
+			}
+		}
+		for j := range q.Tasks {
+			t := &q.Tasks[j]
+			for _, id := range awaitingAccept(*t, *q) {
+				if why, ok := refused[id]; ok && t.Error == "" {
+					t.Error = fmt.Sprintf("parked #%d was not accepted (%s): remove this task, or park a new version and queue it again", id, why)
+				}
+			}
+		}
+		return true, nil
+	}); err != nil {
+		fmt.Fprintln(os.Stderr, "accepts:", err)
+	}
+}
+
 // countBlock adds one to the worker's block count and returns it. Kept on
 // disk, in the status dir, so another process can start it over.
 func countBlock(path string) int {
@@ -398,10 +456,43 @@ func blockedMessage(label string, count int, pane string) string {
 	}
 	msg := fmt.Sprintf("%s is blocked: probably waiting on a tool approval or a question. Last lines of its pane:\n%s",
 		label, strings.Join(lines, "\n"))
+	// A long command pushes its own head out of the tail: named first, it
+	// tells the master which command of the brief to change.
+	if cmd := pendingCommand(pane); cmd != "" {
+		msg = fmt.Sprintf("%s is blocked on the approval of this command:\n%s\n", label, cmd) + msg
+	}
 	if count >= 2 {
 		msg = fmt.Sprintf("Block #%d for this worker since its last context reset: it may be running into a prohibition. ", count) + msg
 	}
 	return msg
+}
+
+// pendingCommand is the command of the last "Bash command" approval box
+// in a pane, its lines up to the question, "" without one. The box's
+// borders, when drawn, are dropped.
+func pendingCommand(pane string) string {
+	lines := strings.Split(pane, "\n")
+	clean := func(l string) string { return strings.TrimSpace(strings.Trim(strings.TrimSpace(l), "│")) }
+	start := -1
+	for i, l := range lines {
+		if clean(l) == "Bash command" {
+			start = i + 1
+		}
+	}
+	if start < 0 {
+		return ""
+	}
+	var cmd []string
+	for _, l := range lines[start:] {
+		c := clean(l)
+		if strings.HasPrefix(c, "Do you want to proceed") || (c == "" && len(cmd) > 0) {
+			break
+		}
+		if c != "" {
+			cmd = append(cmd, "  "+c)
+		}
+	}
+	return strings.Join(cmd, "\n")
 }
 
 func silentMessage(label string, d time.Duration) string {
@@ -434,6 +525,9 @@ type workerView struct {
 	// TurnEnd is when its Stop hook last ran (workerN.turn), zero for a
 	// worker without the hook.
 	TurnEnd time.Time
+	// Told is when a brief or a message was last typed into it, while its
+	// turn end has not consumed it (workerN.told); zero otherwise.
+	Told time.Time
 }
 
 type eventKind int
@@ -466,6 +560,7 @@ type workerMemory struct {
 	reportedQuiet bool
 	turnEnd       time.Time // last turn end seen while working
 	idleSince     time.Time // a hooked worker went idle, its turn end not seen yet
+	told          time.Time // the last brief or message whose idle was looked at
 }
 
 type watcher struct {
@@ -501,6 +596,12 @@ func (w *watcher) observe(now time.Time, views []workerView) []watchEvent {
 					m.turnEnd = v.TurnEnd
 				}
 				m.idleSince = time.Time{}
+			// A brief whose first command raises a prompt within a poll is
+			// never seen working: idle since that brief, with no turn end
+			// after it, is the same wait. Its turn end, when it comes, is
+			// newer than the one kept here, and clears it.
+			case idle && m.idleSince.IsZero() && v.Told.After(m.told) && v.Told.After(v.TurnEnd):
+				m.idleSince, m.told, m.turnEnd = now, v.Told, v.TurnEnd
 			case !idle || v.TurnEnd.After(m.turnEnd):
 				m.idleSince = time.Time{}
 			case seen && m.status == "working":

@@ -87,6 +87,59 @@ func TestQueueReview(t *testing.T) {
 	}
 }
 
+// The implementation is queued with its plan and goes on the user's
+// Accept; a refused plan holds it, one already accepted holds nothing.
+func TestQueueAfterAccept(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	repo := testSwarm(t, 1)
+	doc := filepath.Join(t.TempDir(), "plan.md")
+	os.WriteFile(doc, []byte("# Plan\n"), 0o644)
+	var plan, refused, accepted, other int64
+	withBoard(func(b *board.DB) error {
+		park := func() int64 {
+			id, _ := b.Park(board.Parked{Repo: repo, On: "me", Text: "plan", Kind: "plan", DocPath: doc, CreatedAt: time.Now()})
+			return id
+		}
+		plan, refused, accepted = park(), park(), park()
+		b.CloseParked(accepted, "accepted", time.Now())
+		other, _ = b.Park(board.Parked{Repo: repo, On: "client", Text: "a question", CreatedAt: time.Now()})
+		return nil
+	})
+	add := func(ids ...int64) (string, error) {
+		var out strings.Builder
+		err := queueAdd(repo, briefFile(t, "Implement the plan"), addOptions{AfterAccept: ids}, time.Now(), &out)
+		return out.String(), err
+	}
+	if _, err := add(other); err == nil {
+		t.Error("--after-accept on a question to the client went through")
+	}
+	if out, err := add(plan); err != nil || !strings.Contains(out, "once the user accepts parked #1") {
+		t.Fatalf("add = %q, %v", out, err)
+	}
+	add(refused)
+	if _, err := add(accepted); err != nil {
+		t.Fatal(err)
+	}
+	p, q, _ := readPool(repo)
+	if !held(q.Tasks[0], p, q) || !held(q.Tasks[1], p, q) || held(q.Tasks[2], p, q) {
+		t.Errorf("held = %v %v %v, want the two waiting on an accept, not the one already accepted", held(q.Tasks[0], p, q), held(q.Tasks[1], p, q), held(q.Tasks[2], p, q))
+	}
+
+	withBoard(func(b *board.DB) error {
+		b.CloseParked(plan, "accepted", time.Now())
+		b.RefuseParked(refused)
+		return nil
+	})
+	resolveAccepts(repo, q)
+	p, q, _ = readPool(repo)
+	if held(q.Tasks[0], p, q) {
+		t.Errorf("task #1 after its plan's accept = %+v, want it free to go", q.Tasks[0])
+	}
+	if !strings.Contains(q.Tasks[1].Error, "parked #2 was not accepted") {
+		t.Errorf("task #2 after its plan's refusal = %+v, want it held with the reason", q.Tasks[1])
+	}
+}
+
 // A second pass after a fix: the previous review's file and the head it
 // read, for an incremental diff; the reviews' own briefs are not the
 // work's.

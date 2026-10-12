@@ -725,7 +725,7 @@ func boardPR(repo string, pr prState, worker, fate string, held bool, now time.T
 		review = append(review, fmt.Sprintf("%d threads open", pr.OpenThreads))
 	}
 	row := board.PR{Repo: repo, Number: pr.Number, URL: pr.URL, Title: pr.Title, Worker: worker, Head: pr.Head, Base: pr.Base,
-		Status: status, CI: pr.CI, Review: strings.Join(review, " · "), UpdatedAt: now}
+		Status: status, CI: pr.CI, Review: strings.Join(review, " · "), AutoMerge: pr.AutoMerge, UpdatedAt: now}
 	if status == "open" && pr.CI == "green" && strings.HasPrefix(pr.LastReview, "APPROVED") {
 		row.SinceReady = now
 	}

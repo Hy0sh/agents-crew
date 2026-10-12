@@ -157,8 +157,12 @@ type queuedTask struct {
 	// AfterMerge lists the tasks whose PR it waits to see merged: ended
 	// is not enough when the follow-up builds on the merged code, and
 	// acw done comes before the review.
-	AfterMerge []int     `json:"after_merge,omitempty"`
-	AddedAt    time.Time `json:"added_at"`
+	AfterMerge []int `json:"after_merge,omitempty"`
+	// AfterAccept lists the parked documents (plans) it waits for the
+	// user to accept on acw board: the implementation queued with the
+	// plan, which goes out on the go.
+	AfterAccept []int64   `json:"after_accept,omitempty"`
+	AddedAt     time.Time `json:"added_at"`
 	// Error is why handing it out failed: it is skipped until the master
 	// moves or removes it, rather than retried every few seconds.
 	Error string `json:"error,omitempty"`
@@ -172,6 +176,34 @@ type taskQueue struct {
 	// the PR watch saw merged.
 	PRs    map[int]string `json:"prs,omitempty"`
 	Merged []int          `json:"merged,omitempty"`
+	// Accepted is the parked documents the user accepted, as the watcher
+	// read them on the board, for AfterAccept.
+	Accepted []int64 `json:"accepted,omitempty"`
+}
+
+// awaitingAccept is what of t's AfterAccept the user has not accepted yet.
+func awaitingAccept(t queuedTask, q taskQueue) []int64 {
+	var out []int64
+	for _, id := range t.AfterAccept {
+		if !slices.Contains(q.Accepted, id) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// held says t can't go out yet: held with an error, or waiting for a task,
+// a merge or an accept.
+func held(t queuedTask, p poolState, q taskQueue) bool {
+	return t.Error != "" || len(waitingFor(t, p, q)) > 0 || len(awaitingAccept(t, q)) > 0
+}
+
+func parkedList(ids []int64) string {
+	s := make([]string, len(ids))
+	for i, id := range ids {
+		s[i] = fmt.Sprintf("parked #%d", id)
+	}
+	return strings.Join(s, ", ")
 }
 
 // waitingFor is what of t's After is not ended yet, still queued or the
@@ -334,6 +366,7 @@ type addOptions struct {
 	Branch            branchRequest
 	Worker, Kind      string
 	After, AfterMerge []int
+	AfterAccept       []int64
 	Top               bool // first in the queue instead of last
 }
 
@@ -351,6 +384,33 @@ func queueBrief(repo, text string, o addOptions, now time.Time, out io.Writer) e
 	br, worker, kind, after, afterMerge, top := o.Branch, o.Worker, o.Kind, o.After, o.AfterMerge, o.Top
 	if err := br.check(); err != nil {
 		return err
+	}
+	// Only a document waiting on the user can be accepted: one already
+	// accepted waits for nothing, one refused or answered otherwise never
+	// will be.
+	var awaiting []int64
+	if len(o.AfterAccept) > 0 {
+		err := withBoard(func(b *board.DB) error {
+			for _, id := range o.AfterAccept {
+				pk, err := b.GetParked(id)
+				switch {
+				case err != nil:
+					return fmt.Errorf("--after-accept %d: %w", id, err)
+				case pk.Repo != repo || pk.On != "me" || pk.DocPath == "":
+					return fmt.Errorf("--after-accept %d: #%d is not a document parked for the user on this repo", id, id)
+				case pk.ClosedAt != nil && pk.Answer == "accepted":
+					// Already given: nothing to wait for.
+				case pk.ClosedAt != nil || pk.Refused:
+					return fmt.Errorf("--after-accept %d: #%d was answered, not accepted (%s): it will never go", id, id, or(pk.Answer, "refused"))
+				default:
+					awaiting = append(awaiting, id)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
 	}
 	var err error
 	index := 0
@@ -393,7 +453,7 @@ func queueBrief(repo, text string, o addOptions, now time.Time, out io.Writer) e
 			}
 		}
 		q.NextID++
-		t := queuedTask{ID: q.NextID, Brief: text, Branch: br.Branch, Base: br.Base, Worker: index, Kind: kind, After: after, AfterMerge: afterMerge, AddedAt: now}
+		t := queuedTask{ID: q.NextID, Brief: text, Branch: br.Branch, Base: br.Base, Worker: index, Kind: kind, After: after, AfterMerge: afterMerge, AfterAccept: awaiting, AddedAt: now}
 		if top {
 			q.Tasks = slices.Insert(q.Tasks, 0, t)
 		} else {
@@ -402,6 +462,9 @@ func queueBrief(repo, text string, o addOptions, now time.Time, out io.Writer) e
 		fmt.Fprintf(out, "task #%d queued, position %d of %d", t.ID, slices.IndexFunc(q.Tasks, func(x queuedTask) bool { return x.ID == t.ID })+1, len(q.Tasks))
 		if waits := waitingFor(t, *p, *q); len(waits) > 0 {
 			fmt.Fprintf(out, "; it waits for %s (ended with acw done, or its PR merged with --after-merge)", taskList(waits))
+		}
+		if len(awaiting) > 0 {
+			fmt.Fprintf(out, "; it goes once the user accepts %s on acw board", parkedList(awaiting))
 		}
 		fmt.Fprintln(out, ".")
 		return true, nil
@@ -899,6 +962,9 @@ func renderQueue(now time.Time, p poolState, q taskQueue) string {
 		}
 		if waits := waitingFor(t, p, q); len(waits) > 0 {
 			fmt.Fprintf(&b, " · waiting for %s", taskList(waits))
+		}
+		if waits := awaitingAccept(t, q); len(waits) > 0 {
+			fmt.Fprintf(&b, " · waiting for the user to accept %s", parkedList(waits))
 		}
 		if i := slices.IndexFunc(p.Workers, func(w poolWorker) bool {
 			if t.Branch == "" || w.State != workerBusy {
