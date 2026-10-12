@@ -74,9 +74,9 @@ details li .t { font-family: var(--f-data); color: var(--muted); font-size: 12px
 @media (min-width: 1100px) { .grid2 { grid-template-columns: minmax(0, 5fr) minmax(0, 2fr); } }
 button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .no-btn { color: var(--bad); border-color: var(--bad); } .no-btn:hover { background: var(--bad-soft); }
-dialog { width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 48px); border: 1px solid var(--line); border-radius: 10px; padding: 0; background: var(--panel); color: var(--fg); }
+dialog { width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto; resize: both; border: 1px solid var(--line); border-radius: 10px; padding: 0; background: var(--panel); color: var(--fg); }
 dialog::backdrop { background: rgb(0 0 0 / .45); }
-.doc-head { position: sticky; top: 0; background: var(--panel); border-bottom: 1px solid var(--line); padding: 12px 16px; display: grid; gap: 6px; }
+.doc-head { position: sticky; top: 0; cursor: move; background: var(--panel); border-bottom: 1px solid var(--line); padding: 12px 16px; display: grid; gap: 6px; }
 .doc-head .top { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
 .doc-body { padding: 4px 20px 20px; overflow-wrap: anywhere; line-height: 1.5; }
 .doc-body pre { background: var(--bg); padding: 10px; border-radius: 6px; overflow-x: auto; font: 13px var(--f-data); }
@@ -242,6 +242,22 @@ async function answerDoc(answer) {
 $("doc-accept").addEventListener("click", () => answerDoc("accept"));
 $("doc-refuse").addEventListener("click", () => answerDoc("refuse"));
 $("doc-close").addEventListener("click", () => $("doc").close());
+// Moved by its header, resized by its corner. The first touch pins the
+// dialog where it stands, so neither move nor resize recenters it; the
+// place sticks for the next document.
+$("doc").addEventListener("pointerdown", e => {
+  const d = $("doc"), r = d.getBoundingClientRect();
+  if (!d.style.left) Object.assign(d.style, { margin: 0, inset: "auto", left: r.left + "px", top: r.top + "px" });
+  if (!e.target.closest(".doc-head") || e.target.closest("button")) return;
+  e.preventDefault();
+  const dx = e.clientX - r.left, dy = e.clientY - r.top;
+  // Kept on screen, or the resize corner goes out of reach.
+  const clamp = (v, room) => Math.max(0, Math.min(v, room)) + "px";
+  const move = m => Object.assign(d.style, { left: clamp(m.clientX - dx, innerWidth - d.offsetWidth), top: clamp(m.clientY - dy, innerHeight - d.offsetHeight) });
+  d.addEventListener("pointermove", move);
+  d.addEventListener("pointerup", () => d.removeEventListener("pointermove", move), { once: true });
+  d.setPointerCapture(e.pointerId);
+});
 function parkedCard(p) {
   const r = toned(el("article", "row"), "accent"), top = el("div", "top"), [first, ...rest] = p.text.split("\n");
   top.append(pill("#" + p.id, "accent"));
