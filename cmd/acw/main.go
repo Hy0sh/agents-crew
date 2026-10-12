@@ -54,6 +54,7 @@ type startOptions struct {
 	// masterAutocompact: see config.Project.MasterAutocompact.
 	masterAutocompact int
 	prWatch           bool
+	board             bool
 }
 
 // applyConfig copies the project entry's values into opts, except for
@@ -89,6 +90,9 @@ func applyConfig(opts *startOptions, p *config.Project, changed func(string) boo
 	setInt("master-autocompact", &opts.masterAutocompact, p.MasterAutocompact)
 	if p.PRWatch != nil && !changed("pr-watch") {
 		opts.prWatch = *p.PRWatch
+	}
+	if p.Board != nil && !changed("board") {
+		opts.board = *p.Board
 	}
 	opts.roles = p.Roles
 }
@@ -329,6 +333,7 @@ func main() {
 	root.Flags().IntVar(&opts.masterAutocompact, "master-autocompact", 250_000, "context size in tokens, 100000 to 1000000, at which a claude master compacts; 0 leaves Claude Code's own (per-project: master-autocompact)")
 	root.Flags().StringVar(&opts.preset, "preset", "", "named preset of the per-project config entry, laid over it (see presets in the config)")
 	root.Flags().BoolVar(&opts.prWatch, "pr-watch", false, "follow your open non-draft pull requests on this repo and tell the master what changed on them; needs gh, logged in (per-project: pr-watch)")
+	root.Flags().BoolVar(&opts.board, "board", false, "open acw board along with the swarm, in the background; acw stop stops it (per-project: board)")
 	root.Flags().StringVar(&opts.briefPath, "brief", "", "path to a custom master brief template (Go text/template), variables in the README; default: built-in template (per-project: brief)")
 
 	stop := &cobra.Command{

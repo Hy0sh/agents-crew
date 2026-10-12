@@ -188,6 +188,15 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if err := launchBackgroundWatch(watch); err != nil {
 		return fmt.Errorf("starting acw's watcher, which opens the workers: %w", err)
 	}
+	// Not fatal: the swarm runs without it, acw board opens it by hand.
+	if opts.board {
+		boardLog := fmt.Sprintf("acw-board-%s.log", stamp)
+		if err := launchDetached(boardLog, "board", "--until-stop", repo); err != nil {
+			fmt.Fprintf(out, "⚠ acw board not started: %v\n", err)
+		} else {
+			fmt.Fprintf(out, "→ acw board opening in the browser, its URL in %s\n", filepath.Join(os.TempDir(), boardLog))
+		}
+	}
 
 	success = true
 	fmt.Fprintf(out, "→ master (%s) ready, you can talk to it now. Up to %d worker(s) (%s), %d opened at once, the others as tasks are queued.\n",
@@ -284,11 +293,11 @@ func launchBackgroundWatch(plan watchPlan) error {
 	return launchDetached(fmt.Sprintf("acw-watch-%s.log", plan.Stamp), watchUse, names.WatchPlan(plan.Repo))
 }
 
-// launchDetached starts this same binary as `<use> <arg>` in its own
+// launchDetached starts this same binary as `<use> <args>` in its own
 // session, logging to logName in the temp dir, appended to: a watcher
 // started again keeps the log of the one before. It does not wait: it
 // must keep running after this process execs into herdr.
-func launchDetached(logName, use, arg string) error {
+func launchDetached(logName, use string, args ...string) error {
 	self, err := os.Executable()
 	if err != nil {
 		return err
@@ -298,7 +307,7 @@ func launchDetached(logName, use, arg string) error {
 		return err
 	}
 
-	cmd := exec.Command(self, use, arg)
+	cmd := exec.Command(self, append([]string{use}, args...)...)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

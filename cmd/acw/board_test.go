@@ -372,3 +372,25 @@ func TestParkAndResume(t *testing.T) {
 		t.Errorf("parked after resume = %q", out)
 	}
 }
+
+func TestWaitGoneReturnsOnceTheDirIsRemoved(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "status")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { waitGone(dir, time.Millisecond); close(done) }()
+	select {
+	case <-done:
+		t.Fatal("waitGone returned while the dir is still there")
+	case <-time.After(20 * time.Millisecond):
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("waitGone still waits after the dir was removed")
+	}
+}

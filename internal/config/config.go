@@ -57,6 +57,8 @@ type Project struct {
 	// PRWatch makes acw's watcher follow the user's open pull requests on
 	// the repo and tell the master what changed on them.
 	PRWatch *bool `json:"pr-watch,omitempty"`
+	// Board opens acw board along with the swarm; acw stop stops it.
+	Board *bool `json:"board,omitempty"`
 	// Roles are the kinds of worker of the swarm, in the order written:
 	// what each runs, which tasks it takes, how many may be open. Without
 	// them, workers and min-workers make one role, worker.
@@ -452,6 +454,9 @@ func (p *Project) Summary() string {
 	addInt("idle-close-minutes", p.IdleCloseMinutes)
 	if p.PRWatch != nil {
 		parts = append(parts, fmt.Sprintf("pr-watch=%t", *p.PRWatch))
+	}
+	if p.Board != nil {
+		parts = append(parts, fmt.Sprintf("board=%t", *p.Board))
 	}
 	if len(p.Roles) > 0 {
 		roles := make([]string, len(p.Roles))

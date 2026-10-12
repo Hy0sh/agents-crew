@@ -94,6 +94,7 @@ only way to stop a swarm.
 | `--preset` | *(none)* | a named preset of the repo's config entry, laid over it, see [Presets](#presets) |
 | `--brief` | *(built-in)* | path to a custom master brief template, see [Custom brief template](#custom-brief-template) |
 | `--pr-watch` | off | tell the master what changed on your open pull requests, see [PR watch](#pr-watch) |
+| `--board` | off | open [`acw board`](#board) along with the swarm, in the background, no second terminal; `acw stop` stops it |
 
 Every flag can be set once and for all per repo: see
 [Per-project config](#per-project-config). `acw --help` documents them in
@@ -593,6 +594,7 @@ The commands above write this; editing it directly works just as well.
 | `master-dir` | *(no flag)* | none: the master starts in the repo |
 | `silence-minutes` | *(no flag)* | `30`: minutes a working worker may show no activity before acw's watcher tells the master |
 | `pr-watch` | `--pr-watch` | `false` |
+| `board` | `--board` | `false` |
 | `presets` | *(picked with `--preset`)* | none |
 
 "No flag" means no launch flag; `acw project` has one for each of these
@@ -880,7 +882,8 @@ variables. A preset is where it usually belongs:
 ## Board
 
 `acw board` opens a local page on `127.0.0.1` (a free port, or `--port`),
-until Ctrl-C. It answers three questions, in this order: what waits on a
+until Ctrl-C; started by `acw --board`, it runs in the background until
+`acw stop`, its URL in `acw-board-<stamp>.log` in the temp dir. It answers three questions, in this order: what waits on a
 gesture of yours, where each ticket stands, and whether the swarm runs
 well. Nothing on it is stored for it: it is read off what the watcher and
 the master write.
