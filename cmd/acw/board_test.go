@@ -249,7 +249,14 @@ func TestParkDocument(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	repo := testSwarm(t, 2, poolWorker{Index: 1, State: workerBusy, Task: 3, Current: &queuedTask{ID: 3, Brief: "plan it"}})
 	os.WriteFile(filepath.Join(names.StatusDir(repo), "worker1.json"), []byte(`{"state":"plan_ready","tache":"SHOP-9","branch":"fix/vat (cut after the go)"}`), 0o644)
-	doc := filepath.Join(t.TempDir(), "plan.md")
+	// Not t.TempDir(): on Linux it is in /tmp, which park refuses.
+	docs, err := os.MkdirTemp(".", "docs-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(docs) })
+	docs, _ = filepath.Abs(docs)
+	doc := filepath.Join(docs, "plan.md")
 	os.WriteFile(doc, []byte("# Plan\n"), 0o644)
 	inTree := filepath.Join(names.WorktreesDir(repo), "worker1-20261009120000", "plan.md")
 	os.MkdirAll(filepath.Dir(inTree), 0o755)
@@ -262,7 +269,7 @@ func TestParkDocument(t *testing.T) {
 	t.Cleanup(func() { os.RemoveAll(tmpDir) })
 	inTmp := filepath.Join(tmpDir, "plan.md")
 	os.WriteFile(inTmp, []byte("# Plan\n"), 0o644)
-	binary := filepath.Join(t.TempDir(), "report.pdf")
+	binary := filepath.Join(docs, "report.pdf")
 	os.WriteFile(binary, []byte{0x25, 0x50, 0xff, 0xfe, 0x00}, 0o644)
 	run := func(args ...string) (string, error) {
 		t.Helper()
