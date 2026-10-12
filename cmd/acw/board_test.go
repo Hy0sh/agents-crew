@@ -249,26 +249,13 @@ func TestParkDocument(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	repo := testSwarm(t, 2, poolWorker{Index: 1, State: workerBusy, Task: 3, Current: &queuedTask{ID: 3, Brief: "plan it"}})
 	os.WriteFile(filepath.Join(names.StatusDir(repo), "worker1.json"), []byte(`{"state":"plan_ready","tache":"SHOP-9","branch":"fix/vat (cut after the go)"}`), 0o644)
-	// Not t.TempDir(): on Linux it is in /tmp, which park refuses.
-	docs, err := os.MkdirTemp(".", "docs-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.RemoveAll(docs) })
-	docs, _ = filepath.Abs(docs)
+	docs := t.TempDir()
 	doc := filepath.Join(docs, "plan.md")
 	os.WriteFile(doc, []byte("# Plan\n"), 0o644)
 	inTree := filepath.Join(names.WorktreesDir(repo), "worker1-20261009120000", "plan.md")
 	os.MkdirAll(filepath.Dir(inTree), 0o755)
 	os.WriteFile(inTree, []byte("x"), 0o644)
-	// Emptied before the user reads it, or a format the page can't show.
-	tmpDir, err := os.MkdirTemp("/tmp", "acw-test-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.RemoveAll(tmpDir) })
-	inTmp := filepath.Join(tmpDir, "plan.md")
-	os.WriteFile(inTmp, []byte("# Plan\n"), 0o644)
+	// A format the page can't show.
 	binary := filepath.Join(docs, "report.pdf")
 	os.WriteFile(binary, []byte{0x25, 0x50, 0xff, 0xfe, 0x00}, 0o644)
 	run := func(args ...string) (string, error) {
@@ -286,7 +273,6 @@ func TestParkDocument(t *testing.T) {
 		{"--worker", "worker1", "--doc", filepath.Join(t.TempDir(), "gone.md")},
 		{"--worker", "worker1", "--doc", t.TempDir()},
 		{"--worker", "worker1", "--doc", inTree},
-		{"--worker", "worker1", "--doc", inTmp},
 		{"--worker", "worker1", "--doc", binary},
 		{"--worker", "worker1", "--doc", doc, "--on", "client"}, // only the user reads documents on the page
 	} {
@@ -304,15 +290,22 @@ func TestParkDocument(t *testing.T) {
 	d := boardDay(t, repo, time.Now())
 	// The branch the plan announces, remark dropped: acw queue review finds
 	// the plan by it, cut or not yet.
-	if len(d.Parked) != 1 || d.Parked[0].DocPath != doc || d.Parked[0].Kind != "plan" || d.Parked[0].Worker != "worker1" || d.Parked[0].Branch != "fix/vat" {
+	if len(d.Parked) != 1 || d.Parked[0].Kind != "plan" || d.Parked[0].Worker != "worker1" || d.Parked[0].Branch != "fix/vat" {
 		t.Errorf("parked = %+v", d.Parked)
+	}
+	// The page shows a copy, kept next to the base: the file may go (a
+	// /tmp emptied) or change, the user reads and accepts that version.
+	copied := d.Parked[0].DocPath
+	os.WriteFile(doc, []byte("# Plan, changed after\n"), 0o644)
+	if got, _ := os.ReadFile(copied); copied == doc || !strings.HasPrefix(copied, filepath.Dir(board.Path())) || string(got) != "# Plan\n" {
+		t.Errorf("document kept = %s with %q, want a copy of the parked version next to the base", copied, got)
 	}
 	cmd := boardCommand()
 	var shown strings.Builder
 	cmd.SetOut(&shown)
 	cmd.SetArgs([]string{"parked", "1"})
 	cmd.Execute()
-	if !strings.Contains(shown.String(), "document: "+doc) {
+	if !strings.Contains(shown.String(), "document: "+copied) {
 		t.Errorf("parked 1 = %q, want the document's path", shown.String())
 	}
 	if out, err := run("--worker", "worker1", "--doc", doc); err != nil || !strings.Contains(out, "already free") {

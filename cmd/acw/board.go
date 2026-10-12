@@ -225,12 +225,6 @@ func checkDocPath(repo, path string) error {
 	if rel, err := filepath.Rel(names.WorktreesDir(repo), path); err == nil && !strings.HasPrefix(rel, "..") {
 		return fmt.Errorf("--doc %s: inside a worktree or the status dir, both gone at acw stop: have the worker write it outside the repo (e.g. ~/.claude/plans)", path)
 	}
-	// The user may read it days later: the machine empties /tmp by then.
-	for _, tmp := range []string{"/tmp/", "/private/tmp/"} {
-		if strings.HasPrefix(path, tmp) {
-			return fmt.Errorf("--doc %s: /tmp is emptied before the user may read it: move it outside (e.g. ~/.claude/plans)", path)
-		}
-	}
 	// The page renders markdown: a PDF or a spreadsheet shows nothing.
 	if info.Size() <= 1<<20 {
 		if content, err := os.ReadFile(path); err == nil && !utf8.Valid(content) {
@@ -238,6 +232,28 @@ func checkDocPath(repo, path string) error {
 		}
 	}
 	return nil
+}
+
+// snapshotDoc copies the document at path next to the board's base, and
+// returns the copy's path. Never purged, like the base.
+func snapshotDoc(path string) (string, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("--doc: %w", err)
+	}
+	dir := filepath.Join(filepath.Dir(board.Path()), "docs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp(dir, time.Now().Format("20060102-150405-")+"*-"+filepath.Base(path))
+	if err != nil {
+		return "", err
+	}
+	if _, err := f.Write(content); err != nil {
+		f.Close()
+		return "", err
+	}
+	return f.Name(), f.Close()
 }
 
 func parkCommand() *cobra.Command {
@@ -289,6 +305,14 @@ func parkCommand() *cobra.Command {
 				return err
 			}
 			out := cmd.OutOrStdout()
+			// The user may read it days later, from a /tmp the machine has
+			// emptied, or from a file changed since: the page shows the
+			// copy, which is the version they accept.
+			if doc != "" {
+				if doc, err = snapshotDoc(doc); err != nil {
+					return err
+				}
+			}
 			err = withBoard(func(b *board.DB) error {
 				id, err := b.Park(board.Parked{Repo: repo, Ticket: ticket, Worker: worker, On: on, Text: text, Kind: kind, DocPath: doc, Branch: branch, CreatedAt: time.Now()})
 				if err == nil {
@@ -311,7 +335,7 @@ func parkCommand() *cobra.Command {
 	cmd.Flags().StringVar(&ticket, "ticket", "", "the ticket key it belongs to")
 	cmd.Flags().StringVar(&on, "on", "", "who the answer is waited from: client, me (the user), or a name")
 	cmd.Flags().StringVar(&worker, "worker", "", "the worker it came from, by its name (worker2, reviewer1)")
-	cmd.Flags().StringVar(&doc, "doc", "", "a document to approve (plan, verdict, review draft): its absolute path, outside the repo's worktrees; the user reads it on acw board, and the --worker is freed (left out for the master's own)")
+	cmd.Flags().StringVar(&doc, "doc", "", "a document to approve or read (plan, verdict, review draft, report): its absolute path, outside the repo's worktrees; acw keeps a copy, which the user reads on acw board, and the --worker is freed (left out for the master's own)")
 	return cmd
 }
 
