@@ -6,6 +6,11 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `acw board`: the document reader moves by its header and resizes by its
+  corner; it stays on screen and keeps its place for the next document.
+
 ## [0.24.0] - 2026-10-12
 
 ### Added
