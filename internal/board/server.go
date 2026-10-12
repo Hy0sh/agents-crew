@@ -16,6 +16,8 @@ import (
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
+
+	"github.com/Hy0sh/agents-crew/internal/gitutil"
 )
 
 //go:embed page.html
@@ -227,7 +229,9 @@ func answerDoc(b *DB, req doneRequest, at time.Time, notify func(repo, msg strin
 	var msg string
 	if req.Answer == "accept" {
 		next := "Queue the follow-up with the document's path in the brief."
-		if p.Branch != "" {
+		// A plan names the branch it will cut: a --branch on it before
+		// it exists would fail to fetch.
+		if p.Branch != "" && gitutil.HasBranch(p.Repo, p.Branch) {
 			next = fmt.Sprintf("Queue the follow-up with --branch %s and the document's path in the brief.", p.Branch)
 		}
 		msg = fmt.Sprintf("From acw board, the user ACCEPTED %s: this is their go. %s", what, next)

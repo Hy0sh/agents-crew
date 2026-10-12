@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
@@ -202,8 +203,20 @@ func TestAcceptRefuse(t *testing.T) {
 	if p.ClosedAt == nil || p.Answer != "accepted" {
 		t.Errorf("accepted = %+v", p)
 	}
-	if len(told) != 2 || !strings.Contains(told[1], "ACCEPTED") || !strings.Contains(told[1], "go") || !strings.Contains(told[1], "/p.md") || !strings.Contains(told[1], "--branch fix/vat") {
+	// fix/vat is not cut in /r: a --branch on it would fail to fetch.
+	if len(told) != 2 || !strings.Contains(told[1], "ACCEPTED") || !strings.Contains(told[1], "go") || !strings.Contains(told[1], "/p.md") || strings.Contains(told[1], "--branch") {
 		t.Errorf("told = %q", told)
+	}
+	// Cut, it is suggested.
+	repo := t.TempDir()
+	for _, args := range [][]string{{"init", "-q"}, {"-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "init"}, {"branch", "fix/vat"}} {
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	cut, _ := b.Park(Parked{Repo: repo, Ticket: "SHOP-9", On: "me", Worker: "worker2", Text: "Approve", Kind: "plan", DocPath: "/p.md", Branch: "fix/vat", CreatedAt: noon})
+	if code := answer(cut, "accept"); code != http.StatusNoContent || len(told) != 3 || !strings.Contains(told[2], "--branch fix/vat") {
+		t.Errorf("accept of a cut branch = %d, told = %q", code, told)
 	}
 	if d, _ := b.Board("/r", noon, noon); len(d.Decisions) != 1 || d.Decisions[0].Text != "accepted" || d.Decisions[0].Subject != "SHOP-9" {
 		t.Errorf("decisions = %+v", d.Decisions)

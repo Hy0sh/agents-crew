@@ -182,6 +182,7 @@ acw queue                                   # workers and queue
 acw queue add <brief-file> [--branch <b>] [--worker <worker>] [--kind <kind>] [--after <id>]... [--after-merge <id>]... [--top]
 acw queue move <id> <position>
 acw queue remove <id>
+acw queue review <id> [--kind <kind>] [--note <text>] [--plan <parked>]
 acw done <worker> [task-id]
 ```
 
@@ -275,6 +276,28 @@ runs is acw's, from fixed rules a model cannot bend.
 <brief-file>`. It may reorder the queue (`acw queue move <id> <position>`,
 `add --top` for an urgent one) or take a task out (`acw queue remove
 <id>`).
+
+**Reviews.** `acw queue review <id>` queues the review of the work an
+ended task left, on its branch, with a brief acw writes: data only, the
+reviewer's method being its role's. acw keeps what it needs at `acw done`
+(the worker's branch and `base_branch`, the head it left, its
+`proof_path`, the task's kind and brief), so the brief holds:
+
+- the diff against `origin/<base>`, as the base is now (a stacked PR's
+  base moves);
+- the plan accepted for that branch (`acw board park --doc` keeps the
+  branch the plan announces), or the one `--plan <parked>` names;
+- every `acw board decision` whose subject names the ticket, as what
+  overrides the plan;
+- the briefs of every task ended on the branch, the adjustments given
+  along the way included;
+- on a second pass, the previous review (the earlier task of the same
+  `--kind` on the branch): its file, and a diff from the head it read;
+- the proof path, and `--note`, a precise risk given on top of the
+  method, never as its scope.
+
+It refuses a task not ended yet, or ended without a branch: `queue add`
+remains for those.
 
 **Handing out.** acw's watcher hands tasks out in queue order, each to a
 free worker whose agent is idle, with the same steps as `acw dispatch`

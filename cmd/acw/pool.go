@@ -339,14 +339,20 @@ type addOptions struct {
 
 // queueAdd queues the brief at path, as o says.
 func queueAdd(repo, path string, o addOptions, now time.Time, out io.Writer) error {
-	br, worker, kind, after, afterMerge, top := o.Branch, o.Worker, o.Kind, o.After, o.AfterMerge, o.Top
-	if err := br.check(); err != nil {
-		return err
-	}
 	text, err := readBrief(path)
 	if err != nil {
 		return err
 	}
+	return queueBrief(repo, text, o, now, out)
+}
+
+// queueBrief queues text as a task's brief, as o says.
+func queueBrief(repo, text string, o addOptions, now time.Time, out io.Writer) error {
+	br, worker, kind, after, afterMerge, top := o.Branch, o.Worker, o.Kind, o.After, o.AfterMerge, o.Top
+	if err := br.check(); err != nil {
+		return err
+	}
+	var err error
 	index := 0
 	if worker != "" {
 		if index, err = workerArg(repo, worker); err != nil {
@@ -444,9 +450,10 @@ func queueRemove(repo string, id int, out io.Writer) error {
 // task, when not 0, is the task the caller means to end: a second done
 // for a task already over could otherwise free a worker the watcher has
 // just handed the next one, which would then get a third brief on top.
-func markDone(repo string, index, task int, now time.Time) (string, int, error) {
+// The task it ended comes back, brief included (its ID is 0 when none).
+func markDone(repo string, index, task int, now time.Time) (string, queuedTask, error) {
 	var msg string
-	var finished int
+	var finished queuedTask
 	err := withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
 		w := p.worker(index)
 		if w == nil {
@@ -460,9 +467,12 @@ func markDone(repo string, index, task int, now time.Time) (string, int, error) 
 			return false, fmt.Errorf("%s is on task #%d, not #%d: nothing changed", w.label(), w.Task, task)
 		}
 		msg = fmt.Sprintf("%s is free (task #%d done).", w.label(), w.Task)
-		finished = w.Task
+		finished = queuedTask{ID: w.Task}
+		if w.Current != nil {
+			finished = *w.Current
+		}
 		w.free(now)
-		afterMergeOf(q, finished, prURL(repo, w.label()), &msg)
+		afterMergeOf(q, finished.ID, prURL(repo, w.label()), &msg)
 		return true, nil
 	})
 	return msg, finished, err
@@ -477,11 +487,21 @@ func finishWorker(repo string, index int, label string, task int, out io.Writer)
 	if err != nil {
 		return err
 	}
-	if finished != 0 {
+	if finished.ID != 0 {
 		s, _ := readWorkerStatus(filepath.Join(names.StatusDir(repo), label+".json"))
+		// What acw queue review reads once the worker moved on: the branch
+		// the worker says it worked on, else the task's.
+		branch, base := finished.Branch, finished.Base
+		if f := strings.Fields(s.Branch); len(f) > 0 {
+			branch = f[0]
+		}
+		if s.BaseBranch != "" {
+			base = s.BaseBranch
+		}
 		record("done", func(b *board.DB) error {
-			return b.AddHandled(board.Handled{Repo: repo, At: time.Now(), Worker: label, Task: finished,
-				Subject: s.Tache, Summary: s.Summary, PRURL: s.PRURL, Outcome: s.State})
+			return b.AddHandled(board.Handled{Repo: repo, At: time.Now(), Worker: label, Task: finished.ID,
+				Subject: s.Tache, Summary: s.Summary, PRURL: s.PRURL, Outcome: s.State,
+				Branch: branch, Base: base, Head: gitutil.Head(repo, branch), Proof: s.ProofPath, Kind: finished.Kind, Brief: finished.Brief})
 		})
 	}
 	fmt.Fprintln(out, msg)

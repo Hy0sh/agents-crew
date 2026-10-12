@@ -31,6 +31,7 @@ type workerStatus struct {
 	PRURL       string `json:"pr_url"`
 	BlockedOn   string `json:"blocked_on"`
 	DocPath     string `json:"doc_path"`
+	ProofPath   string `json:"proof_path"`
 	UpdatedAt   string `json:"updated_at"`
 	LastTurnEnd string `json:"last_turn_end"`
 	StateSince  string `json:"state_since"`

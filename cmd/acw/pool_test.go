@@ -295,8 +295,8 @@ func TestMarkDone(t *testing.T) {
 	if err != nil || !strings.Contains(msg, "free") {
 		t.Fatalf("markDone() = %q, %v", msg, err)
 	}
-	if finished != 3 {
-		t.Errorf("finished = %d, want 3", finished)
+	if finished.ID != 3 || finished.Brief != "x" {
+		t.Errorf("finished = %+v, want #3 with its brief", finished)
 	}
 	p, _, _ := readPool(repo)
 	if w := p.worker(1); w.State != workerFree || w.Task != 0 || !w.Since.Equal(t0) || w.Current != nil {
@@ -304,8 +304,8 @@ func TestMarkDone(t *testing.T) {
 	}
 	if msg, finished, err := markDone(repo, 1, 0, t0); err != nil || !strings.Contains(msg, "already free") {
 		t.Errorf("markDone() twice = %q, %v; want no error, already free", msg, err)
-	} else if finished != 0 {
-		t.Errorf("finished = %d, want 0", finished)
+	} else if finished.ID != 0 {
+		t.Errorf("finished = %+v, want none", finished)
 	}
 	if _, _, err := markDone(repo, 2, 0, t0); err == nil {
 		t.Error("markDone() on a worker that is not open should fail")

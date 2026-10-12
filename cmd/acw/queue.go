@@ -87,7 +87,27 @@ func queueCommand() *cobra.Command {
 			return queueRemove(r, id, cmd.OutOrStdout())
 		},
 	}
-	queue.AddCommand(add, move, remove)
+	var ro reviewOptions
+	review := &cobra.Command{
+		Use:   "review <id> [--kind <kind>] [--note <text>] [--plan <parked>]",
+		Short: "Queue the review of an ended task's branch, its brief made from the board: plan, decisions, briefs, proof",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			r, err := repo()
+			if err != nil {
+				return err
+			}
+			id, err := strconv.Atoi(args[0])
+			if err != nil {
+				return fmt.Errorf("%q is not a task number", args[0])
+			}
+			return queueReview(r, id, ro, time.Now(), cmd.OutOrStdout())
+		},
+	}
+	review.Flags().StringVar(&ro.Kind, "kind", "", "only the workers whose tasks list this kind take it (need-review); its earlier tasks of that kind on the branch are the previous reviews")
+	review.Flags().StringVar(&ro.Note, "note", "", "a precise risk to look at, given on top of the reviewer's method, never as its scope")
+	review.Flags().Int64Var(&ro.Plan, "plan", 0, "the parked document that is the plan, when the branch finds none or the wrong one")
+	queue.AddCommand(add, move, remove, review)
 	return queue
 }
 

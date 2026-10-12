@@ -3,7 +3,6 @@ package main
 import (
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -249,7 +248,7 @@ func TestStartPromptParked(t *testing.T) {
 func TestParkDocument(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	repo := testSwarm(t, 2, poolWorker{Index: 1, State: workerBusy, Task: 3, Current: &queuedTask{ID: 3, Brief: "plan it"}})
-	os.WriteFile(filepath.Join(names.StatusDir(repo), "worker1.json"), []byte(`{"state":"plan_ready","tache":"SHOP-9","branch":"fix/vat"}`), 0o644)
+	os.WriteFile(filepath.Join(names.StatusDir(repo), "worker1.json"), []byte(`{"state":"plan_ready","tache":"SHOP-9","branch":"fix/vat (cut after the go)"}`), 0o644)
 	doc := filepath.Join(t.TempDir(), "plan.md")
 	os.WriteFile(doc, []byte("# Plan\n"), 0o644)
 	inTree := filepath.Join(names.WorktreesDir(repo), "worker1-20261009120000", "plan.md")
@@ -284,9 +283,9 @@ func TestParkDocument(t *testing.T) {
 		t.Errorf("worker1 = %+v, want free", p.worker(1))
 	}
 	d := boardDay(t, repo, time.Now())
-	// A plan's branch is not cut yet: the accept must not suggest a
-	// --branch that would fail to fetch.
-	if len(d.Parked) != 1 || d.Parked[0].DocPath != doc || d.Parked[0].Kind != "plan" || d.Parked[0].Worker != "worker1" || d.Parked[0].Branch != "" {
+	// The branch the plan announces, remark dropped: acw queue review finds
+	// the plan by it, cut or not yet.
+	if len(d.Parked) != 1 || d.Parked[0].DocPath != doc || d.Parked[0].Kind != "plan" || d.Parked[0].Worker != "worker1" || d.Parked[0].Branch != "fix/vat" {
 		t.Errorf("parked = %+v", d.Parked)
 	}
 	cmd := boardCommand()
@@ -297,18 +296,8 @@ func TestParkDocument(t *testing.T) {
 	if !strings.Contains(shown.String(), "document: "+doc) {
 		t.Errorf("parked 1 = %q, want the document's path", shown.String())
 	}
-	// A branch that exists is kept: the worker is on another task by the
-	// time the user accepts, and the follow-up goes back to it.
-	for _, args := range [][]string{{"init", "-q"}, {"-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "init"}, {"branch", "fix/vat"}} {
-		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
 	if out, err := run("--worker", "worker1", "--doc", doc); err != nil || !strings.Contains(out, "already free") {
 		t.Errorf("park --doc of a free worker = %q, %v; want parked, already free", out, err)
-	}
-	if d := boardDay(t, repo, time.Now()); len(d.Parked) != 2 || d.Parked[1].Branch != "fix/vat" {
-		t.Errorf("parked = %+v, want #2 on fix/vat", d.Parked)
 	}
 	// The master's own document: no worker to free, no branch.
 	if out, err := run("--doc", doc); err != nil || !strings.Contains(out, "#3 parked") || strings.Contains(out, "free") {
