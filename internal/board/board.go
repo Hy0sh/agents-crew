@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -59,6 +60,12 @@ var migrations = []string{
 	`ALTER TABLE parked ADD COLUMN doc_path TEXT NOT NULL DEFAULT ''`,
 	`CREATE TABLE IF NOT EXISTS interrupted (repo TEXT PRIMARY KEY, at INTEGER, tasks TEXT)`,
 	`ALTER TABLE parked ADD COLUMN branch TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE handled ADD COLUMN branch TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE handled ADD COLUMN base TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE handled ADD COLUMN head TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE handled ADD COLUMN proof TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE handled ADD COLUMN kind TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE handled ADD COLUMN brief TEXT NOT NULL DEFAULT ''`,
 }
 
 type DB struct{ sql *sql.DB }
@@ -205,6 +212,15 @@ type Handled struct {
 	Summary string    `json:"summary"`
 	PRURL   string    `json:"pr_url"`
 	Outcome string    `json:"outcome"`
+	// What acw queue review needs once the worker moved on: the branch
+	// and its base, the head it left, its proof, the task's kind and
+	// brief. Not on the page.
+	Branch string `json:"-"`
+	Base   string `json:"-"`
+	Head   string `json:"-"`
+	Proof  string `json:"-"`
+	Kind   string `json:"-"`
+	Brief  string `json:"-"`
 }
 
 type Decision struct {
@@ -482,10 +498,85 @@ func (b *DB) Marked(repo, item string) (bool, error) {
 }
 
 func (b *DB) AddHandled(h Handled) error {
-	_, err := b.sql.Exec(`INSERT INTO handled VALUES (?,?,?,?,?,?,?,?)`,
-		h.Repo, h.At.Unix(), h.Worker, h.Task, h.Subject, h.Summary, h.PRURL, h.Outcome)
+	_, err := b.sql.Exec(`INSERT INTO handled (repo, at, worker, task, subject, summary, pr_url, outcome, branch, base, head, proof, kind, brief) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		h.Repo, h.At.Unix(), h.Worker, h.Task, h.Subject, h.Summary, h.PRURL, h.Outcome, h.Branch, h.Base, h.Head, h.Proof, h.Kind, h.Brief)
 	return err
 }
+
+// handledRows reads the full rows of handled that where selects, oldest
+// first.
+func (b *DB) handledRows(where string, args ...any) ([]Handled, error) {
+	rows, err := b.sql.Query(`SELECT repo, at, worker, task, subject, summary, pr_url, outcome, branch, base, head, proof, kind, brief
+		FROM handled WHERE `+where+` ORDER BY at, rowid`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Handled
+	for rows.Next() {
+		var h Handled
+		var at int64
+		if err := rows.Scan(&h.Repo, &at, &h.Worker, &h.Task, &h.Subject, &h.Summary, &h.PRURL, &h.Outcome, &h.Branch, &h.Base, &h.Head, &h.Proof, &h.Kind, &h.Brief); err != nil {
+			return nil, err
+		}
+		h.At = time.Unix(at, 0)
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
+// LastHandled is the latest end of task id on repo. Task numbers start
+// again with each swarm: the latest is this swarm's, once it ended it.
+func (b *DB) LastHandled(repo string, task int) (Handled, bool, error) {
+	hs, err := b.handledRows(`repo = ? AND task = ?`, repo, task)
+	if err != nil || len(hs) == 0 {
+		return Handled{}, false, err
+	}
+	return hs[len(hs)-1], true, nil
+}
+
+// BranchHandled is every task ended on branch, oldest first, all swarms.
+func (b *DB) BranchHandled(repo, branch string) ([]Handled, error) {
+	return b.handledRows(`repo = ? AND branch = ?`, repo, branch)
+}
+
+// TicketDecisions is every decision whose subject names ticket, oldest
+// first, all days.
+func (b *DB) TicketDecisions(repo, ticket string) ([]Decision, error) {
+	rows, err := b.sql.Query(`SELECT at, worker, subject, text, why FROM decisions WHERE repo = ? AND instr(subject, ?) > 0 ORDER BY at, rowid`, repo, ticket)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Decision
+	for rows.Next() {
+		d := Decision{Repo: repo}
+		var at int64
+		if err := rows.Scan(&at, &d.Worker, &d.Subject, &d.Text, &d.Why); err != nil {
+			return nil, err
+		}
+		// instr finds SHOP-1 in SHOP-12: only the whole key counts.
+		if !slices.Contains(ticketKey.FindAllString(d.Subject, -1), ticket) {
+			continue
+		}
+		d.At = time.Unix(at, 0)
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// BranchPlan is the latest document accepted for branch: the plan the
+// work on it follows.
+func (b *DB) BranchPlan(repo, branch string) (Parked, bool, error) {
+	p, err := scanParked(b.sql.QueryRow(`SELECT `+parkedColumns+` FROM parked WHERE repo = ? AND branch = ? AND doc_path <> '' AND answer = 'accepted' ORDER BY id DESC LIMIT 1`, repo, branch).Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		return p, false, nil
+	}
+	return p, err == nil, err
+}
+
+// TicketKey is the first ticket key s names (SHOP-12), "" without.
+func TicketKey(s string) string { return ticketKey.FindString(s) }
 
 func (b *DB) AddDecision(d Decision) error {
 	_, err := b.sql.Exec(`INSERT INTO decisions VALUES (?,?,?,?,?,?)`,

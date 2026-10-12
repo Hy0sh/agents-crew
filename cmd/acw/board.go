@@ -20,7 +20,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Hy0sh/agents-crew/internal/board"
-	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/names"
 )
 
@@ -263,10 +262,11 @@ func parkCommand() *cobra.Command {
 					s, _ = readWorkerStatus(filepath.Join(names.StatusDir(repo), worker+".json"))
 				}
 				kind = docKind(s.State)
-				// A plan names the branch it will cut: a --branch on it
-				// would fail to fetch, so the accept only suggests one there is.
-				if gitutil.HasBranch(repo, s.Branch) {
-					branch = s.Branch
+				// A plan names the branch it will cut, maybe with a remark
+				// after it: its first word is what acw queue review finds
+				// its plan by, and the accept suggests it once it exists.
+				if f := strings.Fields(s.Branch); len(f) > 0 {
+					branch = f[0]
 				}
 			}
 			text, err := readText(args, cmd.InOrStdin(), "question")

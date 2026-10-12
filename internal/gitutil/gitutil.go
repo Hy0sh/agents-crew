@@ -108,12 +108,21 @@ func parseWorktreeBranches(porcelain string) map[string]string {
 // HasBranch reports whether branch exists in dir's repo, locally or on
 // origin.
 func HasBranch(dir, branch string) bool {
+	return Head(dir, branch) != ""
+}
+
+// Head is the commit branch points at in dir's repo, the local branch
+// first, else origin's; "" when it exists in neither.
+func Head(dir, branch string) string {
+	if branch == "" {
+		return ""
+	}
 	for _, ref := range []string{"refs/heads/" + branch, "refs/remotes/origin/" + branch} {
-		if _, err := run(dir, "rev-parse", "--verify", "--quiet", ref); err == nil {
-			return true
+		if sha, err := run(dir, "rev-parse", "--verify", "--quiet", ref); err == nil {
+			return sha
 		}
 	}
-	return false
+	return ""
 }
 
 // Switch puts dir on branch, cut from base when create is set. A branch

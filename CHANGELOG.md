@@ -6,22 +6,31 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `acw queue review <id>`: queues the review of an ended task's branch,
+  its brief written by acw from what the board kept (the base, the plan
+  accepted for that branch, the ticket's decisions, every brief on the
+  branch, the proof, the previous review on a second pass) instead of by
+  the master. A brief of data only: a list of points to check reads as
+  the review's scope. `--note` adds a precise risk on top of the method.
+- `acw done` keeps the worker's branch, base, head and `proof_path`, and
+  the task's kind and brief, for that review.
+- `acw board`: the document reader moves by its header and resizes by its
+  corner; it stays on screen and keeps its place for the next document.
+
 ### Fixed
 
 - `acw board`: a worker's `*_ready` not parked yet no longer offers Done,
   which told the master the document was read; it says to have it parked.
-- `acw board park --doc` keeps the worker's branch only when it exists:
-  the accept no longer suggests a `--branch` a plan has not cut yet.
+- `acw board park --doc` keeps the branch the plan announces, remark
+  dropped, and the accept suggests `--branch` only once it exists: a plan
+  has not cut it yet.
 - The master's brief says to leave `--worker` out of a decision that
   concerns no worker, instead of passing `master`, which is refused.
 - `acw board park --doc` no longer needs `--worker`: the master parks a
   document of its own (the report of a run it did), read on the page as
   the master's.
-
-### Added
-
-- `acw board`: the document reader moves by its header and resizes by its
-  corner; it stays on screen and keeps its place for the next document.
 
 ## [0.24.0] - 2026-10-12
 
