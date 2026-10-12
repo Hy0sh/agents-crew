@@ -14,6 +14,9 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   the accept no longer suggests a `--branch` a plan has not cut yet.
 - The master's brief says to leave `--worker` out of a decision that
   concerns no worker, instead of passing `master`, which is refused.
+- `acw board park --doc` no longer needs `--worker`: the master parks a
+  document of its own (the report of a run it did), read on the page as
+  the master's.
 
 ### Added
 

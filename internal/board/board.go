@@ -185,6 +185,14 @@ type Parked struct {
 	Refused bool `json:"refused"`
 }
 
+// From is who a parked document comes from: its worker, else the master.
+func (p Parked) From() string {
+	if p.Worker == "" {
+		return "the master"
+	}
+	return p.Worker
+}
+
 // refused is the answer of a parked document refused but still open.
 const refused = "refused"
 

@@ -270,7 +270,6 @@ func TestParkDocument(t *testing.T) {
 		{"--worker", "worker1", "--doc", filepath.Join(t.TempDir(), "gone.md")},
 		{"--worker", "worker1", "--doc", t.TempDir()},
 		{"--worker", "worker1", "--doc", inTree},
-		{"--doc", doc},
 		{"--worker", "worker1", "--doc", doc, "--on", "client"}, // only the user reads documents on the page
 	} {
 		if _, err := run(bad...); err == nil {
@@ -311,9 +310,16 @@ func TestParkDocument(t *testing.T) {
 	if d := boardDay(t, repo, time.Now()); len(d.Parked) != 2 || d.Parked[1].Branch != "fix/vat" {
 		t.Errorf("parked = %+v, want #2 on fix/vat", d.Parked)
 	}
+	// The master's own document: no worker to free, no branch.
+	if out, err := run("--doc", doc); err != nil || !strings.Contains(out, "#3 parked") || strings.Contains(out, "free") {
+		t.Errorf("park --doc without a worker = %q, %v; want parked, nobody freed", out, err)
+	}
+	if d := boardDay(t, repo, time.Now()); len(d.Parked) != 3 || d.Parked[2].Worker != "" || d.Parked[2].Kind != "document" || d.Parked[2].Branch != "" {
+		t.Errorf("parked = %+v, want #3 the master's document", d.Parked)
+	}
 	// Parked, then its worker can't be freed (closed meanwhile): no error,
 	// or the master would park it a second time.
-	if out, err := run("--worker", "worker2", "--doc", doc); err != nil || !strings.Contains(out, "#3 parked") || !strings.Contains(out, "worker2") {
+	if out, err := run("--worker", "worker2", "--doc", doc); err != nil || !strings.Contains(out, "#4 parked") || !strings.Contains(out, "worker2") {
 		t.Errorf("park --doc of a closed worker = %q, %v; want parked, a warning", out, err)
 	}
 }

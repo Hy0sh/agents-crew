@@ -298,7 +298,7 @@ func userWaits(d Day, workerKey, prKeyByURL map[string]string) []Wait {
 			Who: fmt.Sprintf("parked #%d", p.ID), Detail: p.Text, Since: p.CreatedAt, Refused: p.Refused}
 		if p.DocPath != "" {
 			// From the row: its worker was freed when it was parked.
-			w.Text, w.Doc = "Read "+p.Worker+"'s "+p.Kind, true
+			w.Text, w.Doc = "Read "+p.From()+"'s "+p.Kind, true
 		}
 		out = append(out, w)
 	}
