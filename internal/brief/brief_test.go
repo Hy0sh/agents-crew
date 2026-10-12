@@ -97,6 +97,17 @@ func TestBuildLeansOnTheWatcherInsteadOfWaits(t *testing.T) {
 	}
 }
 
+// Every long document meant for the user is parked, read on the page:
+// never shown in the terminal.
+func TestBuildParksEveryLongDocument(t *testing.T) {
+	got := Build(params("claude", 2, 2))
+	for _, want := range []string{"every document written for me to read", "never in the terminal", "`report_ready`", "Not concerned: what goes into a PR"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("brief missing %q", want)
+		}
+	}
+}
+
 func TestBuildListsOutsideWorkersAndCountsOnlyCodersForStacks(t *testing.T) {
 	p := params("claude", 3, 2)
 	p.Workers[0] = Worker{Kind: "claude", Dir: "/Users/me/studio", Role: "analyst", Label: "analyst1", Tasks: []string{"analysis"}}

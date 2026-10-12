@@ -249,11 +249,28 @@ func TestParkDocument(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	repo := testSwarm(t, 2, poolWorker{Index: 1, State: workerBusy, Task: 3, Current: &queuedTask{ID: 3, Brief: "plan it"}})
 	os.WriteFile(filepath.Join(names.StatusDir(repo), "worker1.json"), []byte(`{"state":"plan_ready","tache":"SHOP-9","branch":"fix/vat (cut after the go)"}`), 0o644)
-	doc := filepath.Join(t.TempDir(), "plan.md")
+	// Not t.TempDir(): on Linux it is in /tmp, which park refuses.
+	docs, err := os.MkdirTemp(".", "docs-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(docs) })
+	docs, _ = filepath.Abs(docs)
+	doc := filepath.Join(docs, "plan.md")
 	os.WriteFile(doc, []byte("# Plan\n"), 0o644)
 	inTree := filepath.Join(names.WorktreesDir(repo), "worker1-20261009120000", "plan.md")
 	os.MkdirAll(filepath.Dir(inTree), 0o755)
 	os.WriteFile(inTree, []byte("x"), 0o644)
+	// Emptied before the user reads it, or a format the page can't show.
+	tmpDir, err := os.MkdirTemp("/tmp", "acw-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(tmpDir) })
+	inTmp := filepath.Join(tmpDir, "plan.md")
+	os.WriteFile(inTmp, []byte("# Plan\n"), 0o644)
+	binary := filepath.Join(docs, "report.pdf")
+	os.WriteFile(binary, []byte{0x25, 0x50, 0xff, 0xfe, 0x00}, 0o644)
 	run := func(args ...string) (string, error) {
 		t.Helper()
 		cmd := boardCommand()
@@ -269,6 +286,8 @@ func TestParkDocument(t *testing.T) {
 		{"--worker", "worker1", "--doc", filepath.Join(t.TempDir(), "gone.md")},
 		{"--worker", "worker1", "--doc", t.TempDir()},
 		{"--worker", "worker1", "--doc", inTree},
+		{"--worker", "worker1", "--doc", inTmp},
+		{"--worker", "worker1", "--doc", binary},
 		{"--worker", "worker1", "--doc", doc, "--on", "client"}, // only the user reads documents on the page
 	} {
 		if _, err := run(bad...); err == nil {
@@ -314,7 +333,7 @@ func TestParkDocument(t *testing.T) {
 }
 
 func TestDocKind(t *testing.T) {
-	for state, want := range map[string]string{"plan_ready": "plan", "verdict_ready": "verdict", "review_ready": "review draft", "coding": "document"} {
+	for state, want := range map[string]string{"plan_ready": "plan", "verdict_ready": "verdict", "review_ready": "review draft", "report_ready": "report", "coding": "document"} {
 		if got := docKind(state); got != want {
 			t.Errorf("docKind(%q) = %q, want %q", state, got, want)
 		}

@@ -101,7 +101,8 @@ func TestWriteSystemPromptsAlwaysCarryTheRole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"You are worker2,", filepath.Join(dir, "worker2.json")} {
+	// A long document for the user goes to the page like a plan.
+	for _, want := range []string{"You are worker2,", filepath.Join(dir, "worker2.json"), "every document you write for the user to read", "report_ready", "Not concerned: what goes into your PR"} {
 		if !strings.Contains(string(content), want) {
 			t.Errorf("worker2 system prompt = %q, want it to contain %q", content, want)
 		}

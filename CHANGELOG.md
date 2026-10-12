@@ -16,6 +16,19 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   the review's scope. `--note` adds a precise risk on top of the method.
 - `acw done` keeps the worker's branch, base, head and `proof_path`, and
   the task's kind and brief, for that review.
+- Every document written for the user to read (a report, an analysis, a
+  text for a documentation folder) is read on `acw board`, never in the
+  terminal: a worker stops in `report_ready` with its `doc_path` ("Read
+  worker2's report"), and the master parks it with `--doc` like a plan,
+  its own documents included. What goes into a PR, proof and files for
+  agents are not concerned.
+
+### Changed
+
+- `acw board park --doc` refuses a document in `/tmp`, emptied before the
+  user may read it, and a file that is not text (a PDF, a spreadsheet),
+  which the page can't show: a markdown note giving its path is parked
+  instead.
 - `acw board`: the document reader moves by its header and resizes by its
   corner; it stays on screen and keeps its place for the next document.
 

@@ -915,7 +915,9 @@ the master write.
   after 2 minutes, red after 10. A page that only reloads can't tell a
   quiet swarm from a dead watcher.
 - **Waiting on you**, oldest first: a worker in a `*_ready` state (a plan,
-  a verdict or a review draft to approve) once its turn is over (the
+  a verdict, a review draft to approve, or a report to read: every report or
+  file generated for you is read here, never in the terminal) once its
+  turn is over (the
   master's next message to it sets it back to `working`), a worker's `blocked_on`, a
   worker stopped on a prompt, a PR approved and green waiting for your
   merge, a PR with review asks that no busy worker and no queued task

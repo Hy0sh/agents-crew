@@ -207,6 +207,12 @@ func TestViewPastDay(t *testing.T) {
 	}
 }
 
+func TestReadyTextReport(t *testing.T) {
+	if got := readyText(Worker{Worker: "worker2", State: "report_ready"}); got != "Read worker2's report" {
+		t.Errorf("readyText(report_ready) = %q", got)
+	}
+}
+
 func TestPhase(t *testing.T) {
 	w := []Worker{{Worker: "worker1", State: "plan_ready"}, {Worker: "worker2", State: "coding", PRURL: "u/99"}}
 	for _, c := range []struct {

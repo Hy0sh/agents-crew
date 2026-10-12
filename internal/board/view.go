@@ -315,6 +315,8 @@ func readyText(w Worker) string {
 		return "Rule on " + w.Worker + "'s verdict"
 	case "review":
 		return "Read " + w.Worker + "'s review draft"
+	case "report":
+		return "Read " + w.Worker + "'s report"
 	}
 	return w.Worker + ": " + strings.ReplaceAll(w.State, "_", " ")
 }
