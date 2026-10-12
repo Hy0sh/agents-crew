@@ -16,6 +16,10 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   the review's scope. `--note` adds a precise risk on top of the method.
 - `acw done` keeps the worker's branch, base, head and `proof_path`, and
   the task's kind and brief, for that review.
+- Every report or file generated for the user is read on `acw board`,
+  never in the terminal: a worker stops in `report_ready` with its
+  `doc_path` ("Read worker2's report"), and the master parks it with
+  `--doc` like a plan, its own documents included.
 - `acw board`: the document reader moves by its header and resizes by its
   corner; it stays on screen and keeps its place for the next document.
 

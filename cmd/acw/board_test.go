@@ -314,7 +314,7 @@ func TestParkDocument(t *testing.T) {
 }
 
 func TestDocKind(t *testing.T) {
-	for state, want := range map[string]string{"plan_ready": "plan", "verdict_ready": "verdict", "review_ready": "review draft", "coding": "document"} {
+	for state, want := range map[string]string{"plan_ready": "plan", "verdict_ready": "verdict", "review_ready": "review draft", "report_ready": "report", "coding": "document"} {
 		if got := docKind(state); got != want {
 			t.Errorf("docKind(%q) = %q, want %q", state, got, want)
 		}

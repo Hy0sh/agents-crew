@@ -201,6 +201,8 @@ func docKind(state string) string {
 		return "verdict"
 	case "review_ready":
 		return "review draft"
+	case "report_ready":
+		return "report"
 	}
 	return "document"
 }
