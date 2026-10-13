@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
@@ -239,6 +240,11 @@ func parkWorker(p poolState, w poolWorker, out io.Writer) error {
 	if w.Worktree == "" {
 		return nil
 	}
+	defer lockWorktree(p.Plan.Repo, w.label())()
+	// Closed while it waited for the lock: nothing left to move.
+	if _, err := os.Stat(w.Worktree); err != nil {
+		return nil
+	}
 	home := homeBranch(w)
 	current, err := gitutil.CurrentBranch(w.Worktree)
 	if err != nil || current == home {
@@ -264,10 +270,32 @@ func parkWorker(p poolState, w poolWorker, out io.Writer) error {
 	return nil
 }
 
+// lockWorktree takes, across processes, the right to move or remove the
+// worktree of worker label, and returns what gives it back: the watcher
+// putting a free worker back on its waiting branch, a task's switch and
+// a close each hold it. acw close used to remove a worktree while the
+// watcher's wtm switch wrote its files back into it, leaving the folder
+// behind. Without the lock file, nothing is serialized.
+func lockWorktree(repo, label string) func() {
+	f, err := os.OpenFile(filepath.Join(names.StatusDir(repo), "move-"+label+".lock"), os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return func() {}
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return func() {}
+	}
+	return func() {
+		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	}
+}
+
 // switchWorkerBranch fetches then puts the worker's worktree on br.Branch.
 // Nothing is stashed: local changes make git or wtm refuse, and the error
 // says the worker got nothing.
 func switchWorkerBranch(repo string, t clearTarget, br branchRequest, out io.Writer) error {
+	defer lockWorktree(repo, t.label)()
 	p, _, err := readPool(repo)
 	if err != nil {
 		return err

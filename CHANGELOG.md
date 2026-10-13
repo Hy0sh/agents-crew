@@ -6,6 +6,14 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Fixed
+
+- `acw close` on a worker the watcher was putting back on its waiting
+  branch left its worktree folder behind: the close removed it while
+  `wtm switch` wrote its files back into it. Moving a worker's worktree
+  (back to its waiting branch, onto a task's branch) and closing it now
+  take turns on a lock of that worker's.
+
 ## [0.27.0] - 2026-10-13
 
 ### Added
