@@ -966,11 +966,13 @@ its status (`doc_path`). The master parks it on you with `acw board park
 worker at once: you may take days to read it. "Read worker2's plan" opens
 it in a dialog, rendered from the file as it is now (GitHub markdown, raw
 HTML dropped, outside images not loaded), with its path to open in your
-editor, and two buttons. **Accept** is your go: the master queues the
-follow-up on the branch, the document's path in its brief. **Refuse**
-tells the master to wait for you in the terminal, where you discuss it; the
-item stays, marked refused, until the master closes it. Nothing is typed on
-the page: the board is not a second chat.
+editor, a notes field, and two buttons. **Accept** is your go: the master
+queues the follow-up on the branch, the document's path in its brief.
+**Refuse** holds it; the item stays, marked refused, until the master
+closes it. The notes you type go to the master with either answer: on a
+refuse they are your reasons, and the master has it reworked along them;
+refused without notes, the master waits for you in the terminal. These
+notes are the only text typed on the page: the board is not a second chat.
 
 A repo picker and a day picker read the history: a past day shows the
 tickets it touched and their decisions. Everything lives in one SQLite base,

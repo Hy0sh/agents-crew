@@ -37,6 +37,8 @@ type doneRequest struct {
 	Since  time.Time `json:"since"`
 	// Answer is accept or refuse on a parked document, "" for a plain done.
 	Answer string `json:"answer"`
+	// Note is what the user typed with that answer, "" for none.
+	Note string `json:"note"`
 }
 
 // maxDoc caps a parked document read for the page.
@@ -205,10 +207,10 @@ func markDone(b *DB, req doneRequest, at time.Time, notify func(repo, msg string
 	return b.Mark(req.Repo, req.ID, at)
 }
 
-// answerDoc is the user's accept or refuse on a parked document. The
-// master hears first, like a done. Accept is a go, closed and recorded;
-// refuse waits for the user in the terminal, open, until the master
-// closes it once they talked.
+// answerDoc is the user's accept or refuse on a parked document, with
+// their notes if they typed some. The master hears first, like a done.
+// Accept is a go, closed and recorded; refuse stays open until the master
+// closes it: without notes, it waits for the user in the terminal.
 func answerDoc(b *DB, req doneRequest, at time.Time, notify func(repo, msg string) error) error {
 	id, err := strconv.ParseInt(strings.TrimPrefix(req.ID, "parked:"), 10, 64)
 	if err != nil {
@@ -226,6 +228,7 @@ func answerDoc(b *DB, req doneRequest, at time.Time, notify func(repo, msg strin
 		what += ", " + p.Ticket
 	}
 	what += ", " + p.DocPath + ")"
+	note := strings.TrimSpace(req.Note)
 	var msg string
 	if req.Answer == "accept" {
 		next := "Queue the follow-up with the document's path in the brief."
@@ -235,6 +238,11 @@ func answerDoc(b *DB, req doneRequest, at time.Time, notify func(repo, msg strin
 			next = fmt.Sprintf("Queue the follow-up with --branch %s and the document's path in the brief.", p.Branch)
 		}
 		msg = fmt.Sprintf("From acw board, the user ACCEPTED %s: this is their go. %s", what, next)
+		if note != "" {
+			msg += " Their notes on it, for whoever does the follow-up (acw tell them if it is already queued):\n" + note
+		}
+	} else if note != "" {
+		msg = fmt.Sprintf("From acw board, the user REFUSED %s. Their reasons:\n%s\nHave it reworked along these, ask them in the terminal what is unclear, and close it with acw board resume %d once a new version is parked.", what, note, id)
 	} else {
 		msg = fmt.Sprintf("From acw board, the user REFUSED %s: send nothing, they will tell you why in the terminal; close it with acw board resume %d once you talked.", what, id)
 	}
@@ -248,8 +256,11 @@ func answerDoc(b *DB, req doneRequest, at time.Time, notify func(repo, msg strin
 	if _, err := b.CloseParked(id, "accepted", at); err != nil {
 		return err
 	}
-	return b.AddDecision(Decision{Repo: p.Repo, At: at, Worker: p.Worker, Subject: p.Ticket, Text: "accepted",
-		Why: fmt.Sprintf("the user accepted parked #%d on acw board: %s", id, firstLine(p.Text))})
+	why := fmt.Sprintf("the user accepted parked #%d on acw board: %s", id, firstLine(p.Text))
+	if note != "" {
+		why += "; notes: " + strings.Join(strings.Fields(note), " ")
+	}
+	return b.AddDecision(Decision{Repo: p.Repo, At: at, Worker: p.Worker, Subject: p.Ticket, Text: "accepted", Why: why})
 }
 
 func reply(w http.ResponseWriter, v any, err error) {

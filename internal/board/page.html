@@ -74,6 +74,9 @@ details li .t { font-family: var(--f-data); color: var(--muted); font-size: 12px
 @media (min-width: 1100px) { .grid2 { grid-template-columns: minmax(0, 5fr) minmax(0, 2fr); } }
 button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .no-btn { color: var(--bad); border-color: var(--bad); } .no-btn:hover { background: var(--bad-soft); }
+.read-btn { color: var(--panel); background: var(--accent); border-color: var(--accent); } .read-btn:hover { background: var(--fg); border-color: var(--fg); }
+#doc-note { font: 14px/1.4 var(--f-body); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; resize: vertical; cursor: auto; }
+.read-btn::before { content: "☰" / ""; margin-right: 5px; } .mark-btn::before { content: "✓" / ""; margin-right: 5px; }
 dialog { width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto; resize: both; border: 1px solid var(--line); border-radius: 10px; padding: 0; background: var(--panel); color: var(--fg); }
 dialog::backdrop { background: rgb(0 0 0 / .45); }
 .doc-head { position: sticky; top: 0; cursor: move; background: var(--panel); border-bottom: 1px solid var(--line); padding: 12px 16px; display: grid; gap: 6px; }
@@ -130,6 +133,7 @@ dialog::backdrop { background: rgb(0 0 0 / .45); }
     <div class="top"><span class="title" id="doc-title"></span><span class="who" id="doc-path"></span>
       <span style="margin-left:auto; display:flex; gap:8px"><button type="button" class="done-btn" id="doc-accept">Accept</button><button type="button" class="done-btn no-btn" id="doc-refuse">Refuse</button><button type="button" class="done-btn" id="doc-close" style="color:var(--muted);border-color:var(--line)">Close</button></span></div>
     <div class="meta" id="doc-question"></div>
+    <textarea id="doc-note" rows="3" aria-label="Notes for the master" placeholder="Notes for the master (optional): sent with Accept or Refuse"></textarea>
     <div class="flag" id="doc-flag"></div>
   </div>
   <div class="doc-body" id="doc-body"></div>
@@ -165,18 +169,20 @@ function freshness(v) {
   return ["bad", `Watcher silent for ${span(s)}: this page is stale, check acw status`];
 }
 
+// Refused with or without notes: the master follows up either way.
+const refusedFlag = "Refused: the master follows up in the terminal";
 function wait(w, withButton) {
   const r = toned(el("article", "row"), w.who === "nobody" || /stopped|plan|verdict/.test(w.text) ? "bad" : "warn"), top = el("div", "top");
   top.append(w.ticket ? el("span", "key", w.ticket) : el("span", "who", "no ticket"), w.url ? link(w.text, w.url, "title") : el("span", "title", w.text));
   if (w.who) top.append(el("span", "who", w.who));
   top.append(ago(w.since, 15 * 60));
   if (withButton && w.doc) {
-    const b = el("button", "done-btn", "Read");
+    const b = el("button", "done-btn read-btn", "Read");
     b.type = "button";
     b.addEventListener("click", () => openDoc(w));
     top.append(b);
   } else if (withButton && !w.hint) {
-    const b = el("button", "done-btn", "Done");
+    const b = el("button", "done-btn mark-btn", "Done");
     b.type = "button";
     b.addEventListener("click", () => markDone(w, b));
     top.append(b);
@@ -184,7 +190,7 @@ function wait(w, withButton) {
   r.append(top);
   if (w.detail && w.detail !== w.text) r.append(el("div", "meta", w.detail));
   if (withButton && w.hint) r.append(el("div", "flag", w.hint));
-  if (w.refused) r.append(el("div", "flag", "Refused: the master waits for you in the terminal"));
+  if (w.refused) r.append(el("div", "flag", refusedFlag));
   if (w.marked_at) r.append(el("div", "flag", (withButton ? "Still waiting, marked done at " : "Marked done at ") + hm(w.marked_at)));
   return r;
 }
@@ -201,16 +207,18 @@ async function markDone(w, b) {
   }
 }
 // A parked document, read from its file now: accept is the user's go,
-// refuse sends them to the terminal to say why. Nothing else is typed
-// here: the board is not a second chat.
+// refuse holds it. The notes typed go with either answer, and are the
+// only text typed on the board: refused without notes, the user says why
+// in the terminal.
 let docWait = null;
 async function openDoc(w) {
   docWait = w;
   $("doc-title").textContent = w.text;
   $("doc-question").textContent = w.detail;
   $("doc-path").textContent = "";
-  $("doc-flag").textContent = w.refused ? "Refused: the master waits for you in the terminal" : "";
-  $("doc-accept").hidden = $("doc-refuse").hidden = !!w.refused;
+  $("doc-flag").textContent = w.refused ? refusedFlag : "";
+  $("doc-accept").hidden = $("doc-refuse").hidden = $("doc-note").hidden = !!w.refused;
+  $("doc-note").value = "";
   $("doc-body").replaceChildren(el("div", "note", "Loading…"));
   $("doc").showModal();
   try {
@@ -230,7 +238,7 @@ async function answerDoc(answer) {
   try {
     const w = docWait;
     const res = await fetch("/api/done", { method: "POST", headers: { "Content-Type": "application/json", "X-Acw-Board": "1" },
-      body: JSON.stringify({ repo: state.repo, id: w.id, ticket: w.ticket, text: w.text, since: w.since, answer }) });
+      body: JSON.stringify({ repo: state.repo, id: w.id, ticket: w.ticket, text: w.text, since: w.since, answer, note: $("doc-note").value }) });
     if (!res.ok) throw new Error((await res.text()).trim());
     $("doc").close();
     load();
@@ -249,7 +257,7 @@ $("doc-close").addEventListener("click", () => $("doc").close());
 $("doc").addEventListener("pointerdown", e => {
   const d = $("doc"), r = d.getBoundingClientRect();
   if (!d.style.left) Object.assign(d.style, { margin: 0, inset: "auto", left: r.left + "px", top: r.top + "px" });
-  if (!e.target.closest(".doc-head") || e.target.closest("button")) return;
+  if (!e.target.closest(".doc-head") || e.target.closest("button, textarea")) return;
   e.preventDefault();
   const dx = e.clientX - r.left, dy = e.clientY - r.top;
   // Kept on screen, or the resize corner goes out of reach.

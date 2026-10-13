@@ -229,6 +229,33 @@ func TestAcceptRefuse(t *testing.T) {
 	}
 }
 
+// Notes typed with an answer reach the master: with a refuse, they are
+// the reasons, and the master no longer waits for the terminal.
+func TestAnswerNotes(t *testing.T) {
+	b := open(t)
+	var told []string
+	h := Handler(b, func() time.Time { return noon }, func(repo, msg string) error { told = append(told, msg); return nil })
+	answer := func(answer, note string) {
+		t.Helper()
+		id, _ := b.Park(Parked{Repo: "/r", Ticket: "SHOP-9", On: "me", Worker: "worker2", Text: "Approve the plan", Kind: "plan", DocPath: "/p.md", CreatedAt: noon})
+		body := fmt.Sprintf(`{"repo": "/r", "id": "parked:%d", "text": "Read worker2's plan", "answer": %q, "note": %q}`, id, answer, note)
+		if code := post(t, h, "127.0.0.1:1", doneHeaders, body).Code; code != http.StatusNoContent {
+			t.Fatalf("%s = %d", answer, code)
+		}
+	}
+	answer("refuse", "  step 3 drops the VAT rounding\n")
+	if len(told) != 1 || !strings.Contains(told[0], "REFUSED") || !strings.Contains(told[0], "step 3 drops the VAT rounding") || strings.Contains(told[0], "tell you why") {
+		t.Errorf("refused with notes, told = %q", told)
+	}
+	answer("accept", "keep the old endpoint\nuntil Friday")
+	if len(told) != 2 || !strings.Contains(told[1], "ACCEPTED") || !strings.Contains(told[1], "keep the old endpoint\nuntil Friday") {
+		t.Errorf("accepted with notes, told = %q", told)
+	}
+	if d, _ := b.Board("/r", noon, noon); len(d.Decisions) != 1 || !strings.Contains(d.Decisions[0].Why, "notes: keep the old endpoint until Friday") {
+		t.Errorf("decisions = %+v", d.Decisions)
+	}
+}
+
 // DNS rebinding: a page on another name pointing at 127.0.0.1 must not
 // read the board.
 func TestForeignHostRefused(t *testing.T) {
