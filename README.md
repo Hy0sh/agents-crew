@@ -109,7 +109,7 @@ the terminal too.
 | `acw queue [--repo <dir>] [add \| move \| remove ...]` | list or change the task queue | master, you |
 | `acw done [--repo <dir>] <worker> [task-id]` | end a worker's task | master, you |
 | `acw close [--repo <dir>] <worker>` | close a free worker now, as after `idle-close-minutes` | master, you |
-| `acw tell [--repo <dir>] <worker> [message...]` | leave a worker a message; `--command /x` types a slash command | master, you |
+| `acw tell [--repo <dir>] <worker> [message...]` | leave a worker a message; `--command /x` types a slash command; `--interrupt` stops its turn first (Escape) | master, you |
 | `acw clear [--repo <dir>] worker1 [worker2...]` | reset workers' context, confirmed | you |
 | `acw dispatch [--repo <dir>] worker1 <brief-file>` | hand a worker a task outside the queue | you |
 | `acw stack up` / `acw stack down` | take / give back your worktree's stack, under `max-stacks` | workers |

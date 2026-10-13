@@ -450,6 +450,7 @@ func main() {
 	})
 
 	var slash string
+	var interrupt bool
 	tell := withRepo(&cobra.Command{
 		Use:   "tell <worker> [message...]",
 		Short: "Leave a worker a message, read from stdin without one: it gets it at the end of its turn, or at once when idle",
@@ -459,11 +460,15 @@ func main() {
 			if len(args) > 1 {
 				return errors.New("--command takes no message: the command is all that is typed")
 			}
+			if interrupt {
+				return errors.New("--command waits for the worker to be idle: it does not go with --interrupt")
+			}
 			return commandWorker(repo, args[0], slash, cmd.OutOrStdout())
 		}
-		return tellByHand(repo, args[0], args[1:], cmd.InOrStdin(), cmd.OutOrStdout())
+		return tellByHand(repo, args[0], args[1:], interrupt, cmd.InOrStdin(), cmd.OutOrStdout())
 	})
 	tell.Flags().StringVar(&slash, "command", "", "type this slash command (e.g. /reload-plugins) into the worker's input once it is idle, instead of a message")
+	tell.Flags().BoolVar(&interrupt, "interrupt", false, "press Escape in the worker to stop its current turn, so it gets the message at once")
 
 	pause := &cobra.Command{
 		Use:   "pause",
