@@ -68,6 +68,9 @@ type MasterData struct {
 	QueueCommand string
 	// DoneCommand, followed by a worker's label, ends its task (acw done).
 	DoneCommand string
+	// CloseCommand, followed by a worker's label, closes a free worker now
+	// (acw close).
+	CloseCommand string
 	// TellCommand, followed by a worker's label, leaves it a message read
 	// from stdin (acw tell).
 	TellCommand string
@@ -112,6 +115,7 @@ type Params struct {
 	// written.
 	QueueCommand    string
 	DoneCommand     string
+	CloseCommand    string
 	TellCommand     string
 	DecisionCommand string
 	// ParkCommand, ParkedCommand, ResumeCommand, ReassignCommand: see
@@ -174,6 +178,7 @@ func newMasterData(p Params) MasterData {
 		StatusCommand:    p.StatusCommand,
 		QueueCommand:     p.QueueCommand,
 		DoneCommand:      p.DoneCommand,
+		CloseCommand:     p.CloseCommand,
 		TellCommand:      p.TellCommand,
 		DecisionCommand:  p.DecisionCommand,
 		ParkCommand:      p.ParkCommand,

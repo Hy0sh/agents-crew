@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -265,6 +266,36 @@ func closeWorker(repo string, w poolWorker, why string) {
 	})
 	record("close", func(b *board.DB) error { return b.DeleteWorker(repo, w.label()) })
 	tell(plan.Plan, w.label()+" closed: "+why+".")
+}
+
+// closeByHand is acw close: free worker index closed now, as an idle one
+// is, when the master or the user knows nothing more will come for it. A
+// busy worker is refused, its task ends with acw done; so is one whose
+// worktree holds changes, which the close would take along.
+func closeByHand(repo string, index int, label string, out io.Writer) error {
+	var w poolWorker
+	err := withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
+		pw := p.worker(index)
+		switch {
+		case pw == nil:
+			return false, fmt.Errorf("%s is not open", label)
+		case pw.State == workerBusy:
+			return false, fmt.Errorf("%s is busy with task #%d: end it first with acw done", label, pw.Task)
+		case pw.State != workerFree:
+			return false, fmt.Errorf("%s is %s, not free", label, pw.State)
+		case pw.Worktree != "" && !gitutil.Clean(pw.Worktree):
+			return false, fmt.Errorf("%s's worktree %s has changes: have them committed or dropped first", label, pw.Worktree)
+		}
+		pw.State = workerClosing
+		w = *pw
+		return true, nil
+	})
+	if err != nil {
+		return err
+	}
+	closeWorker(repo, w, "closed by hand with acw close")
+	fmt.Fprintf(out, "%s closed; a role's min opens a fresh one if it falls below.\n", label)
+	return nil
 }
 
 // leftBranch is what the close message says about the task branch a

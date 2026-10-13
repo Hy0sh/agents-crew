@@ -108,6 +108,7 @@ the terminal too.
 | `acw status [--repo <dir>]` | every worker at a glance | master, you |
 | `acw queue [--repo <dir>] [add \| move \| remove ...]` | list or change the task queue | master, you |
 | `acw done [--repo <dir>] <worker> [task-id]` | end a worker's task | master, you |
+| `acw close [--repo <dir>] <worker>` | close a free worker now, as after `idle-close-minutes` | master, you |
 | `acw tell [--repo <dir>] <worker> [message...]` | leave a worker a message; `--command /x` types a slash command | master, you |
 | `acw clear [--repo <dir>] worker1 [worker2...]` | reset workers' context, confirmed | you |
 | `acw dispatch [--repo <dir>] worker1 <brief-file>` | hand a worker a task outside the queue | you |
@@ -399,7 +400,11 @@ one acw just handed it.
 
 **Closing a worker.** A free worker with nothing queued for it is closed
 after `idle-close-minutes`, unless that would take the pool under
-`min-workers`: its pane and agent, its stack and worktree.
+`min-workers`: its pane and agent, its stack and worktree. `acw close
+<worker>` does the same at once, for the master or you, when nothing more
+will come for it; it refuses a busy worker (end its task with `acw done`)
+and one whose worktree holds changes. A role's `min` opens a fresh one if
+the close takes it below.
 
 - Its task branch stays, as with `acw stop`. When it holds commits no
   remote has, the close message names it and counts them.
@@ -902,6 +907,7 @@ and keep the variables you need:
 | `{{.StatusCommand}}` | `acw status --repo <repo>`, fully written: every worker at a glance |
 | `{{.QueueCommand}}` | `acw queue --repo <repo>`, fully written: lists the workers and the queue, and with `add`, `move` or `remove` changes it |
 | `{{.DoneCommand}}` | `acw done --repo <repo>`, fully written, to follow with a worker's label (`worker2`): ends its task |
+| `{{.CloseCommand}}` | `acw close --repo <repo>`, fully written, to follow with a worker's label: closes a free worker at once |
 | `{{.TellCommand}}` | `acw tell --repo <repo>`, fully written, to follow with a worker's label and the message on stdin: leaves it a message |
 | `{{.DecisionCommand}}` | `acw board decision --repo <repo>`, fully written, to follow with the decision on stdin: records it on the board |
 | `{{.ParkCommand}}` | `acw board park --repo <repo>`, fully written, to follow with `--ticket`, `--on` and the question on stdin: puts a decision off, prints its number |

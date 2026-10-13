@@ -451,6 +451,25 @@ func main() {
 	}
 	doneRepo = repoFlag(done)
 
+	var closeRepo func() (string, error)
+	closeCmd := &cobra.Command{
+		Use:   "close <worker>",
+		Short: "Close a free worker now, as after idle-close-minutes: its pane, agent, worktree and stack",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repo, err := closeRepo()
+			if err != nil {
+				return err
+			}
+			index, label, err := workerName(repo, args[0])
+			if err != nil {
+				return err
+			}
+			return closeByHand(repo, index, label, cmd.OutOrStdout())
+		},
+	}
+	closeRepo = repoFlag(closeCmd)
+
 	var tellRepo func() (string, error)
 	var slash string
 	tell := &cobra.Command{
@@ -561,7 +580,7 @@ func main() {
 		},
 	}
 
-	root.AddCommand(stop, status, queue, done, projectCommand(), boardCommand(), stackCommand(), tell, clearCmd, dispatch, pause, resume, restartWatch, watch, inboxWatch, inboxNext, turnEnd, statusLine)
+	root.AddCommand(stop, status, queue, done, closeCmd, projectCommand(), boardCommand(), stackCommand(), tell, clearCmd, dispatch, pause, resume, restartWatch, watch, inboxWatch, inboxNext, turnEnd, statusLine)
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)

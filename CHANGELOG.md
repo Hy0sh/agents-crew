@@ -13,6 +13,10 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   and the master has the document reworked instead of waiting for you in
   the terminal; accepted with notes, they go to whoever does the
   follow-up, and into the recorded decision.
+- `acw close <worker>`: closes a free worker at once, as after
+  `idle-close-minutes`, for the master or the user when nothing more will
+  come for it. A busy worker, or one whose worktree holds changes, is
+  refused.
 
 ### Changed
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -9,6 +10,32 @@ import (
 
 	"github.com/Hy0sh/agents-crew/internal/names"
 )
+
+// acw close refuses a busy worker and closes a free one at once, the
+// master told.
+func TestCloseByHand(t *testing.T) {
+	repo := testSwarm(t, 2, poolWorker{Index: 1, State: workerBusy, Task: 7}, poolWorker{Index: 2, State: workerFree})
+	p, _, _ := readPool(repo)
+	p.Plan.Repo, p.Plan.Inbox = repo, names.Inbox(repo)
+	if err := writeJSON(names.PoolFile(repo), p); err != nil {
+		t.Fatal(err)
+	}
+	if err := closeByHand(repo, 1, "worker1", io.Discard); err == nil || !strings.Contains(err.Error(), "busy with task #7") {
+		t.Errorf("busy: err = %v, want it refused", err)
+	}
+	if err := closeByHand(repo, 2, "worker2", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if p, _, _ = readPool(repo); p.worker(2) != nil || p.worker(1) == nil {
+		t.Errorf("pool = %+v, want worker2 gone, worker1 kept", p.Workers)
+	}
+	if inbox, _ := os.ReadFile(names.Inbox(repo)); !strings.Contains(string(inbox), "worker2 closed: closed by hand with acw close") {
+		t.Errorf("inbox = %q", inbox)
+	}
+	if err := closeByHand(repo, 2, "worker2", io.Discard); err == nil {
+		t.Error("closing a worker not open went through")
+	}
+}
 
 // acw stack up waits while max-stacks is reached, then takes the place
 // given back and starts the stack; acw stack down stops it and frees the

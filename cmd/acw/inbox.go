@@ -97,6 +97,7 @@ func masterArgs(kind, model, exe, inboxWatch, briefPath string, autocompact int)
 		"Bash("+shellWord(exe)+" status:*)",
 		"Bash("+shellWord(exe)+" queue:*)",
 		"Bash("+shellWord(exe)+" done:*)",
+		"Bash("+shellWord(exe)+" close:*)",
 		"Bash("+shellWord(exe)+" tell:*)",
 		"Bash("+shellWord(exe)+" board decision:*)",
 		"Bash("+shellWord(exe)+" board park:*)",

@@ -107,6 +107,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		StatusCommand:    shellWord(self) + " status --repo " + shellWord(repo),
 		QueueCommand:     shellWord(self) + " queue --repo " + shellWord(repo),
 		DoneCommand:      shellWord(self) + " done --repo " + shellWord(repo),
+		CloseCommand:     shellWord(self) + " close --repo " + shellWord(repo),
 		TellCommand:      shellWord(self) + " tell --repo " + shellWord(repo),
 		DecisionCommand:  shellWord(self) + " board decision --repo " + shellWord(repo),
 		ParkCommand:      shellWord(self) + " board park --repo " + shellWord(repo),
