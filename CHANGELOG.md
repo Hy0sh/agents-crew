@@ -6,6 +6,19 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `acw board`: a parked document's dialog has a notes field, sent to the
+  master with Accept or Refuse. Refused with notes, they are the reasons
+  and the master has the document reworked instead of waiting for you in
+  the terminal; accepted with notes, they go to whoever does the
+  follow-up, and into the recorded decision.
+
+### Changed
+
+- `acw board`: the Read button is filled and marked ☰, Done marked ✓, so
+  the two no longer look alike.
+
 ## [0.26.0] - 2026-10-12
 
 ### Added
