@@ -78,7 +78,8 @@ type DB struct{ sql *sql.DB }
 // and a busy timeout let several watchers, the master and the page use
 // it at once.
 func Open(path string) (*DB, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	// Decisions, briefs and plans: the user's only.
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
@@ -99,7 +100,13 @@ func Open(path string) (*DB, error) {
 // migrate runs the migrations a base lacks. The watchers and the page may
 // open the base at the same moment: BEGIN IMMEDIATE takes the write lock
 // before reading the version, so the second one waits, then finds it done.
+// A base already current is told by a plain read: every write the watcher
+// makes opens the base, and took the write lock for nothing.
 func migrate(db *sql.DB) error {
+	var current int
+	if db.QueryRow(`SELECT version FROM meta`).Scan(&current) == nil && current > len(migrations) {
+		return nil
+	}
 	ctx := context.Background()
 	conn, err := db.Conn(ctx)
 	if err != nil {

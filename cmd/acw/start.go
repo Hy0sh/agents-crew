@@ -121,7 +121,8 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		return err
 	}
 
-	if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
+	// Briefs, system prompts and the master's inbox: the user's only.
+	if err := os.MkdirAll(names.StatusDir(repo), 0o700); err != nil {
 		return err
 	}
 	stackCmd := ""
@@ -301,7 +302,9 @@ func launchDetached(logName, use string, args ...string) error {
 	if err != nil {
 		return err
 	}
-	logFile, err := os.OpenFile(filepath.Join(os.TempDir(), logName), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	// Its name is predictable: a symlink planted in a shared temp dir must
+	// not be followed, and its briefs are nobody else's to read.
+	logFile, err := os.OpenFile(filepath.Join(os.TempDir(), logName), os.O_CREATE|os.O_WRONLY|os.O_APPEND|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return err
 	}
