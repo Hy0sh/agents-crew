@@ -54,20 +54,11 @@ func runTo(dir string, out io.Writer, args ...string) error {
 	return nil
 }
 
-// Adopt gives the worktree at dir a Docker stack, restoring the
-// pre-migrated database dump. dir must already be on the branch to adopt.
-// profile names one of the project's wtm profiles; empty starts the whole
-// stack.
-func Adopt(dir, profile string) error {
-	return run(dir, adoptArgs(profile)...)
-}
-
-func adoptArgs(profile string) []string {
-	args := []string{"adopt", "-y"}
-	if profile != "" {
-		args = append(args, "--profile", profile)
-	}
-	return args
+// Adopt gives the worktree at dir its index, ports and env files, with
+// no stack running: Start brings one up when a worker needs it. dir must
+// already be on the branch to adopt.
+func Adopt(dir string) error {
+	return run(dir, "adopt", "-y", "--no-start")
 }
 
 // Start starts the stack of a worktree whose stack was stopped, on
@@ -190,30 +181,20 @@ func SwitchAvailable() bool {
 	return exec.Command("wtm", "switch", "--help").Run() == nil
 }
 
-// Switch moves the worktree at dir to branch, keeping its ports: on a
-// fresh stack for another branch, the same stack restarted for the one
-// it is on. from is where a branch that doesn't exist yet is cut from,
-// "" for an existing one. wtm never asks anything without a terminal, and
-// a failure is resumed by running the same command again.
-func Switch(dir, branch, from, profile string, out io.Writer) error {
-	return runTo(dir, out, switchArgs(branch, from, profile)...)
+// Switch moves the worktree at dir to branch, keeping its ports, and
+// drops the old branch's stack without starting one there (--no-start,
+// there since switch itself): a worker starts it with Start when it needs
+// it. from is where a branch that doesn't exist yet is cut from, "" for
+// an existing one. wtm never asks anything without a terminal, and a
+// failure is resumed by running the same command again.
+func Switch(dir, branch, from string, out io.Writer) error {
+	return runTo(dir, out, switchArgs(branch, from)...)
 }
 
-// SwitchNoStart moves the worktree at dir to an existing branch and drops
-// its stack without starting one there (wtm switch --no-start, there
-// since switch itself): a worker waiting for its next task needs none,
-// and that task's own switch starts a fresh one.
-func SwitchNoStart(dir, branch string, out io.Writer) error {
-	return runTo(dir, out, append(switchArgs(branch, "", ""), "--no-start")...)
-}
-
-func switchArgs(branch, from, profile string) []string {
+func switchArgs(branch, from string) []string {
 	args := []string{"switch", branch}
 	if from != "" {
 		args = append(args, "--from", from)
 	}
-	if profile != "" {
-		args = append(args, "--profile", profile)
-	}
-	return args
+	return append(args, "--no-start")
 }

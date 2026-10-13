@@ -352,31 +352,31 @@ func TestRenderQueue(t *testing.T) {
 	}
 }
 
-// The master hears once that max-stacks keeps the floor short, again only
-// after it was met in between.
-func TestRunPoolTellsAShortFloorOnce(t *testing.T) {
-	repo := testSwarm(t, 3)
-	p := withMin(testPool(3, 2), "worker", 3)
+// The master hears once of a stack held past longStack, again for the
+// next one the same worker takes.
+func TestTellLongStacksOnce(t *testing.T) {
+	repo := testSwarm(t, 1)
+	took := t0
+	p := testPool(1, 2, poolWorker{Index: 1, State: workerBusy, Stacked: true, StackSince: &took})
 	p.Plan.Repo, p.Plan.Inbox = repo, names.Inbox(repo)
-	p.Held = 2
 	mem := newPoolMemory()
-	poll := func() {
-		runPool(repo, p, taskQueue{}, nil, t0, mem)
-	}
 	count := func() int {
 		inbox, _ := os.ReadFile(p.Plan.Inbox)
-		return strings.Count(string(inbox), "max-stacks (2) is reached, 2 of them")
+		return strings.Count(string(inbox), "worker1 has held a stack for")
 	}
-	poll()
-	poll()
+	tellLongStacks(p, t0.Add(10*time.Minute), mem)
+	if n := count(); n != 0 {
+		t.Fatalf("told %d times after 10 min, want none", n)
+	}
+	tellLongStacks(p, t0.Add(31*time.Minute), mem)
+	tellLongStacks(p, t0.Add(40*time.Minute), mem)
 	if n := count(); n != 1 {
 		t.Fatalf("told %d times, want once", n)
 	}
-	p = withMin(p, "worker", 0)
-	poll()
-	p = withMin(p, "worker", 3)
-	poll()
+	again := t0.Add(time.Hour)
+	p.Workers[0].StackSince = &again
+	tellLongStacks(p, again.Add(31*time.Minute), mem)
 	if n := count(); n != 2 {
-		t.Errorf("told %d times, want twice: the floor was met in between", n)
+		t.Errorf("told %d times, want twice: a new stack was taken", n)
 	}
 }

@@ -342,18 +342,14 @@ func BuildFromSource(source string, p Params) (string, error) {
 	return strings.TrimRight(b.String(), "\n"), nil
 }
 
-// envCapRule says how many environments may be up, which acw enforces:
-// it opens a worker in the code only while one is left.
+// envCapRule says how many environments may run, which acw enforces on
+// the workers' acw stack up, never on their opening.
 func envCapRule(n int, stacks bool, maxStacks int) string {
 	if !stacks || n == 0 {
 		return "no worker gets an isolated environment (stack) from acw here: a task that needs one is set up by the worker through the project's own tooling"
 	}
-	if maxStacks < n {
-		return fmt.Sprintf("the machine supports %d isolated environments (stacks) at the same time, for up to %d workers in the code: acw opens a worker in the code "+
-			"only while an environment is left, so a task may wait in the queue for one even under the worker count. Nothing for you to arbitrate: "+
-			"order the queue, and tell me if a task waits too long", maxStacks, n)
-	}
-	return fmt.Sprintf("every worker in the code gets its own isolated environment (stack) when acw opens it, up to %d at the same time: nothing to arbitrate", maxStacks)
+	return fmt.Sprintf("every worker in the code has its own isolated environment (stack) prepared, but none runs by default: a worker starts its own with `acw stack up` for the minutes it needs it (running the app, a test against the database, a check in a browser) and stops it with `acw stack down`, and acw stops it anyway when you end its task. "+
+		"At most %d run at the same time: a worker opens and takes its task without waiting for one, and only its `acw stack up` waits for a place: nothing to arbitrate; acw tells you of a stack held for more than 30 min, and `acw status` shows who holds one", maxStacks)
 }
 
 // stackProfileRule states the intent, not the command: the brief never

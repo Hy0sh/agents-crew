@@ -89,7 +89,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	stacks := coders > 0 && wtm.Available() && wtm.Registered(repo)
 	var switchCommand string
 	if stacks && wtm.SwitchAvailable() {
-		switchCommand = switchCommandFor(opts.profile)
+		switchCommand = workerSwitch
 	}
 	masterBrief, err := buildBrief(briefSource(customBrief, extra), brief.Params{
 		RepoPath:         repo,
@@ -123,7 +123,11 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
 		return err
 	}
-	if err := writeSystemPrompts(names.StatusDir(repo), notes, workers); err != nil {
+	stackCmd := ""
+	if stacks {
+		stackCmd = shellWord(self) + " stack"
+	}
+	if err := writeSystemPrompts(names.StatusDir(repo), notes, stackCmd, workers); err != nil {
 		return err
 	}
 	stamp := time.Now().Format("20060102150405")
@@ -206,16 +210,10 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	return syscall.Exec(mustLookPath("herdr"), []string{"herdr"}, os.Environ())
 }
 
-// switchCommandFor is the wtm switch the brief hands the workers: with
-// the swarm's profile, which wtm does not remember, or a worker's first
-// switch would bring its stack back up whole. The workers' permission,
-// Bash(wtm switch:*), covers it.
-func switchCommandFor(profile string) string {
-	if profile == "" {
-		return "wtm switch"
-	}
-	return "wtm switch --profile " + shellWord(profile)
-}
+// workerSwitch is the wtm switch the brief hands the workers: it starts
+// no stack, a worker takes one with acw stack up when it needs it. The
+// workers' permission, Bash(wtm switch:*), covers it.
+const workerSwitch = "wtm switch --no-start"
 
 // readCustomBrief returns the custom template's source, "" when path is.
 func readCustomBrief(path string) (string, error) {

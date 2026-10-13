@@ -29,16 +29,6 @@ func TestBriefExtraIsAppendedAndTemplated(t *testing.T) {
 	}
 }
 
-// wtm does not remember the profile a stack was adopted on.
-func TestSwitchCommandCarriesTheProfile(t *testing.T) {
-	if got := switchCommandFor(""); got != "wtm switch" {
-		t.Errorf("switchCommandFor(\"\") = %q", got)
-	}
-	if got := switchCommandFor("light"); got != "wtm switch --profile light" {
-		t.Errorf("switchCommandFor(light) = %q, want the profile passed on", got)
-	}
-}
-
 func TestReadNotesRelativePathIsReadFromTheRepo(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, "rules.md"), []byte("- rule"), 0o644); err != nil {
@@ -67,7 +57,7 @@ func TestWriteSystemPrompts(t *testing.T) {
 		{Kind: "claude", Role: "worker", Rank: 2, Prompt: "You verify.", PromptPath: "/cfg/verifier.md"},
 		{Kind: "codex", Role: "worker", Rank: 3, Prompt: "You verify.", PromptPath: "/cfg/verifier.md"},
 	}
-	if err := writeSystemPrompts(dir, "- rule one\n", workers); err != nil {
+	if err := writeSystemPrompts(dir, "- rule one\n", "", workers); err != nil {
 		t.Fatal(err)
 	}
 	for i, want := range []string{"- rule one", "- rule one\n\nYou verify."} {
@@ -89,12 +79,31 @@ func TestWriteSystemPrompts(t *testing.T) {
 	}
 }
 
+// A worker in the code learns how to take its stack; one outside the code
+// has none to take.
+func TestWriteSystemPromptsCarryTheStackRule(t *testing.T) {
+	dir := t.TempDir()
+	workers := []workerSpec{{Kind: "claude", Role: "worker", Rank: 1}, {Kind: "claude", Role: "analyst", Rank: 1, Dir: "/studio"}}
+	if err := writeSystemPrompts(dir, "", "/bin/acw stack", workers); err != nil {
+		t.Fatal(err)
+	}
+	coder, _ := os.ReadFile(workers[0].PromptPath)
+	for _, want := range []string{"`/bin/acw stack up`", "`/bin/acw stack down`"} {
+		if !strings.Contains(string(coder), want) {
+			t.Errorf("worker1 system prompt missing %q", want)
+		}
+	}
+	if outside, _ := os.ReadFile(workers[1].PromptPath); strings.Contains(string(outside), "acw stack") {
+		t.Error("a worker outside the code was told about acw stack")
+	}
+}
+
 // With no notes and no prompt, a claude worker still gets its role: the
 // reset before each task would wipe it from a brief.
 func TestWriteSystemPromptsAlwaysCarryTheRole(t *testing.T) {
 	dir := t.TempDir()
 	workers := []workerSpec{{Kind: "claude", Role: "worker", Rank: 1}, {Kind: "claude", Role: "worker", Rank: 2}}
-	if err := writeSystemPrompts(dir, "  \n", workers); err != nil {
+	if err := writeSystemPrompts(dir, "  \n", "", workers); err != nil {
 		t.Fatal(err)
 	}
 	content, err := os.ReadFile(workers[1].PromptPath)

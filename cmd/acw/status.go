@@ -96,6 +96,28 @@ func renderStatus(now time.Time, rows []statusRow, unread int, lastAt time.Time,
 	return b.String()
 }
 
+// stacksLine is how many stacks run against max-stacks, and who holds
+// them: "" for a swarm with no stack.
+func stacksLine(now time.Time, p poolState) string {
+	if !p.Plan.Stacks {
+		return ""
+	}
+	var holders []string
+	for _, w := range p.Workers {
+		if w.StackSince != nil {
+			holders = append(holders, fmt.Sprintf("%s (%d min)", w.label(), int(now.Sub(*w.StackSince).Minutes())))
+		}
+	}
+	if p.Held > 0 {
+		holders = append(holders, fmt.Sprintf("%d left by worktrees no open worker holds", p.Held))
+	}
+	line := fmt.Sprintf("stacks: %d of %d running", p.runningStacks(), p.Plan.MaxStacks)
+	if len(holders) > 0 {
+		line += ": " + strings.Join(holders, ", ")
+	}
+	return line + "\n"
+}
+
 func age(now, t time.Time) string {
 	if t.IsZero() {
 		return "-"

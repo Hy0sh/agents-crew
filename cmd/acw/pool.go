@@ -48,11 +48,16 @@ type poolWorker struct {
 	// Worktree is "" for a worker outside the code. Its name carries the
 	// stamp of the opening, not the run's: a worker closed then opened
 	// again must not collide with the branch its first opening left.
-	Worktree string    `json:"worktree,omitempty"`
-	Stacked  bool      `json:"stacked,omitempty"`
-	State    string    `json:"state"`
-	Task     int       `json:"task,omitempty"`
-	Since    time.Time `json:"since"`
+	Worktree string `json:"worktree,omitempty"`
+	// Stacked is set when wtm prepared its worktree an environment; none
+	// runs until it takes one with acw stack up (see StackSince).
+	Stacked bool `json:"stacked,omitempty"`
+	// StackSince is when it took its stack with acw stack up, nil while it
+	// holds none: max-stacks counts these, not the open workers.
+	StackSince *time.Time `json:"stack_since,omitempty"`
+	State      string     `json:"state"`
+	Task       int        `json:"task,omitempty"`
+	Since      time.Time  `json:"since"`
 	// Used is set once it got a task: a kind acw cannot reset between
 	// tasks closes as soon as it is free again, not right after opening.
 	Used bool `json:"used,omitempty"`
@@ -95,6 +100,18 @@ type poolState struct {
 	// with their worktree because wtm could not remove them (see
 	// teardown.Worktree). Read from the disk at every poll, never saved.
 	Held int `json:"-"`
+}
+
+// runningStacks is what max-stacks caps: the stacks the workers took with
+// acw stack up, and those Held.
+func (p poolState) runningStacks() int {
+	n := p.Held
+	for _, w := range p.Workers {
+		if w.StackSince != nil {
+			n++
+		}
+	}
+	return n
 }
 
 // heldStacks counts the worker worktrees of repo that acw got a stack and
@@ -606,9 +623,9 @@ func afterMergeOf(q *taskQueue, id int, url string, msg *string) {
 // message told twice or a park tried again.
 type poolMemory struct {
 	// dirtyTold keeps the master from hearing about the same dirty
-	// worktree every poll, stacksTold about the same short floor.
-	dirtyTold  map[int]bool
-	stacksTold bool
+	// worktree every poll, longTold about the same stack held long.
+	dirtyTold map[int]bool
+	longTold  map[int]time.Time
 	// parking is the branch each worker is being moved off (see runPool),
 	// parkFailed the one it failed to be moved off: an entry for another
 	// branch than the worker's current one is stale. parkFree writes them
@@ -619,10 +636,12 @@ type poolMemory struct {
 	// just given (see runPool): its stack stays indexed there until its
 	// switch is over, and a task on that branch would fail on it.
 	leaving map[int]string
+	// releasing is each free worker whose stack is being stopped.
+	releasing map[int]bool
 }
 
 func newPoolMemory() *poolMemory {
-	return &poolMemory{dirtyTold: map[int]bool{}, parking: map[int]string{}, parkFailed: map[int]string{}, leaving: map[int]string{}}
+	return &poolMemory{dirtyTold: map[int]bool{}, longTold: map[int]time.Time{}, parking: map[int]string{}, parkFailed: map[int]string{}, leaving: map[int]string{}, releasing: map[int]bool{}}
 }
 
 // pollWorkers reads what schedule needs about each free worker: whether
@@ -695,11 +714,7 @@ func pollWorkers(p poolState, agents []herdr.Agent, statusDir string, now time.T
 // stack). mem is what it remembers between polls (see poolMemory).
 func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, now time.Time, mem *poolMemory) {
 	actions := schedule(p, q, polls, now)
-	full := slices.ContainsFunc(actions, func(a poolAction) bool { return a.Kind == actStacksFull })
-	if full && !mem.stacksTold {
-		tell(p.Plan, stacksFullMessage(p))
-	}
-	mem.stacksTold = full
+	tellLongStacks(p, now, mem)
 	for index := range mem.dirtyTold {
 		if w := p.worker(index); w == nil || w.State != workerFree {
 			delete(mem.dirtyTold, index)
@@ -714,7 +729,7 @@ func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, no
 	}
 	var assigns []assignment
 	var opens []int
-	var closes, parks []poolWorker
+	var closes, parks, releases []poolWorker
 	err := withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
 		changed := false
 		for _, a := range actions {
@@ -752,7 +767,13 @@ func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, no
 					tell(p.Plan, fmt.Sprintf("%s has been free for a while but its worktree has changes: acw keeps it open. Have them committed or dropped; it closes once its worktree is clean.", w.label()))
 				}
 				continue
-			case actStacksFull:
+			case actRelease:
+				mem.mu.Lock()
+				if w != nil && w.State == workerFree && !mem.releasing[w.Index] {
+					mem.releasing[w.Index] = true
+					releases = append(releases, *w)
+				}
+				mem.mu.Unlock()
 				continue
 			case actPark:
 				if w != nil && w.State == workerFree {
@@ -794,6 +815,18 @@ func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, no
 		mem.mu.Unlock()
 		background(func() { mem.parkFree(p, w, from) })
 	}
+	for _, w := range releases {
+		background(func() {
+			if err := stackDown(repo, w, os.Stderr); err != nil {
+				// Kept, the worker would never get a task again.
+				dropStack(repo, w.Index)
+				tell(p.Plan, fmt.Sprintf("%s is free but its stack could not be stopped, it may still run outside max-stacks (wtm list shows it): %v", w.label(), err))
+			}
+			mem.mu.Lock()
+			delete(mem.releasing, w.Index)
+			mem.mu.Unlock()
+		})
+	}
 	for _, w := range closes {
 		why := fmt.Sprintf("free for %d min with nothing queued for it", p.IdleCloseMinutes)
 		if p.Plan.Workers[w.Index-1].Kind != "claude" {
@@ -821,13 +854,28 @@ func (mem *poolMemory) parkFree(p poolState, w poolWorker, from string) {
 	}
 }
 
-// stacksFullMessage tells the master why fewer than min-workers are open.
-func stacksFullMessage(p poolState) string {
-	msg := fmt.Sprintf("acw keeps fewer workers open than the roles' min: max-stacks (%d) is reached", p.Plan.MaxStacks)
-	if p.Held == 0 {
-		return msg + ". Tell me: max-stacks is below the sum of the roles' min."
+// longStack is how long a worker holds a stack before the master hears of
+// it: a test or a check takes minutes, a forgotten acw stack down keeps
+// the place from the others until the task ends.
+const longStack = 30 * time.Minute
+
+// tellLongStacks tells the master once of each stack held past
+// longStack. acw takes none back: stopped under a running test, it would
+// fail for no reason the worker can see.
+func tellLongStacks(p poolState, now time.Time, mem *poolMemory) {
+	for _, w := range p.Workers {
+		since := w.StackSince
+		if since == nil {
+			delete(mem.longTold, w.Index)
+			continue
+		}
+		if now.Sub(*since) < longStack || mem.longTold[w.Index].Equal(*since) {
+			continue
+		}
+		mem.longTold[w.Index] = *since
+		tell(p.Plan, fmt.Sprintf("%s has held a stack for %d min (max-stacks %d, %d running): if it no longer needs it, tell it to run acw stack down.",
+			w.label(), int(now.Sub(*since).Minutes()), p.Plan.MaxStacks, p.runningStacks()))
 	}
-	return msg + fmt.Sprintf(", %d of them by worktrees no open worker holds (left by an earlier run). Tell me: `wtm list` in %s shows them, and `wtm remove <branch>` frees the ones no longer needed.", p.Held, p.Plan.Repo)
 }
 
 // inflight counts what the pool runs in the background: the watcher

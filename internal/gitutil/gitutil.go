@@ -164,6 +164,11 @@ func GitDir(dir string) (string, error) {
 	return run(dir, "rev-parse", "--absolute-git-dir")
 }
 
+// TopLevel is the root of the worktree dir is in.
+func TopLevel(dir string) (string, error) {
+	return run(dir, "rev-parse", "--show-toplevel")
+}
+
 // CurrentBranch returns the branch checked out in dir.
 func CurrentBranch(dir string) (string, error) {
 	return run(dir, "rev-parse", "--abbrev-ref", "HEAD")

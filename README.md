@@ -85,7 +85,7 @@ only way to stop a swarm.
 | `-n, --workers` | `3` | most worker agents open at once; acw opens them as tasks are queued |
 | `--min-workers` | `0` | workers kept open with nothing queued; equal to `--workers`, the swarm is fixed |
 | `--idle-close-minutes` | `10` | how long a free worker above `--min-workers` stays open with nothing queued for it |
-| `--max-stacks` | same as `--workers` | concurrent isolated environments the machine can hold; when lower, acw opens a worker in the code only while one is left |
+| `--max-stacks` | same as `--workers` | stacks running at the same time, which the workers take with `acw stack up` for the minutes they need one; it caps no worker |
 | `--master-kind` | `claude` | Herdr agent kind for the master (`claude`, `codex`, `gemini`, `cursor`...) |
 | `--worker-kind` | `claude` | Herdr agent kind for the workers |
 | `--master-model` | `opus` | model for the master; **empty means no `--model` is passed** to its CLI, for a kind that has no such flag |
@@ -111,6 +111,7 @@ the terminal too.
 | `acw tell [--repo <dir>] <worker> [message...]` | leave a worker a message; `--command /x` types a slash command | master, you |
 | `acw clear [--repo <dir>] worker1 [worker2...]` | reset workers' context, confirmed | you |
 | `acw dispatch [--repo <dir>] worker1 <brief-file>` | hand a worker a task outside the queue | you |
+| `acw stack up` / `acw stack down` | take / give back your worktree's stack, under `max-stacks` | workers |
 | `acw pause` / `acw resume` | stop / restart the workers' stacks | you |
 | `acw watch [--repo <dir>]` | start the swarm's watcher again when it is not running, without touching the swarm | you |
 | `acw project create\|edit [dir]` | write the repo's config entry | you |
@@ -236,11 +237,13 @@ its prompt. A blank or unreadable brief is refused before anything is sent.
 With `--branch <b>` (a fix, a rebase on a known branch) it first runs
 `git fetch` and puts the worker on that branch:
 
-- **worker with a wtm stack**: through `wtm switch`, which moves the stack
-  along on the same ports. Refused when wtm has no `switch` (before
-  0.26.0): a plain `git switch` would leave the stack behind. The stack
-  only gets a fresh dump when the branch changes; put back on the branch it
-  is already on (a fix after a KO), it restarts with its data as it was.
+- **worker with a wtm stack**: through `wtm switch --no-start`, which
+  moves its environment along on the same ports and drops the old
+  branch's stack, database included, without starting one: the worker
+  takes it with `acw stack up` when it needs it. Refused when wtm has no
+  `switch` (before 0.26.0): a plain `git switch` would leave the stack
+  behind. Put back on the branch it is already on (a fix after a KO),
+  nothing moves, and its database is as it was.
 - **worker without a stack**: plain `git switch`.
 - A branch a busy worker holds is refused; one a free worker holds is
   taken back first (see [Pool and queue](#pool-and-queue)). Nothing is
@@ -254,14 +257,44 @@ With `--branch <b>` (a fix, a rebase on a known branch) it first runs
   task at once used to fail on `cannot lock ref`.
 
 Without `--branch` the worker names its branch itself; the brief tells
-workers with a stack to create it with `wtm switch`.
+workers with a stack to create it with `wtm switch --no-start`.
+
+### `acw stack up` and `acw stack down`
+
+A worker in the code has its environment prepared (its index, ports and
+env files, by `wtm adopt --no-start`), but no stack runs there by default:
+an agent codes most of the time, and needs one only for the minutes it
+tests a change or checks a journey. `max-stacks` caps the stacks running,
+never the workers: a task gets a worker at once, and only a test waits for
+a stack.
+
+- `acw stack up`, run by the worker from its worktree, takes a place as
+  soon as one is free under `max-stacks`, then starts its stack (`wtm
+  start`, on the swarm's or its role's profile). With none free, it waits
+  up to 9 min, then gives the hand back saying so: the worker runs it
+  again, and works on what needs no stack meanwhile. A start that fails
+  gives the place back.
+- `acw stack down` stops it (`wtm stop`) and gives the place back. Its
+  database survives a down then an up.
+- acw gives it back itself once the worker is free (`acw done`), before
+  handing it anything else; one kept busy by `acw tell` keeps it.
+- A stack held for more than 30 min is told to the master, once; acw never
+  stops it under a running test.
+- `acw status` ends with `stacks: 2 of 5 running: worker1 (4 min), …`.
+- A stack still kept with an earlier run's worktree counts until `wtm
+  list` shows that worktree without one.
+- The worker's system prompt tells it all this, and its agent may run `acw
+  stack` with no prompt. A stack started behind acw's back (`wtm start`,
+  `wtm switch` without `--no-start`) is not counted.
+- `wtm adopt --no-start` and `wtm switch --no-start` skip the project's
+  `post_create`, and `wtm start` does not play it either.
 
 ### `acw pause` and `acw resume`
 
 `acw pause` stops the workers' stacks (`wtm stop`) for a break, `acw
-resume` starts them again (`wtm start`) on the profile the swarm was
-launched with, except a worker's on its waiting branch: it has no task to
-need one. Worktrees, agents and the workspace stay as they are, and
+resume` starts again (`wtm start`), on the profile the swarm was launched
+with, the ones the workers held at the pause: the others take theirs with
+`acw stack up`. Worktrees, agents and the workspace stay as they are, and
 the master hears of both in its inbox. Without a terminal wtm asks nothing
 and starts even when memory is tight; its warning is shown as is.
 
@@ -315,7 +348,7 @@ free worker whose agent is idle, with the same steps as `acw dispatch`
   on) in the background, through `wtm switch --no-start` for a worker with
   a stack, its output in the watcher's log: the stack of the task goes
   down, and none comes up on the waiting branch, where nobody works. The
-  next task's switch starts a fresh one. The branch of the task it ended is then
+  branch of the task it ended is then
   free for the next task on it: the review, then the fix of what the
   review found, each going to whichever worker is free, with what it needs
   in its brief. A task given `--branch` that a free worker is still on
@@ -344,15 +377,12 @@ free worker whose agent is idle, with the same steps as `acw dispatch`
   between the plan and the code instead of fixing it on the fly.
 
 **Opening a worker.** A task no free worker can take opens the lowest
-worker not open, up to `workers`. For a worker in the code, when the repo
-has wtm stacks, also up to `max-stacks`; a stack still kept with an earlier
-run's worktree counts until `wtm list` shows that worktree without one.
-When `max-stacks` keeps the pool under `min-workers`, the master is told
-once.
+worker not open, up to `workers`. `max-stacks` does not count here: it
+caps the stacks running (see [`acw stack up`](#acw-stack-up-and-acw-stack-down)).
 
 - Opening is: the worktree (named after the moment it opens, so a reopened
   worker never collides with the branch its first opening left), its pane,
-  its agent, then `wtm adopt`. `wtm doctor`'s port clash sections, if any,
+  its agent, then `wtm adopt --no-start`. `wtm doctor`'s port clash sections, if any,
   go into the "opened" message.
 - A failed opening is undone and the master told.
 - Workers opened together come up one at a time up to their pane, and one
@@ -718,7 +748,7 @@ role's name is its workers' name everywhere: `reviewer1`, `reviewer2`.
   first review doesn't wait for a worktree and a stack. Above `min`, a
   free worker closes after `idle-close-minutes`. A task with no kind opens
   the first role in config order that takes it and has room. `max-stacks`
-  still caps the environments of all roles together.
+  caps the stacks running across all roles together.
 - **`prompt`** has the same path rules as `notes`. It has to survive the
   context reset before every task, so it is not sent as a message: a
   `claude` worker gets it as a system prompt; any other kind has no system
@@ -861,7 +891,7 @@ and keep the variables you need:
 | `{{.IdleCloseMinutes}}` | how long a free worker above `min-workers` stays open with nothing queued for it (`idle-close-minutes`) |
 | `{{.WorkerAgent}}` | the workers' Herdr kind (`claude`, `codex`...) when they all share one; otherwise `mixed: ` followed by each worker's kind |
 | `{{.WorkerNames}}` | the workers' Herdr names, comma-separated (`worker1-<slug>, reviewer1-<slug>`) |
-| `{{.EnvCapRule}}` | the stack capacity rule: how many environments may be up, which acw enforces when it opens a worker in the code |
+| `{{.EnvCapRule}}` | the stack capacity rule: how many stacks may run, which acw enforces on the workers' `acw stack up` |
 | `{{.StackProfileRule}}` | the wtm profile rule, empty when no `profile` is configured |
 | `{{.RepoRules}}` | the `notes` file's content, empty when none is configured |
 | `{{.PingingWorkers}}` | the names of the workers that ping the master on each turn (the `claude` ones, which have the Stop hook), empty when none does |
@@ -878,7 +908,7 @@ and keep the variables you need:
 | `{{.ParkedCommand}}` | `acw board parked --repo <repo>`, fully written: lists the parked decisions, or prints one given its number |
 | `{{.ResumeCommand}}` | `acw board resume`, fully written, to follow with a number and the answer on stdin: closes a parked decision |
 | `{{.ReassignCommand}}` | `acw board edit`, fully written, to follow with a number and `--on <who>`: changes who a parked decision waits on |
-| `{{.SwitchCommand}}` | `wtm switch` when acw found it (wtm 0.26.0 or later) and the workers in the code get a stack; empty otherwise |
+| `{{.SwitchCommand}}` | `wtm switch --no-start` when acw found it (wtm 0.26.0 or later) and the workers in the code get a stack; empty otherwise |
 | `{{.PRWatch}}` | `true` when `pr-watch` is on: the master receives `PR #…` lines for the PRs that changed |
 
 - The empty ones are meant for `{{if .StackProfileRule}}...{{end}}`, as
