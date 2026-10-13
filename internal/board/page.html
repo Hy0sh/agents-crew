@@ -448,7 +448,10 @@ async function load() {
 $("repo").addEventListener("change", e => { state.repo = e.target.value; state.day = ""; store.set("repo", state.repo); store.set("day", ""); load(); });
 $("day").addEventListener("change", e => { state.day = e.target.value; store.set("day", state.day); load(); });
 load();
-setInterval(load, 5000);
+// A hidden tab asks nothing: the repos' history is a scan of the whole
+// base. It catches up the moment it shows again.
+setInterval(() => { if (!document.hidden) load(); }, 5000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
 </script>
 </body>
 </html>

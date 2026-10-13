@@ -246,7 +246,7 @@ func Worktree(repo, dir string) (kept string) {
 	// A worker takes each task on a new branch in its worktree: that
 	// branch is its work, pushed or not, and stays. Only the branch acw
 	// cut for it goes, and only if nothing was committed on it.
-	if own := "agents/" + name; branch != own {
+	if own := names.WaitingBranch(name); branch != own {
 		fmt.Printf("  worktree removed, task branch %s kept.\n", branch)
 		if err := gitutil.DeleteMergedBranch(repo, own); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: %s kept: %v\n", name, own, err)
@@ -282,7 +282,7 @@ func removeStack(dir, name, branch string, stacked bool) string {
 		// The branch acw adopted the worktree under: moved away from it
 		// without wtm switch, the worktree left that index behind, which
 		// wtm takes as stale and takes down.
-		if wtm.Remove(dir, "agents/"+name) == nil {
+		if wtm.Remove(dir, names.WaitingBranch(name)) == nil {
 			err = nil
 		}
 	}

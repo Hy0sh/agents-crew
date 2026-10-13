@@ -57,6 +57,11 @@ func ownsRun(repo, stamp string) bool {
 func runWatch(plan watchPlan, interval time.Duration) {
 	statusDir := names.StatusDir(plan.Repo)
 	slug := names.Slug(plan.Repo)
+	toMaster := func(msg string) {
+		if err := deliver(plan.Inbox, plan.MasterName, msg); err != nil {
+			fmt.Fprintln(os.Stderr, "message to the master:", err)
+		}
+	}
 	w := newWatcher(time.Duration(plan.SilenceMinutes) * time.Minute)
 	worktrees := worktreeCache{}
 	screens := screenCache{}
@@ -145,9 +150,7 @@ func runWatch(plan watchPlan, interval time.Duration) {
 				} else if !tellHeld[label] {
 					tellHeld[label] = true
 					msg := fmt.Sprintf("%s: your message waits, its input line is not empty: “%s”. It goes out once that line is empty (sent or cleared); if that is mine, it's my turn to finish.", label, oneLine(blocking))
-					if err := deliver(plan.Inbox, plan.MasterName, msg); err != nil {
-						fmt.Fprintln(os.Stderr, "message to the master:", err)
-					}
+					toMaster(msg)
 				}
 			}
 		}
@@ -226,18 +229,14 @@ func runWatch(plan watchPlan, interval time.Duration) {
 					continue
 				}
 			}
-			if err := deliver(plan.Inbox, plan.MasterName, eventMessage(statusDir, agentNames[e.Label], e)); err != nil {
-				fmt.Fprintln(os.Stderr, "message to the master:", err)
-			}
+			toMaster(eventMessage(statusDir, agentNames[e.Label], e))
 		}
 		resolveAccepts(plan.Repo, queue)
 		if prs != nil && now.Sub(prs.last) >= prWatchEvery {
 			prs.last = now
 			owners := prOwners(statusDir, labels)
 			for _, line := range prs.poll(owners) {
-				if err := deliver(plan.Inbox, plan.MasterName, line); err != nil {
-					fmt.Fprintln(os.Stderr, "message to the master:", err)
-				}
+				toMaster(line)
 			}
 			if merged := mergedURLs(prs.closed); len(merged) > 0 {
 				if err := withPool(plan.Repo, func(p *poolState, q *taskQueue) (bool, error) {

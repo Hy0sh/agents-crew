@@ -5,9 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
@@ -214,11 +212,11 @@ func chooseBranchStep(stacked, switchAvailable, exists bool) (branchStep, error)
 // its worktree at the same moment; one of the two fails on git's lock and
 // its task is held with the reason.
 func releaseBranch(p poolState, holder, branch string, out io.Writer) error {
-	i := slices.IndexFunc(p.Workers, func(w poolWorker) bool { return w.Worktree != "" && realPath(w.Worktree) == realPath(holder) })
-	if i < 0 {
+	found := p.workerAt(holder)
+	if found == nil {
 		return fmt.Errorf("%s is checked out in %s, which is no worker of this swarm: leave the branch there first", branch, holder)
 	}
-	hw := p.Workers[i]
+	hw := *found
 	if hw.State != workerFree {
 		return fmt.Errorf("%s is checked out by %s, %s: give the task to that worker, or wait until it is done", branch, hw.label(), hw.State)
 	}
@@ -277,18 +275,11 @@ func parkWorker(p poolState, w poolWorker, out io.Writer) error {
 // watcher's wtm switch wrote its files back into it, leaving the folder
 // behind. Without the lock file, nothing is serialized.
 func lockWorktree(repo, label string) func() {
-	f, err := os.OpenFile(filepath.Join(names.StatusDir(repo), "move-"+label+".lock"), os.O_CREATE|os.O_RDWR, 0o644)
+	unlock, err := flock(filepath.Join(names.StatusDir(repo), "move-"+label+".lock"))
 	if err != nil {
 		return func() {}
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		f.Close()
-		return func() {}
-	}
-	return func() {
-		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-		f.Close()
-	}
+	return unlock
 }
 
 // switchWorkerBranch fetches then puts the worker's worktree on br.Branch.

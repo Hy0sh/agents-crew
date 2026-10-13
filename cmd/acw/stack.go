@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"time"
 
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
@@ -84,14 +83,14 @@ func stackWorker() (string, int, error) {
 	if err != nil {
 		return "", 0, fmt.Errorf("%s is no worker's worktree: run acw stack from yours", top)
 	}
-	i := slices.IndexFunc(p.Workers, func(w poolWorker) bool { return w.Worktree != "" && realPath(w.Worktree) == realPath(top) })
-	if i < 0 {
+	w := p.workerAt(top)
+	if w == nil {
 		return "", 0, fmt.Errorf("%s is no worker's worktree: run acw stack from yours", top)
 	}
-	if !p.Workers[i].Stacked {
-		return "", 0, fmt.Errorf("%s has no wtm environment: there is no stack to start", p.Workers[i].label())
+	if !w.Stacked {
+		return "", 0, fmt.Errorf("%s has no wtm environment: there is no stack to start", w.label())
 	}
-	return repo, p.Workers[i].Index, nil
+	return repo, w.Index, nil
 }
 
 // stackUp takes a place for worker index as soon as one is free under

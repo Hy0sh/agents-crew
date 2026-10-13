@@ -402,35 +402,13 @@ func (b *DB) OpenParked(repo string) ([]Parked, error) {
 // CloseParked closes parked decision id with answer. One already closed
 // is refused, saying when and with what: a second answer would be lost.
 func (b *DB) CloseParked(id int64, answer string, at time.Time) (Parked, error) {
-	res, err := b.sql.Exec(`UPDATE parked SET closed_at = ?, answer = ? WHERE id = ? AND closed_at IS NULL`, at.Unix(), answer, id)
-	if err != nil {
-		return Parked{}, err
-	}
-	p, err := b.GetParked(id)
-	if err != nil {
-		return p, err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return p, fmt.Errorf("#%d was already closed on %s, with: %s", id, p.ClosedAt.Local().Format("02/01 15:04"), p.Answer)
-	}
-	return p, nil
+	return b.updateOpenParked(id, `UPDATE parked SET closed_at = ?, answer = ? WHERE id = ? AND closed_at IS NULL`, at.Unix(), answer, id)
 }
 
 // RefuseParked marks open parked document id refused: it stays open, on
 // the user's list, until the master closes it. One closed is refused.
 func (b *DB) RefuseParked(id int64) (Parked, error) {
-	res, err := b.sql.Exec(`UPDATE parked SET answer = ? WHERE id = ? AND closed_at IS NULL`, refused, id)
-	if err != nil {
-		return Parked{}, err
-	}
-	p, err := b.GetParked(id)
-	if err != nil {
-		return p, err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return p, fmt.Errorf("#%d was already closed on %s, with: %s", id, p.ClosedAt.Local().Format("02/01 15:04"), p.Answer)
-	}
-	return p, nil
+	return b.updateOpenParked(id, `UPDATE parked SET answer = ? WHERE id = ? AND closed_at IS NULL`, refused, id)
 }
 
 // SaveInterrupted keeps the tasks acw stop found on repo's workers and
@@ -490,7 +468,13 @@ func (b *DB) SetDrafts(repo string, drafts []PR) error {
 // SetParkedOn changes who parked decision id waits on. One closed is
 // refused: its answer is in.
 func (b *DB) SetParkedOn(id int64, on string) (Parked, error) {
-	res, err := b.sql.Exec(`UPDATE parked SET on_whom = ? WHERE id = ? AND closed_at IS NULL`, on, id)
+	return b.updateOpenParked(id, `UPDATE parked SET on_whom = ? WHERE id = ? AND closed_at IS NULL`, on, id)
+}
+
+// updateOpenParked runs query, an update of parked decision id while it
+// is open, and returns the row after it; one already closed is refused.
+func (b *DB) updateOpenParked(id int64, query string, args ...any) (Parked, error) {
+	res, err := b.sql.Exec(query, args...)
 	if err != nil {
 		return Parked{}, err
 	}
@@ -499,9 +483,15 @@ func (b *DB) SetParkedOn(id int64, on string) (Parked, error) {
 		return p, err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return p, fmt.Errorf("#%d was already closed on %s, with: %s", id, p.ClosedAt.Local().Format("02/01 15:04"), p.Answer)
+		return p, alreadyClosed(p)
 	}
 	return p, nil
+}
+
+// alreadyClosed is the refusal of a second answer to p: when it was
+// closed, and with what.
+func alreadyClosed(p Parked) error {
+	return fmt.Errorf("#%d was already closed on %s, with: %s", p.ID, p.ClosedAt.Local().Format("02/01 15:04"), p.Answer)
 }
 
 // markWindow is how far back marks are read: a PR's mark holds until its

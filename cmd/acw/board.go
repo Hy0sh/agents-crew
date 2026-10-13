@@ -123,30 +123,23 @@ func boardCommand() *cobra.Command {
 	_ = cmd.Flags().MarkHidden("until-stop")
 
 	var worker, subject, why string
-	var decisionRepo func() (string, error)
-	decision := &cobra.Command{
+	decision := withRepo(&cobra.Command{
 		Use:   "decision [text...]",
 		Short: "Record a decision on the board, read from stdin without text",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			repo, err := decisionRepo()
+	}, func(cmd *cobra.Command, args []string, repo string) error {
+		if worker != "" {
+			_, label, err := workerName(repo, worker)
 			if err != nil {
 				return err
 			}
-			if worker != "" {
-				_, label, err := workerName(repo, worker)
-				if err != nil {
-					return err
-				}
-				worker = label
-			}
-			if err := addDecision(board.Decision{Repo: repo, At: time.Now(), Worker: worker, Subject: subject, Why: why}, args, cmd.InOrStdin()); err != nil {
-				return err
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), "decision recorded")
-			return nil
-		},
-	}
-	decisionRepo = repoFlag(decision)
+			worker = label
+		}
+		if err := addDecision(board.Decision{Repo: repo, At: time.Now(), Worker: worker, Subject: subject, Why: why}, args, cmd.InOrStdin()); err != nil {
+			return err
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), "decision recorded")
+		return nil
+	})
 	decision.Flags().StringVar(&worker, "worker", "", "the worker it concerns, by its name (worker2, reviewer1); left out for the master's or the user's own")
 	decision.Flags().StringVar(&subject, "subject", "", "what it is about: a ticket, a PR, a topic")
 	decision.Flags().StringVar(&why, "why", "", "the reason, in one line")
