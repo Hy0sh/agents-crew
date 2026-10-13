@@ -325,7 +325,7 @@ func main() {
 	root.Flags().IntVarP(&opts.workers, "workers", "n", 3, "most worker agents open at once, opened as tasks are queued (per-project: workers)")
 	root.Flags().IntVar(&opts.minWorkers, "min-workers", 0, "workers kept open with nothing queued; --workers for a fixed swarm (per-project: min-workers)")
 	root.Flags().IntVar(&opts.idleCloseMinutes, "idle-close-minutes", 10, "how long a free worker above --min-workers stays open with nothing queued for it (per-project: idle-close-minutes)")
-	root.Flags().IntVar(&opts.maxStacks, "max-stacks", 0, "concurrent isolated environments the machine can hold, which also caps the workers in the code (default: same as --workers) (per-project: max-stacks)")
+	root.Flags().IntVar(&opts.maxStacks, "max-stacks", 0, "stacks running at the same time, which the workers take with acw stack up for the minutes they need one (default: same as --workers) (per-project: max-stacks)")
 	root.Flags().StringVar(&opts.masterKind, "master-kind", "claude", "herdr agent kind for the master (claude, codex, gemini...) (per-project: master-kind)")
 	root.Flags().StringVar(&opts.workerKind, "worker-kind", "claude", "herdr agent kind for the workers (claude, codex, gemini...) (per-project: worker-kind)")
 	root.Flags().StringVar(&opts.masterModel, "master-model", "opus", "model for the master agent; empty means no --model is passed to its CLI (per-project: master-model)")
@@ -377,6 +377,10 @@ func main() {
 				return err
 			}
 			fmt.Fprint(cmd.OutOrStdout(), renderStatus(time.Now(), rows, unread, lastAt, watcherRunning(repo)))
+			if p, err := readPoolFile(repo); err == nil {
+				p.Held = heldStacks(repo, p)
+				fmt.Fprint(cmd.OutOrStdout(), stacksLine(time.Now(), p))
+			}
 			return nil
 		},
 	}
@@ -447,6 +451,25 @@ func main() {
 	}
 	doneRepo = repoFlag(done)
 
+	var closeRepo func() (string, error)
+	closeCmd := &cobra.Command{
+		Use:   "close <worker>",
+		Short: "Close a free worker now, as after idle-close-minutes: its pane, agent, worktree and stack",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repo, err := closeRepo()
+			if err != nil {
+				return err
+			}
+			index, label, err := workerName(repo, args[0])
+			if err != nil {
+				return err
+			}
+			return closeByHand(repo, index, label, cmd.OutOrStdout())
+		},
+	}
+	closeRepo = repoFlag(closeCmd)
+
 	var tellRepo func() (string, error)
 	var slash string
 	tell := &cobra.Command{
@@ -480,7 +503,7 @@ func main() {
 	}
 	resume := &cobra.Command{
 		Use:   "resume",
-		Short: "Start the workers' stacks again, on the profile the swarm was launched with",
+		Short: "Start again the stacks the workers held at the pause, on the profile the swarm was launched with",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withWtm(func(repo string) error { return resumeStacks(repo, cmd.OutOrStdout()) })
@@ -557,7 +580,7 @@ func main() {
 		},
 	}
 
-	root.AddCommand(stop, status, queue, done, projectCommand(), boardCommand(), tell, clearCmd, dispatch, pause, resume, restartWatch, watch, inboxWatch, inboxNext, turnEnd, statusLine)
+	root.AddCommand(stop, status, queue, done, closeCmd, projectCommand(), boardCommand(), stackCommand(), tell, clearCmd, dispatch, pause, resume, restartWatch, watch, inboxWatch, inboxNext, turnEnd, statusLine)
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)

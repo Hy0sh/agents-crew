@@ -195,9 +195,12 @@ INSERT INTO workers VALUES ('/r', 'worker1', 'coding', 'SHOP-142', '', '', '', 0
 	if d, _ := b.Board("/r", noon, noon); len(d.Workers) != 1 || d.Workers[0].Subject != "SHOP-142" {
 		t.Fatalf("old row = %+v", d.Workers)
 	}
-	b.UpsertWorker(Worker{Repo: "/r", Worker: "worker1", State: "blocked", BlockedOn: "VAT rounding"})
-	if d, _ := b.Board("/r", noon, noon); d.Workers[0].BlockedOn != "VAT rounding" {
-		t.Errorf("blocked_on = %q", d.Workers[0].BlockedOn)
+	if d, _ := b.Board("/r", noon, noon); !d.Workers[0].StackSince.IsZero() {
+		t.Errorf("old row stack_since = %v, want none held", d.Workers[0].StackSince)
+	}
+	b.UpsertWorker(Worker{Repo: "/r", Worker: "worker1", State: "blocked", BlockedOn: "VAT rounding", StackSince: noon})
+	if d, _ := b.Board("/r", noon, noon); d.Workers[0].BlockedOn != "VAT rounding" || !d.Workers[0].StackSince.Equal(noon) {
+		t.Errorf("blocked_on = %q, stack_since = %v", d.Workers[0].BlockedOn, d.Workers[0].StackSince)
 	}
 }
 
@@ -208,11 +211,11 @@ func TestBeat(t *testing.T) {
 	if d, _ := b.Board("/r", noon, noon); d.Seen != nil {
 		t.Errorf("seen before any beat = %v", d.Seen)
 	}
-	b.Beat("/r", noon, 0, 0)
-	b.Beat("/r", noon.Add(30*time.Second), 2, 5)
-	b.Beat("/other", noon.Add(time.Hour), 0, 0)
-	if d, _ := b.Board("/r", noon, noon); d.Seen == nil || !d.Seen.Equal(noon.Add(30*time.Second)) || d.Queue != 2 || d.Inbox != 5 {
-		t.Errorf("seen = %v, queue %d, inbox %d", d.Seen, d.Queue, d.Inbox)
+	b.Beat("/r", noon, Beat{})
+	b.Beat("/r", noon.Add(30*time.Second), Beat{Queue: 2, Inbox: 5, Stacks: 1, MaxStacks: 3})
+	b.Beat("/other", noon.Add(time.Hour), Beat{})
+	if d, _ := b.Board("/r", noon, noon); d.Seen == nil || !d.Seen.Equal(noon.Add(30*time.Second)) || d.Beat != (Beat{Queue: 2, Inbox: 5, Stacks: 1, MaxStacks: 3}) {
+		t.Errorf("seen = %v, beat %+v", d.Seen, d.Beat)
 	}
 	if d, _ := b.Board("/r", noon.AddDate(0, 0, -1), noon); d.Seen != nil {
 		t.Errorf("past day seen = %v", d.Seen)

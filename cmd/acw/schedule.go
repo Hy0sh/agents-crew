@@ -23,10 +23,12 @@ import (
 //     while its branch is being left;
 //   - a task no free worker can take opens the lowest slot not open that
 //     takes it (roles in config order, see buildSlots), within its
-//     role's max and, for a worker in the code when the
-//     repo has stacks, within max-stacks, which also counts the stacks
-//     kept with a closed worker's worktree; a worker already opening is
-//     counted for the first task waiting on it;
+//     role's max; a worker already opening is counted for the first task
+//     waiting on it. max-stacks caps no worker: it caps the stacks the
+//     workers take with acw stack up (see stack.go);
+//   - a free worker still holding a stack gives it back first (not
+//     one a task given by acw tell keeps working), and takes nothing
+//     until it has;
 //   - a held task (Error) is skipped;
 //   - each role keeps its min workers open with nothing queued, and
 //     none of its workers is closed below it;
@@ -40,9 +42,9 @@ const (
 	actAssign actionKind = iota
 	actOpen
 	actClose
-	actDirty      // free long enough to close, but its worktree has changes
-	actStacksFull // a role's min not met: max-stacks is reached
-	actPark       // free, clean, off its waiting branch: back on it
+	actDirty   // free long enough to close, but its worktree has changes
+	actPark    // free, clean, off its waiting branch: back on it
+	actRelease // free, still holding a stack: stopped
 )
 
 type poolAction struct {
@@ -103,31 +105,26 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 	n := len(p.Plan.Workers)
 	spec := func(i int) workerSpec { return p.Plan.Workers[i-1] }
 	open := map[int]bool{}
-	stacks := p.Held
 	var opening []int // generic workers coming up, not yet counted for a task
 	for _, w := range p.Workers {
 		open[w.Index] = true
-		if w.Stacked || (w.State == workerOpening && p.Plan.Stacks && spec(w.Index).Dir == "") {
-			stacks++
-		}
 		if w.State == workerOpening && !spec(w.Index).Overridden {
 			opening = append(opening, w.Index)
 		}
 	}
 	taken := map[int]bool{} // free workers given a task this poll
-	canOpen := func(i int) bool {
-		if open[i] || i < 1 || i > n {
-			return false
+	for _, w := range p.Workers {
+		if w.State == workerFree && w.StackSince != nil && !polls[w.Index].Active {
+			taken[w.Index] = true
+			actions = append(actions, poolAction{Kind: actRelease, Worker: w.Index})
 		}
-		return !p.Plan.Stacks || spec(i).Dir != "" || stacks < p.Plan.MaxStacks
+	}
+	canOpen := func(i int) bool {
+		return !open[i] && i >= 1 && i <= n
 	}
 	openWorker := func(i int) {
-		stacked := p.Plan.Stacks && spec(i).Dir == ""
-		if stacked {
-			stacks++
-		}
 		open[i] = true
-		actions = append(actions, poolAction{Kind: actOpen, Worker: i, Stacked: stacked})
+		actions = append(actions, poolAction{Kind: actOpen, Worker: i, Stacked: p.Plan.Stacks && spec(i).Dir == ""})
 	}
 	ready := func(w poolWorker) bool {
 		return w.State == workerFree && !taken[w.Index] && polls[w.Index].Ready
@@ -242,21 +239,12 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 			up[spec(a.Worker).group()]++
 		}
 	}
-	short := false
 	for i := 1; i <= n; i++ {
 		s := spec(i)
-		if up[s.group()] >= s.Min {
-			continue
-		}
-		if canOpen(i) {
+		if up[s.group()] < s.Min && canOpen(i) {
 			openWorker(i)
 			up[s.group()]++
-		} else if !open[i] {
-			short = true
 		}
-	}
-	if short && p.Plan.Stacks && stacks >= p.Plan.MaxStacks {
-		actions = append(actions, poolAction{Kind: actStacksFull})
 	}
 
 	// A free worker left on its task's branch goes back to its waiting

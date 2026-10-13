@@ -115,8 +115,7 @@ func TestBuildListsOutsideWorkersAndCountsOnlyCodersForStacks(t *testing.T) {
 	if line := lineWith(got, "- analyst1-testslug"); !strings.Contains(line, "/Users/me/studio") || !strings.Contains(line, "outside the code") {
 		t.Errorf("analyst1 line = %q, want it outside the code, with its folder", line)
 	}
-	// 2 coders, 2 environments: none waits for one, even with 3 workers.
-	if !strings.Contains(got, "every worker in the code gets its own isolated environment") {
+	if !strings.Contains(got, "every worker in the code has its own isolated environment") {
 		t.Error("the stack rule must count coders only; worker1 needs no environment")
 	}
 }
@@ -186,15 +185,17 @@ func TestBuildNamesAllWorkers(t *testing.T) {
 	}
 }
 
-// acw enforces the stack cap; the master is only told a task may wait.
+// acw enforces the stack cap on acw stack up: no task waits for a stack
+// to open a worker, and the master arbitrates nothing.
 func TestBuildStackCapIsAcws(t *testing.T) {
 	got := Build(params("claude", 5, 3))
-	if !strings.Contains(got, "only while an environment is left") || strings.Contains(got, "YOU arbitrate") {
-		t.Error("capped: acw holds the cap, the master arbitrates nothing")
+	for _, want := range []string{"At most 3 run at the same time", "without waiting for one", "nothing to arbitrate", "`acw stack up`", "`acw stack down`"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("capped: brief missing %q", want)
+		}
 	}
-	got = Build(params("claude", 3, 3))
-	if strings.Contains(got, "may wait in the queue") || !strings.Contains(got, "nothing to arbitrate") {
-		t.Error("uncapped: no task waits for an environment")
+	if strings.Contains(got, "may wait in the queue") || strings.Contains(got, "YOU arbitrate") {
+		t.Error("capped: no task waits in the queue for an environment")
 	}
 	p := params("claude", 3, 3)
 	p.Stacks = false

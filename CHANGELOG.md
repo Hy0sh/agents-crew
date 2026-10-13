@@ -13,11 +13,35 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   and the master has the document reworked instead of waiting for you in
   the terminal; accepted with notes, they go to whoever does the
   follow-up, and into the recorded decision.
+- `acw close <worker>`: closes a free worker at once, as after
+  `idle-close-minutes`, for the master or the user when nothing more will
+  come for it. A busy worker, or one whose worktree holds changes, is
+  refused.
 
 ### Changed
 
 - `acw board`: the Read button is filled and marked ☰, Done marked ✓, so
   the two no longer look alike.
+- A worker's stack is no longer tied to the worker: `max-stacks` caps the
+  stacks running, not the workers in the code. A worker opens and takes
+  its task at once (`wtm adopt --no-start`), and takes its stack with the
+  new `acw stack up` for the minutes it tests, then `acw stack down`;
+  `acw stack up` waits for a place under `max-stacks`. acw gives a free
+  worker's stack back itself, and tells the master of one held for more
+  than 30 min. A free worker used to keep its stack running and a
+  `max-stacks` place with it, while ready tasks waited for a worker.
+- Branch switches (a task `--branch`, the switch the workers are told to
+  use, going back to the waiting branch) start no stack: `wtm switch
+  --no-start`.
+- `acw resume` starts again only the stacks the workers held at the pause.
+- `acw status` ends with the stacks running and who holds them; `acw
+  board` shows `stacks 2/5` in the swarm's bar, and `stack 4 min` on the
+  line of a worker that holds one.
+
+### Upgrading
+
+- A swarm started before keeps its workers' stacks running and uncounted:
+  restart it (`acw stop`, then `acw start`) to pick the change up.
 
 ## [0.26.0] - 2026-10-12
 

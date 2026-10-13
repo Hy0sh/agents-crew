@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -83,7 +84,18 @@ func openWorker(repo string, index int) {
 	} else {
 		fmt.Fprintln(os.Stderr, "acw's path not found, statuses won't be normalized:", err)
 	}
-	if err := herdr.AgentStart(name, w.Kind, pane, workerArgs(w, label, hook, statusLine, plan.SwitchAllowed && pw.Stacked)...); err != nil {
+	var allowed []string
+	if plan.SwitchAllowed && pw.Stacked {
+		// The brief tells a worker with a stack to create its branch
+		// with wtm switch; a prompt there would freeze it until someone
+		// comes by. It only acts on the worktree it runs in.
+		allowed = append(allowed, "Bash(wtm switch:*)")
+	}
+	if self, err := os.Executable(); err == nil && pw.Stacked {
+		// Same for acw stack, which waits for a place then starts its stack.
+		allowed = append(allowed, "Bash("+shellWord(self)+" stack:*)")
+	}
+	if err := herdr.AgentStart(name, w.Kind, pane, workerArgs(w, label, hook, statusLine, allowed)...); err != nil {
 		fail("herdr agent start", explainStart(err, cwd), pane)
 		return
 	}
@@ -91,7 +103,7 @@ func openWorker(repo string, index int) {
 	opened := label + " opened"
 	stacked := pw.Stacked
 	if stacked {
-		if err := adoptAlone(pw.Worktree, plan.profileOf(pw.Index)); err != nil {
+		if err := adoptAlone(pw.Worktree); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: wtm adopt failed, it goes on without a dedicated environment: %v\n", name, err)
 			// wtm records the index and the path before it starts the
 			// stack: an unknown profile, a port clash or a missing dump
@@ -103,9 +115,9 @@ func openWorker(repo string, index int) {
 			}
 			stacked = false
 			opened += ", WITHOUT its environment (wtm adopt failed): give it no task that needs one, " +
-				"and tell it never to run wtm switch, which it was allowed before the adopt failed"
+				"and tell it never to run wtm switch nor acw stack, which it was allowed before the adopt failed"
 		} else {
-			opened += " with its environment"
+			opened += " with its environment ready, no stack running until it takes one"
 			if err := teardown.MarkStacked(pw.Worktree); err != nil {
 				fmt.Fprintf(os.Stderr, "%s: recording its stack: %v\n", name, err)
 			}
@@ -118,7 +130,7 @@ func openWorker(repo string, index int) {
 			}
 			branch, _ := gitutil.CurrentBranch(pw.Worktree)
 			if clashes := portClashes(report, branch); clashes != "" {
-				opened += "\nwtm doctor reports port clashes, its stack may be down:\n" + clashes
+				opened += "\nwtm doctor reports port clashes, its stack may fail to start:\n" + clashes
 			}
 		}
 	}
@@ -142,13 +154,13 @@ var placing sync.Mutex
 // two adopts at once each missed the other, took neighbouring indices,
 // and with a stride of 1 two of their services got the same host port,
 // one stack failing to start. Slower when several open at once, but each
-// pane and agent is already up while its stack waits.
+// pane and agent is already up while its environment is prepared.
 var adopting sync.Mutex
 
-func adoptAlone(dir, profile string) error {
+func adoptAlone(dir string) error {
 	adopting.Lock()
 	defer adopting.Unlock()
-	return wtm.Adopt(dir, profile)
+	return wtm.Adopt(dir)
 }
 
 // placeWorker makes w's worktree, when it has one, and its pane, recorded
@@ -256,6 +268,36 @@ func closeWorker(repo string, w poolWorker, why string) {
 	tell(plan.Plan, w.label()+" closed: "+why+".")
 }
 
+// closeByHand is acw close: free worker index closed now, as an idle one
+// is, when the master or the user knows nothing more will come for it. A
+// busy worker is refused, its task ends with acw done; so is one whose
+// worktree holds changes, which the close would take along.
+func closeByHand(repo string, index int, label string, out io.Writer) error {
+	var w poolWorker
+	err := withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
+		pw := p.worker(index)
+		switch {
+		case pw == nil:
+			return false, fmt.Errorf("%s is not open", label)
+		case pw.State == workerBusy:
+			return false, fmt.Errorf("%s is busy with task #%d: end it first with acw done", label, pw.Task)
+		case pw.State != workerFree:
+			return false, fmt.Errorf("%s is %s, not free", label, pw.State)
+		case pw.Worktree != "" && !gitutil.Clean(pw.Worktree):
+			return false, fmt.Errorf("%s's worktree %s has changes: have them committed or dropped first", label, pw.Worktree)
+		}
+		pw.State = workerClosing
+		w = *pw
+		return true, nil
+	})
+	if err != nil {
+		return err
+	}
+	closeWorker(repo, w, "closed by hand with acw close")
+	fmt.Fprintf(out, "%s closed; a role's min opens a fresh one if it falls below.\n", label)
+	return nil
+}
+
 // leftBranch is what the close message says about the task branch a
 // closed worker leaves behind: nothing once every commit on it is pushed,
 // otherwise its name and how many commits only live here. A task dropped
@@ -350,7 +392,7 @@ func claims(line, branch string) bool {
 // statusLine, when not empty, is acw's status line for it (see
 // recordUsage), in the same --settings. allowSwitch lets a worker with a
 // stack run wtm switch without a prompt.
-func workerArgs(w workerSpec, label, hook, statusLine string, allowSwitch bool) []string {
+func workerArgs(w workerSpec, label, hook, statusLine string, allowed []string) []string {
 	args := modelArgs(w.Model)
 	if w.Kind != "claude" {
 		return args
@@ -358,11 +400,8 @@ func workerArgs(w workerSpec, label, hook, statusLine string, allowSwitch bool) 
 	if w.PromptPath != "" {
 		args = append(args, "--append-system-prompt-file", w.PromptPath)
 	}
-	if allowSwitch {
-		// The brief tells a worker with a stack to create its branch
-		// with wtm switch; a prompt there would freeze it until someone
-		// comes by. It only acts on the worktree it runs in.
-		args = append(args, "--allowedTools", "Bash(wtm switch:*)")
+	if len(allowed) > 0 {
+		args = append(append(args, "--allowedTools"), allowed...)
 	}
 	hooks, err := workerSettings(hook, statusLine)
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Hy0sh/agents-crew/internal/names"
 	"github.com/Hy0sh/agents-crew/internal/teardown"
@@ -58,15 +59,34 @@ func TestPauseStopsEachWorkerStackAndTellsTheMaster(t *testing.T) {
 	}
 }
 
-// resume starts the stacks on the profile the swarm was launched with,
-// except a worker's on its waiting branch: it has no task, and no stack
-// there (see parkWorker).
+// holdStack opens worker1 of fakeSwarm in its pool, holding its stack
+// (acw stack up) when held.
+func holdStack(t *testing.T, repo string, held bool) {
+	t.Helper()
+	p, _, err := readPool(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := poolWorker{Index: 1, Worktree: names.WorkerWorktree(repo, "worker1", "20260925140000"), Stacked: true, State: workerBusy}
+	if held {
+		now := time.Now()
+		w.StackSince = &now
+	}
+	p.Workers = []poolWorker{w}
+	if err := writeJSON(names.PoolFile(repo), p); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// resume starts the stacks the workers held at the pause, on the profile
+// the swarm was launched with; the others take theirs with acw stack up.
 func TestResumeStartsEachWorkerStackOnTheRunProfile(t *testing.T) {
 	repo, calls := fakeSwarm(t, "light")
 	wt := names.WorkerWorktree(repo, "worker1", "20260925140000")
 	if out, err := exec.Command("git", "-C", wt, "switch", "-q", "-c", "feat/x").CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
+	holdStack(t, repo, true)
 	if err := resumeStacks(repo, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
@@ -78,15 +98,13 @@ func TestResumeStartsEachWorkerStackOnTheRunProfile(t *testing.T) {
 	}
 
 	os.Remove(calls)
-	if out, err := exec.Command("git", "-C", wt, "switch", "-q", names.WorkerBranch("worker1", "20260925140000")).CombinedOutput(); err != nil {
-		t.Fatalf("%v: %s", err, out)
-	}
+	holdStack(t, repo, false)
 	var out bytes.Buffer
 	if err := resumeStacks(repo, &out); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(calls); len(got) != 0 || !strings.Contains(out.String(), "left without a stack") {
-		t.Errorf("on its waiting branch: wtm calls = %q, said %q", got, out.String())
+	if got, _ := os.ReadFile(calls); len(got) != 0 || !strings.Contains(out.String(), "holds no stack") {
+		t.Errorf("no stack held: wtm calls = %q, said %q", got, out.String())
 	}
 }
 
@@ -119,6 +137,7 @@ func TestResumeStartsAWorkerOnItsOwnProfile(t *testing.T) {
 	if out, err := exec.Command("git", "-C", wt, "switch", "-q", "-c", "feat/x").CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
+	holdStack(t, repo, true)
 	if err := resumeStacks(repo, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}

@@ -108,6 +108,7 @@ func runWatch(plan watchPlan, interval time.Duration) {
 			time.Sleep(interval)
 			continue
 		}
+		pool.Held = heldStacks(plan.Repo, pool)
 		var views []workerView
 		var labels []string
 		agentNames := map[string]string{}
@@ -170,7 +171,11 @@ func runWatch(plan watchPlan, interval time.Duration) {
 			}
 		}
 		if now.Sub(beaten) >= beatEvery && record("heartbeat", func(b *board.DB) error {
-			return b.Beat(plan.Repo, now, len(queue.Tasks), unreadLines(plan.Inbox))
+			beat := board.Beat{Queue: len(queue.Tasks), Inbox: unreadLines(plan.Inbox)}
+			if pool.Plan.Stacks {
+				beat.Stacks, beat.MaxStacks = pool.runningStacks(), pool.Plan.MaxStacks
+			}
+			return b.Beat(plan.Repo, now, beat)
 		}) {
 			beaten = now
 		}
@@ -272,7 +277,6 @@ func runWatch(plan watchPlan, interval time.Duration) {
 				return b.SetDrafts(plan.Repo, drafts)
 			})
 		}
-		pool.Held = heldStacks(plan.Repo, pool)
 		runPool(plan.Repo, pool, queue, pollWorkers(pool, agents, statusDir, now, poolMem), now, poolMem)
 		if plan.Inbox != "" {
 			info, err := os.Stat(plan.Inbox)

@@ -182,23 +182,33 @@ func TestScheduleWaitsForReadyAndCountsOpening(t *testing.T) {
 	}
 }
 
-// max-stacks caps the workers in the code even under the worker count.
-func TestScheduleStackCap(t *testing.T) {
-	p := testPool(4, 2, poolWorker{Index: 1, State: workerBusy, Stacked: true})
+// max-stacks caps the stacks running, not the workers: a task gets a
+// worker even with every stack taken (the 13/10 field case: a free
+// worker held one, tasks waited for a worker).
+func TestScheduleStackCapOpensWorkersAnyway(t *testing.T) {
+	now := t0
+	p := testPool(4, 1, poolWorker{Index: 1, State: workerBusy, Stacked: true, StackSince: &now})
+	p.Held = 1
 	got := schedule(p, tasks(queuedTask{ID: 1}, queuedTask{ID: 2}), nil, t0)
-	want := []poolAction{{Kind: actOpen, Worker: 2, Stacked: true}}
+	want := []poolAction{{Kind: actOpen, Worker: 2, Stacked: true}, {Kind: actOpen, Worker: 3, Stacked: true}}
 	if !slices.Equal(got, want) {
-		t.Errorf("schedule() = %+v, want %+v: only one stack left", got, want)
+		t.Errorf("schedule() = %+v, want %+v", got, want)
 	}
 }
 
-// A stack kept with a closed worker's worktree still takes its room.
-func TestScheduleCountsHeldStacks(t *testing.T) {
-	p := testPool(4, 2)
-	p.Held = 1
-	got := schedule(p, tasks(queuedTask{ID: 1}, queuedTask{ID: 2}), nil, t0)
-	if !slices.Equal(got, []poolAction{{Kind: actOpen, Worker: 1, Stacked: true}}) {
-		t.Errorf("schedule() = %+v, want one opening: the held stack takes the other place", got)
+// A free worker gives its stack back before anything else, and takes no
+// task until it has; one a task given by acw tell keeps busy keeps it.
+func TestScheduleReleasesAFreeWorkersStack(t *testing.T) {
+	now := t0
+	held := free(1, t0)
+	held.StackSince = &now
+	got := schedule(testPool(2, 2, held), tasks(queuedTask{ID: 1}), readyAll(1), t0)
+	want := []poolAction{{Kind: actRelease, Worker: 1}, {Kind: actOpen, Worker: 2, Stacked: true}}
+	if !slices.Equal(got, want) {
+		t.Errorf("schedule() = %+v, want %+v", got, want)
+	}
+	if got := schedule(testPool(1, 1, held), taskQueue{}, map[int]workerPoll{1: {Active: true}}, t0); len(got) != 0 {
+		t.Errorf("active = %+v, want its stack kept", got)
 	}
 }
 
@@ -293,10 +303,10 @@ func TestScheduleMinWorkers(t *testing.T) {
 		t.Errorf("schedule() = %+v, want %+v", got, want)
 	}
 
-	// max-stacks short of a min: the floor is not met, and said so.
-	p = withMin(testPool(3, 2), "worker", 3)
+	// max-stacks short of a min: the floor is met all the same.
+	p = withMin(testPool(3, 1), "worker", 3)
 	p.Held = 1
-	want = []poolAction{{Kind: actOpen, Worker: 1, Stacked: true}, {Kind: actStacksFull}}
+	want = []poolAction{{Kind: actOpen, Worker: 1, Stacked: true}, {Kind: actOpen, Worker: 2, Stacked: true}, {Kind: actOpen, Worker: 3, Stacked: true}}
 	if got := schedule(p, taskQueue{}, nil, t0); !slices.Equal(got, want) {
 		t.Errorf("schedule() = %+v, want %+v", got, want)
 	}

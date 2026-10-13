@@ -213,6 +213,15 @@ Temporary files go in /tmp, outside the repo, and you never run rm -rf in your w
 A pull request stacked on another one stays based on that branch until it is merged: retargeted to the default branch earlier, its diff takes in every commit of the PR below.`, label, statusFile)
 }
 
+// stackRule is how a worker in the code gets its environment: on demand,
+// for the minutes it needs it, since max-stacks counts the running ones.
+func stackRule(stackCmd string) string {
+	return fmt.Sprintf("Your worktree has its own isolated environment (a wtm stack: its ports, its database), but nothing runs in it by default: the machine holds only a few at a time, shared by every worker. "+
+		"When you need it (to run the app, tests against its database, a check in a browser), run `%[1]s up` from your worktree: it waits for a free place, starts the stack and prints its addresses. "+
+		"Run `%[1]s down` as soon as you are done with it, and go on without it: it is given back at the end of your task anyway, and its database survives a down then an up. "+
+		"Never start it yourself with wtm start, or wtm switch without --no-start: acw would not count it, and another worker would find no room.", stackCmd)
+}
+
 // systemPrompt is a claude worker's system prompt: its role, the repo's
 // notes, then its own standing instructions.
 func systemPrompt(role, notes, prompt string) string {
@@ -231,14 +240,20 @@ func systemPrompt(role, notes, prompt string) string {
 // /clear: its role and the repo rules no longer have to travel in every
 // brief, where they drifted from one brief to the next. Other kinds have
 // no system prompt acw can set and are left as configured.
-func writeSystemPrompts(statusDir, notes string, workers []workerSpec) error {
+// stackCmd is acw stack for the workers in the code, "" when they get no
+// stack.
+func writeSystemPrompts(statusDir, notes, stackCmd string, workers []workerSpec) error {
 	for i := range workers {
 		w := &workers[i]
 		if w.Kind != "claude" {
 			continue
 		}
 		label := w.label()
-		content := systemPrompt(workerRole(label, filepath.Join(statusDir, label+".json")), notes, w.Prompt)
+		role := workerRole(label, filepath.Join(statusDir, label+".json"))
+		if stackCmd != "" && w.Dir == "" {
+			role += "\n\n" + stackRule(stackCmd)
+		}
+		content := systemPrompt(role, notes, w.Prompt)
 		path := filepath.Join(statusDir, label+".system.md")
 		if err := os.WriteFile(path, []byte(content+"\n"), 0o644); err != nil {
 			return err

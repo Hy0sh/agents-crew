@@ -67,6 +67,9 @@ var migrations = []string{
 	`ALTER TABLE handled ADD COLUMN kind TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE handled ADD COLUMN brief TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE prs ADD COLUMN auto_merge INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE workers ADD COLUMN stack_since INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE watchers ADD COLUMN stacks INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE watchers ADD COLUMN max_stacks INTEGER NOT NULL DEFAULT 0`,
 }
 
 type DB struct{ sql *sql.DB }
@@ -143,11 +146,14 @@ type Worker struct {
 	BlockedOn string `json:"blocked_on"`
 	// Busy is what its screen shows it waiting on: a tool running, or
 	// background shells and monitors.
-	Busy      string    `json:"busy"`
-	Context   *float64  `json:"ctx"`
-	FiveHour  *float64  `json:"five_hour"`
-	Since     time.Time `json:"since"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Busy     string   `json:"busy"`
+	Context  *float64 `json:"ctx"`
+	FiveHour *float64 `json:"five_hour"`
+	// StackSince is when it took its stack (acw stack up), zero while it
+	// holds none.
+	StackSince time.Time `json:"stack_since"`
+	Since      time.Time `json:"since"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 type PR struct {
@@ -242,13 +248,12 @@ type Decision struct {
 type Day struct {
 	Live bool       `json:"live"`
 	Seen *time.Time `json:"seen"`
-	// Queue and Inbox are the task queue's length and the master's unread
-	// messages at Seen.
-	Queue, Inbox int
-	Workers      []Worker   `json:"workers"`
-	PRs          []PR       `json:"prs"`
-	Handled      []Handled  `json:"handled"`
-	Decisions    []Decision `json:"decisions"`
+	// Beat is what the watcher said at Seen.
+	Beat
+	Workers   []Worker   `json:"workers"`
+	PRs       []PR       `json:"prs"`
+	Handled   []Handled  `json:"handled"`
+	Decisions []Decision `json:"decisions"`
 	// Parked holds the open parked decisions, Marks the lines marked done
 	// on the page within markWindow, by item: today only, like Workers.
 	Parked []Parked
@@ -261,17 +266,24 @@ type RepoDays struct {
 }
 
 func (b *DB) UpsertWorker(w Worker) error {
-	_, err := b.sql.Exec(`INSERT OR REPLACE INTO workers (repo, worker, state, subject, branch, pr_url, summary, since, updated_at, blocked_on, busy, ctx, five_hour)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		w.Repo, w.Worker, w.State, w.Subject, w.Branch, w.PRURL, w.Summary, w.Since.Unix(), w.UpdatedAt.Unix(), w.BlockedOn, w.Busy, w.Context, w.FiveHour)
+	_, err := b.sql.Exec(`INSERT OR REPLACE INTO workers (repo, worker, state, subject, branch, pr_url, summary, since, updated_at, blocked_on, busy, ctx, five_hour, stack_since)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		w.Repo, w.Worker, w.State, w.Subject, w.Branch, w.PRURL, w.Summary, w.Since.Unix(), w.UpdatedAt.Unix(), w.BlockedOn, w.Busy, w.Context, w.FiveHour, unix(w.StackSince))
 	return err
 }
 
-// Beat records that a watcher of repo is alive at at, with its queue's
-// length and the master's unread messages: a page that only reloads can't
-// tell a quiet swarm from a dead watcher.
-func (b *DB) Beat(repo string, at time.Time, queue, inbox int) error {
-	_, err := b.sql.Exec(`INSERT OR REPLACE INTO watchers (repo, seen, queue, inbox) VALUES (?,?,?,?)`, repo, at.Unix(), queue, inbox)
+// Beat is what a watcher of repo says at at, alive: a page that only
+// reloads can't tell a quiet swarm from a dead watcher.
+type Beat struct {
+	// Queue is the task queue's length, Inbox the master's unread
+	// messages, Stacks the stacks running against MaxStacks (0 for a
+	// swarm with none).
+	Queue, Inbox, Stacks, MaxStacks int
+}
+
+func (b *DB) Beat(repo string, at time.Time, beat Beat) error {
+	_, err := b.sql.Exec(`INSERT OR REPLACE INTO watchers (repo, seen, queue, inbox, stacks, max_stacks) VALUES (?,?,?,?,?,?)`,
+		repo, at.Unix(), beat.Queue, beat.Inbox, beat.Stacks, beat.MaxStacks)
 	return err
 }
 
@@ -623,7 +635,7 @@ func (b *DB) Board(repo string, day, now time.Time) (Day, error) {
 		Parked: []Parked{}, Marks: map[string]time.Time{}}
 	if d.Live {
 		var seen int64
-		switch err := b.sql.QueryRow(`SELECT seen, queue, inbox FROM watchers WHERE repo = ?`, repo).Scan(&seen, &d.Queue, &d.Inbox); err {
+		switch err := b.sql.QueryRow(`SELECT seen, queue, inbox, stacks, max_stacks FROM watchers WHERE repo = ?`, repo).Scan(&seen, &d.Queue, &d.Inbox, &d.Stacks, &d.MaxStacks); err {
 		case nil:
 			t := time.Unix(seen, 0)
 			d.Seen = &t
@@ -631,18 +643,18 @@ func (b *DB) Board(repo string, day, now time.Time) (Day, error) {
 		default:
 			return d, err
 		}
-		rows, err := b.sql.Query(`SELECT worker, state, subject, branch, pr_url, summary, blocked_on, busy, ctx, five_hour, since, updated_at FROM workers WHERE repo = ? ORDER BY worker`, repo)
+		rows, err := b.sql.Query(`SELECT worker, state, subject, branch, pr_url, summary, blocked_on, busy, ctx, five_hour, stack_since, since, updated_at FROM workers WHERE repo = ? ORDER BY worker`, repo)
 		if err != nil {
 			return d, err
 		}
 		for rows.Next() {
 			w := Worker{Repo: repo}
-			var since, updated int64
-			if err := rows.Scan(&w.Worker, &w.State, &w.Subject, &w.Branch, &w.PRURL, &w.Summary, &w.BlockedOn, &w.Busy, &w.Context, &w.FiveHour, &since, &updated); err != nil {
+			var stack, since, updated int64
+			if err := rows.Scan(&w.Worker, &w.State, &w.Subject, &w.Branch, &w.PRURL, &w.Summary, &w.BlockedOn, &w.Busy, &w.Context, &w.FiveHour, &stack, &since, &updated); err != nil {
 				rows.Close()
 				return d, err
 			}
-			w.Since, w.UpdatedAt = time.Unix(since, 0), time.Unix(updated, 0)
+			w.StackSince, w.Since, w.UpdatedAt = fromUnix(stack), time.Unix(since, 0), time.Unix(updated, 0)
 			d.Workers = append(d.Workers, w)
 		}
 		rows.Close()

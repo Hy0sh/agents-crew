@@ -188,7 +188,7 @@ func realPath(p string) string {
 
 // branchStep is how dispatch puts a worker on its branch.
 type branchStep struct {
-	wtm    bool // wtm switch: the worker has a stack, which follows it to the branch, on the same ports
+	wtm    bool // wtm switch: the worker has wtm's environment, which follows it to the branch, on the same ports
 	create bool // the branch doesn't exist yet: cut it from the base
 }
 
@@ -251,16 +251,16 @@ func parkWorker(p poolState, w poolWorker, out io.Writer) error {
 		if !wtm.Available() || !wtm.SwitchAvailable() {
 			return fmt.Errorf("%s stays on %s: its stack would stay behind without wtm switch", w.label(), current)
 		}
-		// No stack on the waiting branch: nobody works there, and the next
-		// task's switch starts a fresh one anyway.
-		err = wtm.SwitchNoStart(w.Worktree, home, out)
+		if err = wtm.Switch(w.Worktree, home, "", out); err == nil {
+			dropStack(p.Plan.Repo, w.Index)
+		}
 	} else {
 		err = gitutil.Switch(w.Worktree, home, "", false)
 	}
 	if err != nil {
 		return fmt.Errorf("%s could not be moved off %s to its waiting branch: %w", w.label(), current, err)
 	}
-	fmt.Fprintf(out, "%s: off %s, back on its waiting branch %s, no stack until its next task.\n", w.label(), current, home)
+	fmt.Fprintf(out, "%s: off %s, back on its waiting branch %s, no stack running.\n", w.label(), current, home)
 	return nil
 }
 
@@ -312,13 +312,15 @@ func switchWorkerBranch(repo string, t clearTarget, br branchRequest, out io.Wri
 		if step.create {
 			from = base
 		}
-		err = wtm.Switch(wt, br.Branch, from, p.Plan.profileOf(t.index), out)
+		if err = wtm.Switch(wt, br.Branch, from, out); err == nil {
+			dropStack(repo, t.index)
+		}
 	} else {
 		err = gitutil.Switch(wt, br.Branch, base, step.create)
 	}
 	if err != nil {
-		// wtm switch checks out first and brings the stack after: a failure
-		// may leave the worktree on the branch with its stack not up yet.
+		// wtm switch checks out first and prepares the environment after: a
+		// failure may leave the worktree on the branch, not ready yet.
 		return fmt.Errorf("%s may not be on %s yet, or be on it with its environment not ready; nothing was sent to it: run the same command again to finish: %w", t.label, br.Branch, err)
 	}
 	switch {
