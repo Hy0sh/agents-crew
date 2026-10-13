@@ -6,6 +6,8 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-10-13
+
 ### Added
 
 - `acw tell <worker> --interrupt`: presses Escape in the worker to end its
@@ -1121,7 +1123,8 @@ project: 7 PRs, 3 merged. Each entry names what actually went wrong.
   anything, with a clear message and install instructions if not; `wtm` is
   checked too but stays optional.
 
-[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.28.0...HEAD
+[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.29.0...HEAD
+[0.29.0]: https://github.com/Hy0sh/agents-crew/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/Hy0sh/agents-crew/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/Hy0sh/agents-crew/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/Hy0sh/agents-crew/compare/v0.25.0...v0.26.0
