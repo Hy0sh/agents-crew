@@ -65,11 +65,7 @@ func eachStack(repo string, out io.Writer, done string, step func(dir, branch st
 			// The worktree is <label>-<stamp>: the slot whose label it
 			// starts with, dash included, so worker1 never takes worker12's.
 			index := slices.IndexFunc(p.Plan.Workers, func(w workerSpec) bool { return strings.HasPrefix(name, w.label()+"-") }) + 1
-			var w *poolWorker
-			if i := slices.IndexFunc(p.Workers, func(w poolWorker) bool { return realPath(w.Worktree) == realPath(dir) }); i >= 0 {
-				w = &p.Workers[i]
-			}
-			err = step(dir, branch, w, p.Plan.profileOf(index))
+			err = step(dir, branch, p.workerAt(dir), p.Plan.profileOf(index))
 		}
 		// A worker whose adopt failed has a worktree acw never got a stack:
 		// nothing to stop or start there. One that got one and that wtm no

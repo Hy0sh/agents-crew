@@ -76,6 +76,8 @@ button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px
 .no-btn { color: var(--bad); border-color: var(--bad); } .no-btn:hover { background: var(--bad-soft); }
 .read-btn { color: var(--panel); background: var(--accent); border-color: var(--accent); } .read-btn:hover { background: var(--fg); border-color: var(--fg); }
 #doc-note { font: 14px/1.4 var(--f-body); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; resize: vertical; cursor: auto; }
+.icon-btn { font: 13px var(--f-data); color: var(--accent); background: none; border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; margin-left: 5px; cursor: pointer; }
+.icon-btn:hover { background: var(--accent-soft); }
 .read-btn::before { content: "☰" / ""; margin-right: 5px; } .mark-btn::before { content: "✓" / ""; margin-right: 5px; }
 dialog { width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto; resize: both; border: 1px solid var(--line); border-radius: 10px; padding: 0; background: var(--panel); color: var(--fg); }
 dialog::backdrop { background: rgb(0 0 0 / .45); }
@@ -138,12 +140,26 @@ dialog::backdrop { background: rgb(0 0 0 / .45); }
   </div>
   <div class="doc-body" id="doc-body"></div>
 </dialog>
+<dialog id="queue">
+  <div class="doc-head" style="cursor:auto">
+    <div class="top"><span class="title">Tasks</span>
+      <span style="margin-left:auto"><button type="button" class="done-btn" id="queue-close" style="color:var(--muted);border-color:var(--line)">Close</button></span></div>
+  </div>
+  <div class="doc-body">
+    <h2 style="margin-top:12px">Running</h2>
+    <div class="list" id="q-running"></div>
+    <h2 style="margin-top:16px">Queued, in the order acw hands them out</h2>
+    <div class="list" id="q-queued"></div>
+  </div>
+</dialog>
 <script>
 const $ = id => document.getElementById(id);
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
 const toned = (node, tone) => { node.dataset.tone = tone; return node; };
 const pill = (text, tone) => toned(el("span", "pill", text), tone);
-const link = (text, url, cls = "ref") => { const s = el("span", cls); if (url) { const a = el("a", null, text); a.href = url; a.target = "_blank"; a.rel = "noopener"; s.append(a); } else s.textContent = text; return s; };
+// Only an https link: a pr_url comes from a worker's status file, and a
+// javascript: one would run on the board's origin.
+const link = (text, url, cls = "ref") => { const s = el("span", cls); if (/^https:\/\//.test(url || "")) { const a = el("a", null, text); a.href = url; a.target = "_blank"; a.rel = "noopener"; s.append(a); } else s.textContent = text; return s; };
 const secs = iso => (Date.now() - new Date(iso)) / 1000;
 const span = s => s < 60 ? Math.round(s) + " s" : s < 3600 ? Math.floor(s / 60) + " min" : s < 86400 ? Math.floor(s / 3600) + " h " + String(Math.floor(s % 3600 / 60)).padStart(2, "0") : Math.floor(s / 86400) + " d";
 const hm = iso => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -372,9 +388,47 @@ function render(v) {
   const quota = Math.max(-1, ...v.workers.map(w => w.five_hour ?? -1));
   $("bar").replaceChildren(...[["workers", `${v.workers.filter(w => w.state !== "free").length}/${v.workers.length} busy`],
     ...(v.max_stacks ? [["stacks", `${v.stacks}/${v.max_stacks}`]] : []), ["queue", v.queue], ["inbox", v.inbox], ["5h", quota >= 0 ? Math.round(quota) + " %" : "-"]]
-    .map(([k, val]) => { const s = el("span", null, k + " "); s.append(el("b", null, String(val))); return s; }));
+    .map(([k, val]) => {
+      const s = el("span", null, k + " ");
+      s.append(el("b", null, String(val)));
+      if (k === "queue" && v.live) {
+        const b = el("button", "icon-btn", "☰");
+        b.type = "button";
+        b.title = b.ariaLabel = "Show the running and queued tasks";
+        b.addEventListener("click", openQueue);
+        s.append(b);
+      }
+      return s;
+    }));
   fill("workers", v.workers.map(worker), "No worker open.");
 }
+// The running tasks with their worker, then the queue in its order: the
+// bar only counts them.
+async function openQueue() {
+  $("q-running").replaceChildren(el("div", "note", "Loading…"));
+  $("q-queued").replaceChildren();
+  $("queue").showModal();
+  try {
+    const res = await fetch("/api/queue?repo=" + encodeURIComponent(state.repo));
+    if (!res.ok) throw new Error((await res.text()).trim());
+    const q = await res.json();
+    const row = (t, label, tone) => {
+      const r = toned(el("article", "row"), tone), top = el("div", "top");
+      top.append(el("span", "key", label), el("span", "title", t.title || "#" + t.id));
+      if (t.worker) top.append(el("span", "who", t.worker));
+      top.append(ago(t.since));
+      r.append(top);
+      if (t.notes) r.append(el("div", "meta", t.notes.join(" · ")));
+      if (t.held) r.append(el("div", "flag", "Held: " + t.held));
+      return r;
+    };
+    fill("q-running", q.running.map(t => row(t, "#" + t.id, "accent")), "No task running.");
+    fill("q-queued", q.queued.map((t, i) => row(t, `${i + 1}. #${t.id}`, t.held ? "bad" : t.notes?.some(n => n.startsWith("waiting")) ? "warn" : "idle")), "The queue is empty.");
+  } catch (e) {
+    $("q-running").replaceChildren(el("div", "flag", "Could not read the tasks: " + e.message));
+  }
+}
+$("queue-close").addEventListener("click", () => $("queue").close());
 async function load() {
   try {
     const repos = await (await fetch("/api/repos")).json();
@@ -394,7 +448,10 @@ async function load() {
 $("repo").addEventListener("change", e => { state.repo = e.target.value; state.day = ""; store.set("repo", state.repo); store.set("day", ""); load(); });
 $("day").addEventListener("change", e => { state.day = e.target.value; store.set("day", state.day); load(); });
 load();
-setInterval(load, 5000);
+// A hidden tab asks nothing: the repos' history is a scan of the whole
+// base. It catches up the moment it shows again.
+setInterval(() => { if (!document.hidden) load(); }, 5000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
 </script>
 </body>
 </html>

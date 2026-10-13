@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -84,12 +85,46 @@ func renderDoc(path string) parkedDoc {
 	return d
 }
 
+// Queue is a swarm's tasks: the ones its workers are busy with, then the
+// queue in the order they go out.
+type Queue struct {
+	Running []QueuedTask `json:"running"`
+	Queued  []QueuedTask `json:"queued"`
+}
+
+// QueuedTask is one task of a Queue. Since is when its worker took it,
+// or when it was queued.
+type QueuedTask struct {
+	ID     int       `json:"id"`
+	Title  string    `json:"title"`
+	Worker string    `json:"worker,omitempty"`
+	Notes  []string  `json:"notes,omitempty"`
+	Held   string    `json:"held,omitempty"`
+	Since  time.Time `json:"since"`
+}
+
 // Handler serves the page, its read routes, and POST /api/done. Only a
 // request naming 127.0.0.1 or localhost gets through: a site whose name
 // resolves to 127.0.0.1 (DNS rebinding) would otherwise read the
-// decisions. notify writes to repo's master.
-func Handler(b *DB, now func() time.Time, notify func(repo, msg string) error) http.Handler {
+// decisions. notify writes to repo's master; queue reads its tasks, nil
+// for none.
+func Handler(b *DB, now func() time.Time, notify func(repo, msg string) error, queue func(repo string) (Queue, error)) http.Handler {
 	mux := http.NewServeMux()
+	// Only a repo the board knows: the path comes from the request.
+	mux.HandleFunc("GET /api/queue", func(w http.ResponseWriter, r *http.Request) {
+		repo := r.URL.Query().Get("repo")
+		repos, err := b.Repos()
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		if queue == nil || !slices.ContainsFunc(repos, func(d RepoDays) bool { return d.Repo == repo }) {
+			http.NotFound(w, r)
+			return
+		}
+		tasks, err := queue(repo)
+		reply(w, tasks, err)
+	})
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		// A parked document's markdown images would load from anywhere.
@@ -221,7 +256,7 @@ func answerDoc(b *DB, req doneRequest, at time.Time, notify func(repo, msg strin
 		return err
 	}
 	if p.ClosedAt != nil {
-		return fmt.Errorf("#%d was already closed on %s, with: %s", id, p.ClosedAt.Local().Format("02/01 15:04"), p.Answer)
+		return alreadyClosed(p)
 	}
 	what := fmt.Sprintf("parked #%d (%s of %s", id, p.Kind, p.From())
 	if p.Ticket != "" {

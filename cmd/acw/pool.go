@@ -121,8 +121,7 @@ func heldStacks(repo string, p poolState) int {
 	n := 0
 	var gone map[string]bool // asked of wtm once, and only if needed
 	for _, dir := range teardown.WorkerWorktrees(repo) {
-		open := slices.ContainsFunc(p.Workers, func(w poolWorker) bool { return realPath(w.Worktree) == realPath(dir) })
-		if open || !teardown.Stacked(dir) {
+		if p.workerAt(dir) != nil || !teardown.Stacked(dir) {
 			continue
 		}
 		if gone == nil {
@@ -145,6 +144,16 @@ func heldStacks(repo string, p poolState) int {
 func (p *poolState) worker(index int) *poolWorker {
 	for i := range p.Workers {
 		if p.Workers[i].Index == index {
+			return &p.Workers[i]
+		}
+	}
+	return nil
+}
+
+// workerAt is the open worker whose worktree is dir, nil for none.
+func (p *poolState) workerAt(dir string) *poolWorker {
+	for i := range p.Workers {
+		if p.Workers[i].Worktree != "" && realPath(p.Workers[i].Worktree) == realPath(dir) {
 			return &p.Workers[i]
 		}
 	}
@@ -215,13 +224,7 @@ func held(t queuedTask, p poolState, q taskQueue) bool {
 	return t.Error != "" || len(waitingFor(t, p, q)) > 0 || len(awaitingAccept(t, q)) > 0
 }
 
-func parkedList(ids []int64) string {
-	s := make([]string, len(ids))
-	for i, id := range ids {
-		s[i] = fmt.Sprintf("parked #%d", id)
-	}
-	return strings.Join(s, ", ")
-}
+func parkedList(ids []int64) string { return idList("parked #", ids) }
 
 // waitingFor is what of t's After is not ended yet, still queued or the
 // task of a busy worker, and what of its AfterMerge has no merged PR yet.
@@ -256,10 +259,13 @@ func (q *taskQueue) mergedPR(url string) bool {
 	return found
 }
 
-func taskList(ids []int) string {
+func taskList(ids []int) string { return idList("#", ids) }
+
+// idList is ids each after prefix, comma-separated.
+func idList[T int | int64](prefix string, ids []T) string {
 	s := make([]string, len(ids))
 	for i, id := range ids {
-		s[i] = fmt.Sprintf("#%d", id)
+		s[i] = fmt.Sprintf("%s%d", prefix, id)
 	}
 	return strings.Join(s, ", ")
 }
@@ -267,18 +273,14 @@ func taskList(ids []int) string {
 // withPool runs fn on the pool and the queue under the lock, and writes
 // back what fn says it changed.
 func withPool(repo string, fn func(p *poolState, q *taskQueue) (changed bool, err error)) error {
-	lock, err := os.OpenFile(names.PoolLock(repo), os.O_CREATE|os.O_RDWR, 0o644)
+	unlock, err := flock(names.PoolLock(repo))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("no acw swarm in %s", repo)
 		}
 		return err
 	}
-	defer lock.Close()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
-		return err
-	}
-	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	defer unlock()
 
 	p, q, err := readPool(repo)
 	if err != nil {
@@ -292,6 +294,23 @@ func withPool(repo string, fn func(p *poolState, q *taskQueue) (changed bool, er
 		return err
 	}
 	return writeJSON(names.QueueFile(repo), q)
+}
+
+// flock takes the exclusive lock on the file at path, created if need be,
+// and returns what releases it, across processes.
+func flock(path string) (func(), error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return func() {
+		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	}, nil
 }
 
 // readPool reads both files without the lock: each is replaced by a
@@ -999,29 +1018,8 @@ func renderQueue(now time.Time, p poolState, q taskQueue) string {
 	}
 	for i, t := range q.Tasks {
 		fmt.Fprintf(&b, "  %d. #%d  %s", i+1, t.ID, firstLine(t.Brief))
-		if t.Worker != 0 {
-			fmt.Fprintf(&b, " · for %s", p.Plan.labelOf(t.Worker))
-		}
-		if t.Kind != "" {
-			fmt.Fprintf(&b, " · kind %s", t.Kind)
-		}
-		if t.Branch != "" {
-			fmt.Fprintf(&b, " · on %s", t.Branch)
-		}
-		if waits := waitingFor(t, p, q); len(waits) > 0 {
-			fmt.Fprintf(&b, " · waiting for %s", taskList(waits))
-		}
-		if waits := awaitingAccept(t, q); len(waits) > 0 {
-			fmt.Fprintf(&b, " · waiting for the user to accept %s", parkedList(waits))
-		}
-		if i := slices.IndexFunc(p.Workers, func(w poolWorker) bool {
-			if t.Branch == "" || w.State != workerBusy {
-				return false
-			}
-			on, _ := gitutil.CurrentBranch(w.Worktree)
-			return w.TaskBranch == t.Branch || w.Worktree != "" && on == t.Branch
-		}); i >= 0 {
-			fmt.Fprintf(&b, " · waiting for %s to end #%d on that branch", p.Workers[i].label(), p.Workers[i].Task)
+		for _, n := range taskNotes(t, p, q) {
+			b.WriteString(" · " + n)
 		}
 		fmt.Fprintf(&b, " · queued %s", age(now, t.AddedAt))
 		if t.Error != "" {
@@ -1030,6 +1028,60 @@ func renderQueue(now time.Time, p poolState, q taskQueue) string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// taskNotes is what acw queue and the board say of a queued task: whom it
+// is for, its branch, and what it waits for.
+func taskNotes(t queuedTask, p poolState, q taskQueue) []string {
+	var notes []string
+	if t.Worker != 0 {
+		notes = append(notes, "for "+p.Plan.labelOf(t.Worker))
+	}
+	if t.Kind != "" {
+		notes = append(notes, "kind "+t.Kind)
+	}
+	if t.Branch != "" {
+		notes = append(notes, "on "+t.Branch)
+	}
+	if waits := waitingFor(t, p, q); len(waits) > 0 {
+		notes = append(notes, "waiting for "+taskList(waits))
+	}
+	if waits := awaitingAccept(t, q); len(waits) > 0 {
+		notes = append(notes, "waiting for the user to accept "+parkedList(waits))
+	}
+	if i := slices.IndexFunc(p.Workers, func(w poolWorker) bool {
+		if t.Branch == "" || w.State != workerBusy {
+			return false
+		}
+		on, _ := gitutil.CurrentBranch(w.Worktree)
+		return w.TaskBranch == t.Branch || w.Worktree != "" && on == t.Branch
+	}); i >= 0 {
+		notes = append(notes, fmt.Sprintf("waiting for %s to end #%d on that branch", p.Workers[i].label(), p.Workers[i].Task))
+	}
+	return notes
+}
+
+// boardQueue is repo's tasks for acw board: the ones the workers are busy
+// with, then the queue in the order acw hands it out.
+func boardQueue(repo string) (board.Queue, error) {
+	out := board.Queue{Running: []board.QueuedTask{}, Queued: []board.QueuedTask{}}
+	p, q, err := readPool(repo)
+	if err != nil {
+		return out, err
+	}
+	for _, w := range p.Workers {
+		if w.State == workerBusy {
+			t := board.QueuedTask{ID: w.Task, Worker: w.label(), Since: w.Since}
+			if w.Current != nil {
+				t.Title = firstLine(w.Current.Brief)
+			}
+			out.Running = append(out.Running, t)
+		}
+	}
+	for _, t := range q.Tasks {
+		out.Queued = append(out.Queued, board.QueuedTask{ID: t.ID, Title: firstLine(t.Brief), Notes: taskNotes(t, p, q), Held: t.Error, Since: t.AddedAt})
+	}
+	return out, nil
 }
 
 func firstLine(s string) string {

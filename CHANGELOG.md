@@ -6,6 +6,12 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `acw board`: a ☰ next to the queue's count opens the tasks, the running
+  ones with their worker, then the queued ones in the order acw hands
+  them out, with what each waits for (`acw queue`'s notes).
+
 ### Fixed
 
 - `acw close` on a worker the watcher was putting back on its waiting
@@ -13,6 +19,16 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   `wtm switch` wrote its files back into it. Moving a worker's worktree
   (back to its waiting branch, onto a task's branch) and closing it now
   take turns on a lock of that worker's.
+- The watcher rewrote every worker's row in the board's base on every
+  poll (its usage was compared by pointer), and every open of the base
+  took SQLite's write lock: an idle swarm now writes its heartbeat only.
+- `acw board` follows a link only when it is https: a worker's `pr_url`
+  could put a `javascript:` one on the page. A hidden tab no longer polls.
+- The status dir and the board's state dir are created 0700, the
+  watcher's log 0600 and never through a symlink.
+- The master checks with `acw board parked` that an ACCEPTED line was
+  recorded by the page before acting on it: a worker can write a line
+  into its inbox.
 
 ## [0.27.0] - 2026-10-13
 

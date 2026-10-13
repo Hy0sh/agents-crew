@@ -106,7 +106,13 @@ func WorkerWorktree(repo, label, stamp string) string {
 // WorkerBranch is the branch a worker's worktree starts on, its waiting
 // branch.
 func WorkerBranch(label, stamp string) string {
-	return "agents/" + label + "-" + stamp
+	return WaitingBranch(label + "-" + stamp)
+}
+
+// WaitingBranch is the waiting branch of the worker worktree named name
+// (<label>-<stamp>).
+func WaitingBranch(name string) string {
+	return "agents/" + name
 }
 
 // maxRole keeps <role><rank>-<slug> within herdr's 32 characters, with a

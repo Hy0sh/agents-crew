@@ -28,31 +28,32 @@ func tellWorker(statusDir, label, text string) error {
 	if text == "" {
 		return errors.New("nothing to tell: give the message as arguments or on stdin")
 	}
-	f, err := os.OpenFile(filepath.Join(statusDir, label+".tell"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	return appendLine(filepath.Join(statusDir, label+".tell"), text+"\n")
+}
+
+// openWorkerNamed is the open worker arg names in repo's swarm.
+func openWorkerNamed(repo, arg string) (*poolWorker, error) {
+	index, label, err := workerName(repo, arg)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	_, err = fmt.Fprintf(f, "%s\n\n", text)
-	if closeErr := f.Close(); err == nil {
-		err = closeErr
+	pool, _, err := readPool(repo)
+	if err != nil {
+		return nil, err
 	}
-	return err
+	w := pool.worker(index)
+	if w == nil {
+		return nil, fmt.Errorf("%s is not open", label)
+	}
+	return w, nil
 }
 
 // tellByHand is acw tell: the worker must be open, the message is its
 // arguments or, without any, stdin (a heredoc expands nothing).
 func tellByHand(repo, arg string, words []string, stdin io.Reader, out io.Writer) error {
-	index, label, err := workerName(repo, arg)
+	w, err := openWorkerNamed(repo, arg)
 	if err != nil {
 		return err
-	}
-	pool, _, err := readPool(repo)
-	if err != nil {
-		return err
-	}
-	w := pool.worker(index)
-	if w == nil {
-		return fmt.Errorf("%s is not open", label)
 	}
 	text := strings.Join(words, " ")
 	if len(words) == 0 {
@@ -91,19 +92,11 @@ func commandWorker(repo, arg, command string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	index, label, err := workerName(repo, arg)
+	w, err := openWorkerNamed(repo, arg)
 	if err != nil {
 		return err
 	}
-	pool, _, err := readPool(repo)
-	if err != nil {
-		return err
-	}
-	w := pool.worker(index)
-	if w == nil {
-		return fmt.Errorf("%s is not open", label)
-	}
-	name := names.Agent(names.Slug(repo), label)
+	name := names.Agent(names.Slug(repo), w.label())
 	status, err := agentStatus(name)
 	if err != nil {
 		return err

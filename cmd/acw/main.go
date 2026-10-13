@@ -218,6 +218,20 @@ func repoFlag(cmd *cobra.Command) func() (string, error) {
 	return func() (string, error) { return repoOrCwd(repo) }
 }
 
+// withRepo adds --repo to cmd, and makes run its RunE, given the repo it
+// resolves to.
+func withRepo(cmd *cobra.Command, run func(cmd *cobra.Command, args []string, repo string) error) *cobra.Command {
+	repoOf := repoFlag(cmd)
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		repo, err := repoOf()
+		if err != nil {
+			return err
+		}
+		return run(cmd, args, repo)
+	}
+	return cmd
+}
+
 // readWatchPlan reads the plan file the watcher is started with (see
 // launchBackgroundWatch).
 func readWatchPlan(path string) (watchPlan, error) {
@@ -362,135 +376,93 @@ func main() {
 		},
 	}
 
-	var statusRepo func() (string, error)
-	status := &cobra.Command{
+	status := withRepo(&cobra.Command{
 		Use:   "status",
 		Short: "Show every worker at a glance: state, status age, activity, context, quota, inbox",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			repo, err := statusRepo()
-			if err != nil {
-				return err
-			}
-			rows, unread, lastAt, err := collectStatus(repo)
-			if err != nil {
-				return err
-			}
-			fmt.Fprint(cmd.OutOrStdout(), renderStatus(time.Now(), rows, unread, lastAt, watcherRunning(repo)))
-			if p, err := readPoolFile(repo); err == nil {
-				p.Held = heldStacks(repo, p)
-				fmt.Fprint(cmd.OutOrStdout(), stacksLine(time.Now(), p))
-			}
-			return nil
-		},
-	}
-	statusRepo = repoFlag(status)
+	}, func(cmd *cobra.Command, args []string, repo string) error {
+		rows, unread, lastAt, err := collectStatus(repo)
+		if err != nil {
+			return err
+		}
+		fmt.Fprint(cmd.OutOrStdout(), renderStatus(time.Now(), rows, unread, lastAt, watcherRunning(repo)))
+		if p, err := readPoolFile(repo); err == nil {
+			p.Held = heldStacks(repo, p)
+			fmt.Fprint(cmd.OutOrStdout(), stacksLine(time.Now(), p))
+		}
+		return nil
+	})
 
-	var clearRepo func() (string, error)
-	clearCmd := &cobra.Command{
+	clearCmd := withRepo(&cobra.Command{
 		Use:   "clear <worker>...",
 		Short: "Reset workers' context before a new task, and confirm it took",
 		Args:  cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			repo, err := clearRepo()
-			if err != nil {
+	}, func(cmd *cobra.Command, args []string, repo string) error {
+		for _, label := range args {
+			if err := clearWorker(repo, label, cmd.OutOrStdout()); err != nil {
 				return err
 			}
-			for _, label := range args {
-				if err := clearWorker(repo, label, cmd.OutOrStdout()); err != nil {
-					return err
-				}
-			}
-			return nil
-		},
-	}
-	clearRepo = repoFlag(clearCmd)
+		}
+		return nil
+	})
 
-	var dispatchRepo func() (string, error)
 	var br branchRequest
-	dispatch := &cobra.Command{
+	dispatch := withRepo(&cobra.Command{
 		Use:   "dispatch <worker> <brief-file> [--branch <b>] [--base <ref>]",
 		Short: "Give a worker its next task: wait until it is idle, reset its context, type the brief",
 		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			repo, err := dispatchRepo()
-			if err != nil {
-				return err
-			}
-			return dispatchByHand(repo, args[0], args[1], br, cmd.OutOrStdout())
-		},
-	}
-	dispatchRepo = repoFlag(dispatch)
+	}, func(cmd *cobra.Command, args []string, repo string) error {
+		return dispatchByHand(repo, args[0], args[1], br, cmd.OutOrStdout())
+	})
 	dispatch.Flags().StringVar(&br.Branch, "branch", "", "put the worker on this branch first (a fix or a rebase on a known branch), after a git fetch")
 	dispatch.Flags().StringVar(&br.Base, "base", "", "where --branch is cut from when it doesn't exist yet (default: the repo's default branch on origin)")
 
 	queue := queueCommand()
 
-	var doneRepo func() (string, error)
-	done := &cobra.Command{
+	done := withRepo(&cobra.Command{
 		Use:   "done <worker> [task-id]",
 		Short: "Mark a worker's task as finished: acw gives it the next one, or closes it",
 		Args:  cobra.RangeArgs(1, 2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			repo, err := doneRepo()
-			if err != nil {
-				return err
+	}, func(cmd *cobra.Command, args []string, repo string) error {
+		index, doneLabel, err := workerName(repo, args[0])
+		if err != nil {
+			return err
+		}
+		task := 0
+		if len(args) == 2 {
+			if task, err = strconv.Atoi(strings.TrimPrefix(args[1], "#")); err != nil {
+				return fmt.Errorf("%q is not a task id", args[1])
 			}
-			index, doneLabel, err := workerName(repo, args[0])
-			if err != nil {
-				return err
-			}
-			task := 0
-			if len(args) == 2 {
-				if task, err = strconv.Atoi(strings.TrimPrefix(args[1], "#")); err != nil {
-					return fmt.Errorf("%q is not a task id", args[1])
-				}
-			}
-			return finishWorker(repo, index, doneLabel, task, cmd.OutOrStdout())
-		},
-	}
-	doneRepo = repoFlag(done)
+		}
+		return finishWorker(repo, index, doneLabel, task, cmd.OutOrStdout())
+	})
 
-	var closeRepo func() (string, error)
-	closeCmd := &cobra.Command{
+	closeCmd := withRepo(&cobra.Command{
 		Use:   "close <worker>",
 		Short: "Close a free worker now, as after idle-close-minutes: its pane, agent, worktree and stack",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			repo, err := closeRepo()
-			if err != nil {
-				return err
-			}
-			index, label, err := workerName(repo, args[0])
-			if err != nil {
-				return err
-			}
-			return closeByHand(repo, index, label, cmd.OutOrStdout())
-		},
-	}
-	closeRepo = repoFlag(closeCmd)
+	}, func(cmd *cobra.Command, args []string, repo string) error {
+		index, label, err := workerName(repo, args[0])
+		if err != nil {
+			return err
+		}
+		return closeByHand(repo, index, label, cmd.OutOrStdout())
+	})
 
-	var tellRepo func() (string, error)
 	var slash string
-	tell := &cobra.Command{
+	tell := withRepo(&cobra.Command{
 		Use:   "tell <worker> [message...]",
 		Short: "Leave a worker a message, read from stdin without one: it gets it at the end of its turn, or at once when idle",
 		Args:  cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			repo, err := tellRepo()
-			if err != nil {
-				return err
+	}, func(cmd *cobra.Command, args []string, repo string) error {
+		if slash != "" {
+			if len(args) > 1 {
+				return errors.New("--command takes no message: the command is all that is typed")
 			}
-			if slash != "" {
-				if len(args) > 1 {
-					return errors.New("--command takes no message: the command is all that is typed")
-				}
-				return commandWorker(repo, args[0], slash, cmd.OutOrStdout())
-			}
-			return tellByHand(repo, args[0], args[1:], cmd.InOrStdin(), cmd.OutOrStdout())
-		},
-	}
-	tellRepo = repoFlag(tell)
+			return commandWorker(repo, args[0], slash, cmd.OutOrStdout())
+		}
+		return tellByHand(repo, args[0], args[1:], cmd.InOrStdin(), cmd.OutOrStdout())
+	})
 	tell.Flags().StringVar(&slash, "command", "", "type this slash command (e.g. /reload-plugins) into the worker's input once it is idle, instead of a message")
 
 	pause := &cobra.Command{
@@ -535,20 +507,13 @@ func main() {
 		},
 	}
 
-	var watchRepo func() (string, error)
-	restartWatch := &cobra.Command{
+	restartWatch := withRepo(&cobra.Command{
 		Use:   "watch",
 		Short: "Start the swarm's watcher again when it is not running, without touching the swarm",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			repo, err := watchRepo()
-			if err != nil {
-				return err
-			}
-			return restartWatcher(repo, cmd.OutOrStdout())
-		},
-	}
-	watchRepo = repoFlag(restartWatch)
+	}, func(cmd *cobra.Command, args []string, repo string) error {
+		return restartWatcher(repo, cmd.OutOrStdout())
+	})
 
 	// Internal: what the master runs in the background (see nextInbox).
 	inboxNext := &cobra.Command{
