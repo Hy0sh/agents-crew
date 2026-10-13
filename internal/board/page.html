@@ -326,7 +326,9 @@ function worker(w) {
   const r = toned(el("article", "row"), noStatus ? "warn" : tone), top = el("div", "top");
   top.append(el("b", "who", w.worker), pill(noStatus ? "no status file" : w.state || "free", noStatus ? "warn" : tone), ago(w.since));
   r.append(top);
-  const bits = [w.subject, w.busy && "waiting on " + w.busy, w.ctx != null && "ctx " + Math.round(w.ctx) + " %"].filter(Boolean);
+  // A zero time is no stack held: Go writes it as year 1.
+  const stack = new Date(w.stack_since).getFullYear() > 1 && "stack " + span(Math.max(0, secs(w.stack_since)));
+  const bits = [w.subject, w.busy && "waiting on " + w.busy, stack, w.ctx != null && "ctx " + Math.round(w.ctx) + " %"].filter(Boolean);
   if (bits.length) r.append(el("div", "meta", bits.join(" · ")));
   return r;
 }
@@ -368,7 +370,8 @@ function render(v) {
   $("loose-sum").textContent = `${v.loose.length} decision${v.loose.length > 1 ? "s" : ""} without a ticket`;
   $("loose").replaceChildren(...decisionList(v.loose).children);
   const quota = Math.max(-1, ...v.workers.map(w => w.five_hour ?? -1));
-  $("bar").replaceChildren(...[["workers", `${v.workers.filter(w => w.state !== "free").length}/${v.workers.length} busy`], ["queue", v.queue], ["inbox", v.inbox], ["5h", quota >= 0 ? Math.round(quota) + " %" : "-"]]
+  $("bar").replaceChildren(...[["workers", `${v.workers.filter(w => w.state !== "free").length}/${v.workers.length} busy`],
+    ...(v.max_stacks ? [["stacks", `${v.stacks}/${v.max_stacks}`]] : []), ["queue", v.queue], ["inbox", v.inbox], ["5h", quota >= 0 ? Math.round(quota) + " %" : "-"]]
     .map(([k, val]) => { const s = el("span", null, k + " "); s.append(el("b", null, String(val))); return s; }));
   fill("workers", v.workers.map(worker), "No worker open.");
 }

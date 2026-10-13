@@ -19,6 +19,10 @@ type View struct {
 	Seen  *time.Time `json:"seen"`
 	Queue int        `json:"queue"`
 	Inbox int        `json:"inbox"`
+	// Stacks are the stacks running against MaxStacks, 0 for a swarm
+	// with none.
+	Stacks    int `json:"stacks"`
+	MaxStacks int `json:"max_stacks"`
 	// PRWatch says whether the PRs carry CI and reviews: without the PR
 	// watch, "ready for your merge" and holes can't be seen.
 	PRWatch bool `json:"pr_watch"`
@@ -106,7 +110,7 @@ func isOpen(p PR) bool { return p.Status == "open" || p.Status == "conflicting" 
 
 // BuildView turns d into the page's answers, at now.
 func BuildView(d Day, now time.Time) View {
-	v := View{Live: d.Live, Seen: d.Seen, Queue: d.Queue, Inbox: d.Inbox,
+	v := View{Live: d.Live, Seen: d.Seen, Queue: d.Queue, Inbox: d.Inbox, Stacks: d.Stacks, MaxStacks: d.MaxStacks,
 		Waits: []Wait{}, Marked: []Wait{}, Parked: []Parked{}, Tickets: []Ticket{}, NoTicket: []PR{}, Done: []Ticket{}, Loose: []Decision{},
 		Workers: d.Workers}
 

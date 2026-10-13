@@ -30,7 +30,9 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   use, going back to the waiting branch) start no stack: `wtm switch
   --no-start`.
 - `acw resume` starts again only the stacks the workers held at the pause.
-- `acw status` ends with the stacks running and who holds them.
+- `acw status` ends with the stacks running and who holds them; `acw
+  board` shows `stacks 2/5` in the swarm's bar, and `stack 4 min` on the
+  line of a worker that holds one.
 
 ### Upgrading
 

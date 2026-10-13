@@ -649,6 +649,9 @@ func renderParked(p board.Parked, full bool) string {
 // on (an addendum, the go it got) and nothing is to approve yet.
 func boardWorker(repo string, pw poolWorker, agentStatus string, s workerStatus, now time.Time) board.Worker {
 	w := board.Worker{Repo: repo, Worker: pw.label(), State: pw.State, Since: pw.Since, UpdatedAt: now}
+	if pw.StackSince != nil {
+		w.StackSince = *pw.StackSince
+	}
 	if pw.State == workerBusy {
 		w.Subject, w.Branch, w.PRURL, w.Summary, w.BlockedOn = s.Tache, s.Branch, s.PRURL, s.Summary, s.BlockedOn
 		if s.State != "" {

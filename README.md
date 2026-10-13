@@ -968,8 +968,10 @@ the master write.
   base's. Each ticket shows its stage, whom it waits on and since when, its
   PRs (base, CI, review) and its decisions. PRs without a key and tickets
   finished today come after.
-- **The swarm**: watcher, queue, inbox, 5-hour quota, and a line per
-  worker with what its screen shows it waiting on.
+- **The swarm**: watcher, stacks running against `max-stacks` (with wtm),
+  queue, inbox, 5-hour quota, and a line per worker with what its screen
+  shows it waiting on and, while it holds one, since when it holds its
+  stack.
 
 **Done**: each line of "Waiting on you" has a button that tells the master
 "the user marked done: ..." and sets the line aside. The master takes it as
