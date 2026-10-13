@@ -23,9 +23,28 @@ func get(t *testing.T, h http.Handler, host, target string) *httptest.ResponseRe
 	return w
 }
 
+// /api/queue reads the tasks of a repo the board knows, never of a path
+// the request makes up.
+func TestQueueRoute(t *testing.T) {
+	b := open(t)
+	b.UpsertWorker(Worker{Repo: "/r", Worker: "worker1", UpdatedAt: noon})
+	var asked []string
+	h := Handler(b, func() time.Time { return noon }, func(string, string) error { return nil }, func(repo string) (Queue, error) {
+		asked = append(asked, repo)
+		return Queue{Running: []QueuedTask{{ID: 3, Worker: "worker1"}}, Queued: []QueuedTask{{ID: 4, Title: "Fix the export"}}}, nil
+	})
+	w := get(t, h, "127.0.0.1:1", "/api/queue?repo=/r")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"worker":"worker1"`) || !strings.Contains(w.Body.String(), "Fix the export") {
+		t.Errorf("known repo = %d %s", w.Code, w.Body)
+	}
+	if w := get(t, h, "127.0.0.1:1", "/api/queue?repo=/etc"); w.Code != http.StatusNotFound || len(asked) != 1 {
+		t.Errorf("unknown repo = %d, asked %v", w.Code, asked)
+	}
+}
+
 func handler(t *testing.T) (*DB, http.Handler) {
 	b := open(t)
-	return b, Handler(b, func() time.Time { return noon }, func(string, string) error { return nil })
+	return b, Handler(b, func() time.Time { return noon }, func(string, string) error { return nil }, nil)
 }
 
 func post(t *testing.T, h http.Handler, host string, headers map[string]string, body string) *httptest.ResponseRecorder {
@@ -48,7 +67,7 @@ var doneHeaders = map[string]string{"X-Acw-Board": "1", "Content-Type": "applica
 func TestDone(t *testing.T) {
 	b := open(t)
 	var told []string
-	h := Handler(b, func() time.Time { return noon }, func(repo, msg string) error { told = append(told, repo+": "+msg); return nil })
+	h := Handler(b, func() time.Time { return noon }, func(repo, msg string) error { told = append(told, repo+": "+msg); return nil }, nil)
 	if w := post(t, h, "127.0.0.1:1", doneHeaders, doneBody); w.Code != http.StatusNoContent {
 		t.Fatalf("done = %d %s", w.Code, w.Body)
 	}
@@ -64,7 +83,7 @@ func TestDone(t *testing.T) {
 func TestDoneOnAPRTellsOnce(t *testing.T) {
 	b := open(t)
 	var told []string
-	h := Handler(b, func() time.Time { return noon }, func(repo, msg string) error { told = append(told, msg); return nil })
+	h := Handler(b, func() time.Time { return noon }, func(repo, msg string) error { told = append(told, msg); return nil }, nil)
 	body := `{"repo": "/r", "id": "pr-hole:12:1:open|green|COMMENTED by b", "text": "#12: COMMENTED by b"}`
 	for range 2 {
 		if w := post(t, h, "127.0.0.1:1", doneHeaders, body); w.Code != http.StatusNoContent {
@@ -100,7 +119,7 @@ func TestDoneRefusals(t *testing.T) {
 // A master that could not be told leaves no mark: the line stays.
 func TestDoneUnheardLeavesNoMark(t *testing.T) {
 	b := open(t)
-	h := Handler(b, func() time.Time { return noon }, func(string, string) error { return errors.New("no swarm") })
+	h := Handler(b, func() time.Time { return noon }, func(string, string) error { return errors.New("no swarm") }, nil)
 	if w := post(t, h, "127.0.0.1:1", doneHeaders, doneBody); w.Code != http.StatusInternalServerError || !strings.Contains(w.Body.String(), "no swarm") {
 		t.Errorf("done = %d %s", w.Code, w.Body)
 	}
@@ -180,7 +199,7 @@ func TestParkedDoc(t *testing.T) {
 func TestAcceptRefuse(t *testing.T) {
 	b := open(t)
 	var told []string
-	h := Handler(b, func() time.Time { return noon }, func(repo, msg string) error { told = append(told, msg); return nil })
+	h := Handler(b, func() time.Time { return noon }, func(repo, msg string) error { told = append(told, msg); return nil }, nil)
 	answer := func(id int64, answer string) int {
 		body := fmt.Sprintf(`{"repo": "/r", "id": "parked:%d", "ticket": "SHOP-9", "text": "Read worker2's plan", "answer": %q}`, id, answer)
 		return post(t, h, "127.0.0.1:1", doneHeaders, body).Code
@@ -234,7 +253,7 @@ func TestAcceptRefuse(t *testing.T) {
 func TestAnswerNotes(t *testing.T) {
 	b := open(t)
 	var told []string
-	h := Handler(b, func() time.Time { return noon }, func(repo, msg string) error { told = append(told, msg); return nil })
+	h := Handler(b, func() time.Time { return noon }, func(repo, msg string) error { told = append(told, msg); return nil }, nil)
 	answer := func(answer, note string) {
 		t.Helper()
 		id, _ := b.Park(Parked{Repo: "/r", Ticket: "SHOP-9", On: "me", Worker: "worker2", Text: "Approve the plan", Kind: "plan", DocPath: "/p.md", CreatedAt: noon})

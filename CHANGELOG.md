@@ -6,6 +6,12 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `acw board`: a ☰ next to the queue's count opens the tasks, the running
+  ones with their worker, then the queued ones in the order acw hands
+  them out, with what each waits for (`acw queue`'s notes).
+
 ### Fixed
 
 - `acw close` on a worker the watcher was putting back on its waiting

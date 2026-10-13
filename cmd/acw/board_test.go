@@ -124,6 +124,18 @@ func TestChangedWorkers(t *testing.T) {
 	if got := changedWorkers(last, []board.Worker{w}); len(got) != 1 {
 		t.Errorf("new state = %d, want 1", len(got))
 	}
+	// The usage is read into fresh pointers every poll: same values, no write.
+	ctx := func(v float64) *float64 { return &v }
+	w.Context = ctx(12)
+	changedWorkers(last, []board.Worker{w})
+	w.Context = ctx(12)
+	if got := changedWorkers(last, []board.Worker{w}); len(got) != 0 {
+		t.Errorf("same usage in a new pointer = %d, want 0", len(got))
+	}
+	w.Context = ctx(13)
+	if got := changedWorkers(last, []board.Worker{w}); len(got) != 1 {
+		t.Errorf("new usage = %d, want 1", len(got))
+	}
 }
 
 func TestPrunedWorkers(t *testing.T) {

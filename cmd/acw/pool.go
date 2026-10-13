@@ -999,29 +999,8 @@ func renderQueue(now time.Time, p poolState, q taskQueue) string {
 	}
 	for i, t := range q.Tasks {
 		fmt.Fprintf(&b, "  %d. #%d  %s", i+1, t.ID, firstLine(t.Brief))
-		if t.Worker != 0 {
-			fmt.Fprintf(&b, " · for %s", p.Plan.labelOf(t.Worker))
-		}
-		if t.Kind != "" {
-			fmt.Fprintf(&b, " · kind %s", t.Kind)
-		}
-		if t.Branch != "" {
-			fmt.Fprintf(&b, " · on %s", t.Branch)
-		}
-		if waits := waitingFor(t, p, q); len(waits) > 0 {
-			fmt.Fprintf(&b, " · waiting for %s", taskList(waits))
-		}
-		if waits := awaitingAccept(t, q); len(waits) > 0 {
-			fmt.Fprintf(&b, " · waiting for the user to accept %s", parkedList(waits))
-		}
-		if i := slices.IndexFunc(p.Workers, func(w poolWorker) bool {
-			if t.Branch == "" || w.State != workerBusy {
-				return false
-			}
-			on, _ := gitutil.CurrentBranch(w.Worktree)
-			return w.TaskBranch == t.Branch || w.Worktree != "" && on == t.Branch
-		}); i >= 0 {
-			fmt.Fprintf(&b, " · waiting for %s to end #%d on that branch", p.Workers[i].label(), p.Workers[i].Task)
+		for _, n := range taskNotes(t, p, q) {
+			b.WriteString(" · " + n)
 		}
 		fmt.Fprintf(&b, " · queued %s", age(now, t.AddedAt))
 		if t.Error != "" {
@@ -1030,6 +1009,60 @@ func renderQueue(now time.Time, p poolState, q taskQueue) string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// taskNotes is what acw queue and the board say of a queued task: whom it
+// is for, its branch, and what it waits for.
+func taskNotes(t queuedTask, p poolState, q taskQueue) []string {
+	var notes []string
+	if t.Worker != 0 {
+		notes = append(notes, "for "+p.Plan.labelOf(t.Worker))
+	}
+	if t.Kind != "" {
+		notes = append(notes, "kind "+t.Kind)
+	}
+	if t.Branch != "" {
+		notes = append(notes, "on "+t.Branch)
+	}
+	if waits := waitingFor(t, p, q); len(waits) > 0 {
+		notes = append(notes, "waiting for "+taskList(waits))
+	}
+	if waits := awaitingAccept(t, q); len(waits) > 0 {
+		notes = append(notes, "waiting for the user to accept "+parkedList(waits))
+	}
+	if i := slices.IndexFunc(p.Workers, func(w poolWorker) bool {
+		if t.Branch == "" || w.State != workerBusy {
+			return false
+		}
+		on, _ := gitutil.CurrentBranch(w.Worktree)
+		return w.TaskBranch == t.Branch || w.Worktree != "" && on == t.Branch
+	}); i >= 0 {
+		notes = append(notes, fmt.Sprintf("waiting for %s to end #%d on that branch", p.Workers[i].label(), p.Workers[i].Task))
+	}
+	return notes
+}
+
+// boardQueue is repo's tasks for acw board: the ones the workers are busy
+// with, then the queue in the order acw hands it out.
+func boardQueue(repo string) (board.Queue, error) {
+	out := board.Queue{Running: []board.QueuedTask{}, Queued: []board.QueuedTask{}}
+	p, q, err := readPool(repo)
+	if err != nil {
+		return out, err
+	}
+	for _, w := range p.Workers {
+		if w.State == workerBusy {
+			t := board.QueuedTask{ID: w.Task, Worker: w.label(), Since: w.Since}
+			if w.Current != nil {
+				t.Title = firstLine(w.Current.Brief)
+			}
+			out.Running = append(out.Running, t)
+		}
+	}
+	for _, t := range q.Tasks {
+		out.Queued = append(out.Queued, board.QueuedTask{ID: t.ID, Title: firstLine(t.Brief), Notes: taskNotes(t, p, q), Held: t.Error, Since: t.AddedAt})
+	}
+	return out, nil
 }
 
 func firstLine(s string) string {

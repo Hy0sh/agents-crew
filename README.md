@@ -977,7 +977,9 @@ the master write.
 - **The swarm**: watcher, stacks running against `max-stacks` (with wtm),
   queue, inbox, 5-hour quota, and a line per worker with what its screen
   shows it waiting on and, while it holds one, since when it holds its
-  stack.
+  stack. The ☰ next to the queue opens the tasks: the running ones with
+  their worker, then the queued ones in the order acw hands them out,
+  each with what it waits for.
 
 **Done**: each line of "Waiting on you" has a button that tells the master
 "the user marked done: ..." and sets the line aside. The master takes it as

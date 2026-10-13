@@ -104,7 +104,7 @@ func boardCommand() *cobra.Command {
 			url := "http://" + ln.Addr().String() + "/"
 			fmt.Fprintf(cmd.OutOrStdout(), "acw board on %s (Ctrl-C stops it)\n", url)
 			openBrowser(url)
-			srv := &http.Server{Handler: board.Handler(b, time.Now, notifyMaster)}
+			srv := &http.Server{Handler: board.Handler(b, time.Now, notifyMaster, boardQueue)}
 			if untilStop != "" {
 				go func() {
 					waitGone(names.StatusDir(untilStop), 2*time.Second)
@@ -242,7 +242,7 @@ func snapshotDoc(path string) (string, error) {
 		return "", fmt.Errorf("--doc: %w", err)
 	}
 	dir := filepath.Join(filepath.Dir(board.Path()), "docs")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
 	f, err := os.CreateTemp(dir, time.Now().Format("20060102-150405-")+"*-"+filepath.Base(path))
@@ -685,12 +685,23 @@ func changedWorkers(last map[string]board.Worker, cur []board.Worker) []board.Wo
 			}
 		}
 		prev.UpdatedAt = w.UpdatedAt
-		if !seen || prev != w {
+		if !seen || !sameWorker(prev, w) {
 			out = append(out, w)
 		}
 		last[w.Worker] = w
 	}
 	return out
+}
+
+// sameWorker compares two rows by value: their usage is read into fresh
+// pointers every poll, and != on them rewrote every row every poll.
+func sameWorker(a, b board.Worker) bool {
+	same := func(x, y *float64) bool { return x == y || x != nil && y != nil && *x == *y }
+	if !same(a.Context, b.Context) || !same(a.FiveHour, b.FiveHour) {
+		return false
+	}
+	a.Context, a.FiveHour, b.Context, b.FiveHour = nil, nil, nil, nil
+	return a == b
 }
 
 var pullURL = regexp.MustCompile(`/pull/(\d+)$`)
