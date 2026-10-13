@@ -167,7 +167,7 @@ func newMasterData(p Params) MasterData {
 		IdleCloseMinutes: p.IdleCloseMinutes,
 		WorkerAgent:      workerAgent(p.Slug, p.Workers),
 		WorkerNames:      workerNamesList(p.Slug, p.Workers),
-		EnvCapRule:       envCapRule(coders(p.Workers), p.Stacks, p.MaxStacks),
+		EnvCapRule:       envCapRule(coders(p.Workers), len(p.Workers)-coders(p.Workers), p.Stacks, p.MaxStacks),
 		StackProfileRule: stackProfileRule(p.Profile),
 		RepoRules:        strings.TrimSpace(p.Notes),
 		PingingWorkers:   pingingWorkers(p.Slug, p.Workers),
@@ -348,13 +348,18 @@ func BuildFromSource(source string, p Params) (string, error) {
 }
 
 // envCapRule says how many environments may run, which acw enforces on
-// the workers' acw stack up, never on their opening.
-func envCapRule(n int, stacks bool, maxStacks int) string {
+// the workers' acw stack up, never on their opening. A worker outside the
+// code (outside of them) has no worktree, hence no stack.
+func envCapRule(n, outside int, stacks bool, maxStacks int) string {
 	if !stacks || n == 0 {
 		return "no worker gets an isolated environment (stack) from acw here: a task that needs one is set up by the worker through the project's own tooling"
 	}
-	return fmt.Sprintf("every worker in the code has its own isolated environment (stack) prepared, but none runs by default: a worker starts its own with `acw stack up` for the minutes it needs it (running the app, a test against the database, a check in a browser) and stops it with `acw stack down`, and acw stops it anyway when you end its task. "+
+	rule := fmt.Sprintf("every worker in the code has its own isolated environment (stack) prepared, but none runs by default: a worker starts its own with `acw stack up` for the minutes it needs it (running the app, a test against the database, a check in a browser) and stops it with `acw stack down`, and acw stops it anyway when you end its task. "+
 		"At most %d run at the same time: a worker opens and takes its task without waiting for one, and only its `acw stack up` waits for a place: nothing to arbitrate; acw tells you of a stack held for more than 30 min, and `acw status` shows who holds one", maxStacks)
+	if outside > 0 {
+		rule += "; a worker outside the code has no worktree, so no stack: a task that measures something on one (a performance run, a query on the database dump) goes to a worker in the code"
+	}
+	return rule
 }
 
 // stackProfileRule states the intent, not the command: the brief never

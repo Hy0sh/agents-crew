@@ -206,6 +206,12 @@ func AgentPrompt(name, text string) error {
 	return err
 }
 
+// AgentSendKeys presses keys in a running agent (esc, enter...).
+func AgentSendKeys(name string, keys ...string) error {
+	_, err := run(append([]string{"agent", "send-keys", name}, keys...)...)
+	return err
+}
+
 // AgentWait blocks until the agent reaches one of the states in until, or
 // timeout passes (an error then).
 func AgentWait(name string, until []string, timeout time.Duration) error {

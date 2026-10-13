@@ -1,9 +1,15 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
+
+	"github.com/Hy0sh/agents-crew/internal/herdr"
+	"github.com/Hy0sh/agents-crew/internal/names"
 )
 
 // Read off a Claude Code pane through herdr agent read --format ansi: an
@@ -31,6 +37,31 @@ func TestSlashCommand(t *testing.T) {
 		if _, err := slashCommand(bad); err == nil {
 			t.Errorf("%q accepted", bad)
 		}
+	}
+}
+
+// --interrupt leaves the message first, then presses Escape in the worker:
+// stopped, it goes idle and the watcher types the message.
+func TestTellInterrupt(t *testing.T) {
+	repo := testSwarm(t, 1, poolWorker{Index: 1, State: workerBusy, Task: 3})
+	var pressed []string
+	pressKeys = func(name string, keys ...string) error {
+		pressed = append(append(pressed, name), keys...)
+		return nil
+	}
+	t.Cleanup(func() { pressKeys = herdr.AgentSendKeys })
+	if err := tellByHand(repo, "worker1", []string{"stop", "there"}, true, nil, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{names.Agent(names.Slug(repo), "worker1"), "esc"}; !slices.Equal(pressed, want) {
+		t.Errorf("pressed %q, want %q", pressed, want)
+	}
+	if content, _ := os.ReadFile(filepath.Join(names.StatusDir(repo), "worker1.tell")); strings.TrimSpace(string(content)) != "stop there" {
+		t.Errorf("tell file = %q", content)
+	}
+	pressed = nil
+	if err := tellByHand(repo, "worker1", nil, true, strings.NewReader(" \n"), io.Discard); err == nil || pressed != nil {
+		t.Errorf("an empty message: err = %v, pressed %q; want it refused before any key", err, pressed)
 	}
 }
 

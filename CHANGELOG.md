@@ -6,6 +6,23 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `acw tell <worker> --interrupt`: presses Escape in the worker to end its
+  current turn, so it gets the message at once. A worker stuck in one turn
+  only got a message at an end of turn that would not come.
+
+### Changed
+
+- The master queues or parks a follow-up the moment it appears (a rebase
+  after a merge, a draft waiting for the user, an expected answer), instead
+  of keeping it in mind: its conversation does not survive `acw stop`.
+- A worker runs one command per step, never a chain wrapped in `sh -c`:
+  such a chain matches no allowed command, waits for an approval and is
+  refused after a while, stalling the task.
+- With workers outside the code, the master's brief says they have no
+  stack: a measurement on one goes to a worker in the code.
+
 ## [0.28.0] - 2026-10-13
 
 ### Added

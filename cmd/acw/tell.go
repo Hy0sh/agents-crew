@@ -50,7 +50,10 @@ func openWorkerNamed(repo, arg string) (*poolWorker, error) {
 
 // tellByHand is acw tell: the worker must be open, the message is its
 // arguments or, without any, stdin (a heredoc expands nothing).
-func tellByHand(repo, arg string, words []string, stdin io.Reader, out io.Writer) error {
+// With interrupt, Escape then stops its current turn: the worker goes idle
+// and acw types the message at once instead of at the end of a turn that
+// may not come (a worker stuck on a loop or a hung tool).
+func tellByHand(repo, arg string, words []string, interrupt bool, stdin io.Reader, out io.Writer) error {
 	w, err := openWorkerNamed(repo, arg)
 	if err != nil {
 		return err
@@ -66,9 +69,19 @@ func tellByHand(repo, arg string, words []string, stdin io.Reader, out io.Writer
 	if err := tellWorker(names.StatusDir(repo), w.label(), text); err != nil {
 		return err
 	}
+	if interrupt {
+		if err := pressKeys(names.Agent(names.Slug(repo), w.label()), "esc"); err != nil {
+			return fmt.Errorf("the message waits for its end of turn, but Escape failed: %w", err)
+		}
+		fmt.Fprintf(out, "%s: current turn interrupted, it gets the message within seconds.\n", w.label())
+		return nil
+	}
 	fmt.Fprintf(out, "%s gets it at the end of its current turn, or within seconds if it is idle.\n", w.label())
 	return nil
 }
+
+// pressKeys is herdr's send-keys, a variable for the tests.
+var pressKeys = herdr.AgentSendKeys
 
 // slashCommand checks what acw tell --command types: one line starting
 // with /. /clear is acw clear's, which confirms the reset took.

@@ -118,6 +118,12 @@ func TestBuildListsOutsideWorkersAndCountsOnlyCodersForStacks(t *testing.T) {
 	if !strings.Contains(got, "every worker in the code has its own isolated environment") {
 		t.Error("the stack rule must count coders only; worker1 needs no environment")
 	}
+	if !strings.Contains(got, "so no stack: a task that measures something on one") {
+		t.Error("with a worker outside the code, the brief must route measurements to a coder")
+	}
+	if strings.Contains(Build(params("claude", 3, 2)), "so no stack") {
+		t.Error("coders only: no word on workers outside the code")
+	}
 }
 
 // A role with kinds tells the master how to reach it and that no other
