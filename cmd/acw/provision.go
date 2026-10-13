@@ -236,6 +236,8 @@ func splitFrom(masterPane string, workerPanes []string, heights map[string]int) 
 // which a reopening needs. A worktree whose stack wtm no longer finds is
 // kept, and the master told how to get the stack back.
 func closeWorker(repo string, w poolWorker, why string) {
+	// After a move of its worktree under way, never during it.
+	defer lockWorktree(repo, w.label())()
 	plan, _, err := readPool(repo)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "closing a worker:", err)

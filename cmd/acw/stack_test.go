@@ -37,6 +37,33 @@ func TestCloseByHand(t *testing.T) {
 	}
 }
 
+// A close waits for a move of the worktree under way (the watcher putting
+// the worker back on its waiting branch) instead of removing it while wtm
+// writes into it.
+func TestCloseWaitsForAMoveUnderWay(t *testing.T) {
+	repo := testSwarm(t, 1, poolWorker{Index: 1, State: workerFree})
+	p, _, _ := readPool(repo)
+	p.Plan.Repo, p.Plan.Inbox = repo, names.Inbox(repo)
+	if err := writeJSON(names.PoolFile(repo), p); err != nil {
+		t.Fatal(err)
+	}
+	release := lockWorktree(repo, "worker1")
+	done := make(chan error)
+	go func() { done <- closeByHand(repo, 1, "worker1", io.Discard) }()
+	select {
+	case err := <-done:
+		t.Fatalf("closed during the move: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	release()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if p, _, _ = readPool(repo); p.worker(1) != nil {
+		t.Errorf("pool = %+v, want worker1 closed once the move is over", p.Workers)
+	}
+}
+
 // acw stack up waits while max-stacks is reached, then takes the place
 // given back and starts the stack; acw stack down stops it and frees the
 // place.
