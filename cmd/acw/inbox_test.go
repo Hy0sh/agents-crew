@@ -114,6 +114,31 @@ func TestNextInboxBatchesABurst(t *testing.T) {
 	}
 }
 
+// A line that asks nothing (note) wakes no one: it goes out first with the
+// next line that does.
+func TestNoteWaitsForALineThatWakes(t *testing.T) {
+	inbox := filepath.Join(t.TempDir(), "inbox")
+	plan := provisionPlan{Inbox: inbox}
+	note(plan, "worker2 closed: free for 10 min with nothing queued for it.")
+	var out bytes.Buffer
+	if err := nextInbox(inbox, &out, time.Millisecond, 20*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "run the command again") || strings.Contains(out.String(), "worker2") {
+		t.Fatalf("a note alone: nextInbox() = %q, want it to wake no one", out.String())
+	}
+	if err := appendLine(inbox, "worker1 handed control back"); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := nextInbox(inbox, &out, time.Millisecond, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if want := "worker2 closed: free for 10 min with nothing queued for it.\nworker1 handed control back\n"; out.String() != want {
+		t.Errorf("nextInbox() = %q, want %q", out.String(), want)
+	}
+}
+
 // A quiet swarm ends the wait before Claude Code's background timeout
 // kills the command, and says so for the master to re-run it.
 func TestNextInboxGivesUpWhenQuiet(t *testing.T) {

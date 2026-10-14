@@ -210,11 +210,18 @@ function wait(w, withButton) {
   if (w.marked_at) r.append(el("div", "flag", (withButton ? "Still waiting, marked done at " : "Marked done at ") + hm(w.marked_at)));
   return r;
 }
+// A parked decision often offers options: done alone left the master
+// guessing which one was taken, or whether the user did it themselves.
 async function markDone(w, b) {
+  let note = "";
+  if (w.id.startsWith("parked:")) {
+    note = prompt("What was decided or done? (the option taken, or what you did yourself)", "");
+    if (note === null) return;
+  }
   b.disabled = true;
   try {
     const res = await fetch("/api/done", { method: "POST", headers: { "Content-Type": "application/json", "X-Acw-Board": "1" },
-      body: JSON.stringify({ repo: state.repo, id: w.id, ticket: w.ticket, text: w.text, since: w.since }) });
+      body: JSON.stringify({ repo: state.repo, id: w.id, ticket: w.ticket, text: w.text, since: w.since, note }) });
     if (!res.ok) throw new Error((await res.text()).trim());
     load();
   } catch (e) {

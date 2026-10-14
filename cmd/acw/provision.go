@@ -140,7 +140,7 @@ func openWorker(repo string, index int) {
 		}
 		return true, nil
 	})
-	tell(plan, opened+": acw gives it the next task it may take.")
+	note(plan, opened+": acw gives it the next task it may take.")
 }
 
 // placing serializes the fast half of every opening, from git worktree add
@@ -234,8 +234,9 @@ func splitFrom(masterPane string, workerPanes []string, heights map[string]int) 
 // agent, its worktree and environment (its task branch stays, see
 // teardown.Worktree), its files in the status dir but its system prompt,
 // which a reopening needs. A worktree whose stack wtm no longer finds is
-// kept, and the master told how to get the stack back.
-func closeWorker(repo string, w poolWorker, why string) {
+// kept, and the master told how to get the stack back. A routine close
+// (idle) with nothing left behind does not wake the master (see note).
+func closeWorker(repo string, w poolWorker, why string, routine bool) {
 	// After a move of its worktree under way, never during it.
 	defer lockWorktree(repo, w.label())()
 	plan, _, err := readPool(repo)
@@ -248,12 +249,13 @@ func closeWorker(repo string, w poolWorker, why string) {
 			fmt.Fprintf(os.Stderr, "%s: herdr pane close: %v\n", w.label(), err)
 		}
 	}
+	left := ""
 	if w.Worktree != "" {
 		branch, _ := gitutil.CurrentBranch(w.Worktree)
 		if kept := teardown.Worktree(repo, w.Worktree); kept != "" {
-			why += fmt.Sprintf(". Its worktree %s is KEPT: %s. Tell me", w.Worktree, kept)
+			left = fmt.Sprintf(". Its worktree %s is KEPT: %s. Tell me", w.Worktree, kept)
 		} else {
-			why += leftBranch(repo, branch)
+			left = leftBranch(repo, branch)
 		}
 	}
 	files, _ := filepath.Glob(filepath.Join(names.StatusDir(repo), w.label()+".*"))
@@ -267,7 +269,12 @@ func closeWorker(repo string, w poolWorker, why string) {
 		return true, nil
 	})
 	record("close", func(b *board.DB) error { return b.DeleteWorker(repo, w.label()) })
-	tell(plan.Plan, w.label()+" closed: "+why+".")
+	msg := w.label() + " closed: " + why + left + "."
+	if routine && left == "" {
+		note(plan.Plan, msg)
+		return
+	}
+	tell(plan.Plan, msg)
 }
 
 // closeByHand is acw close: free worker index closed now, as an idle one
@@ -295,7 +302,7 @@ func closeByHand(repo string, index int, label string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	closeWorker(repo, w, "closed by hand with acw close")
+	closeWorker(repo, w, "closed by hand with acw close", false)
 	fmt.Fprintf(out, "%s closed; a role's min opens a fresh one if it falls below.\n", label)
 	return nil
 }
@@ -318,6 +325,21 @@ func leftBranch(repo, branch string) string {
 // tell sends the master a line about the pool.
 func tell(plan provisionPlan, msg string) {
 	if err := deliver(plan.Inbox, names.Master(names.Slug(plan.Repo)), msg); err != nil {
+		fmt.Fprintln(os.Stderr, "message to the master:", err)
+	}
+}
+
+// note is tell for a line that asks nothing of the master (a worker
+// opened, a task handed out, a routine close): it waits in the inbox's
+// later file and goes out with the next line that wakes it. Each used to
+// wake it alone, a whole turn of reading for nothing, six in a row on an
+// afternoon of idle closes.
+func note(plan provisionPlan, msg string) {
+	if plan.Inbox == "" {
+		tell(plan, msg)
+		return
+	}
+	if err := appendLine(laterFile(plan.Inbox), msg); err != nil {
 		fmt.Fprintln(os.Stderr, "message to the master:", err)
 	}
 }

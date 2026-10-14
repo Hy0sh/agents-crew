@@ -141,6 +141,25 @@ func TestDoneClosesAParkedDecision(t *testing.T) {
 	}
 }
 
+// The note typed with done says which option was taken: the master hears
+// it, and the closed decision keeps it.
+func TestDoneOnAParkedDecisionCarriesTheNote(t *testing.T) {
+	b := open(t)
+	var told []string
+	h := Handler(b, func() time.Time { return noon }, func(repo, msg string) error { told = append(told, msg); return nil }, nil)
+	id, _ := b.Park(Parked{Repo: "/r", On: "me", Text: "Reply to the client: 1 as is, 2 reworded, 3 nothing", CreatedAt: noon})
+	body := fmt.Sprintf(`{"repo": "/r", "id": "parked:%d", "text": "Reply to the client", "note": " option 2, sent myself "}`, id)
+	if w := post(t, h, "localhost:1", doneHeaders, body); w.Code != http.StatusNoContent {
+		t.Fatalf("done = %d %s", w.Code, w.Body)
+	}
+	if len(told) != 1 || !strings.Contains(told[0], "Their note on it:\noption 2, sent myself") {
+		t.Errorf("told = %q", told)
+	}
+	if p, _ := b.GetParked(id); p.Answer != "done (marked on acw board): option 2, sent myself" {
+		t.Errorf("answer = %q", p.Answer)
+	}
+}
+
 // A parked document is read from its file when asked, rendered; raw HTML
 // and script links are dropped; a file gone, too big or not text says so.
 func TestParkedDoc(t *testing.T) {

@@ -219,6 +219,7 @@ func stackRule(stackCmd string) string {
 	return fmt.Sprintf("Your worktree has its own isolated environment (a wtm stack: its ports, its database), but nothing runs in it by default: the machine holds only a few at a time, shared by every worker. "+
 		"When you need it (to run the app, tests against its database, a check in a browser), run `%[1]s up` from your worktree: it waits for a free place, starts the stack and prints its addresses. "+
 		"Run `%[1]s down` as soon as you are done with it, and go on without it: it is given back at the end of your task anyway, and its database survives a down then an up. "+
+		"A task that needs another wtm profile than yours (a service your profile leaves out) gets it with `%[1]s up --profile <name>`. "+
 		"Never start it yourself with wtm start, or wtm switch without --no-start: acw would not count it, and another worker would find no room.", stackCmd)
 }
 

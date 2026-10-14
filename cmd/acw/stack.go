@@ -26,6 +26,7 @@ func stackCommand() *cobra.Command {
 		Use:   "stack",
 		Short: "Take or give back your worktree's stack (run by a worker, from its worktree)",
 	}
+	var profile string
 	up := &cobra.Command{
 		Use:   "up",
 		Short: "Wait for a place under max-stacks, then start your worktree's stack",
@@ -35,9 +36,13 @@ func stackCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return stackUp(repo, index, time.Now().Add(stackWait), 5*time.Second, cmd.OutOrStdout())
+			if profile == "" {
+				profile = poolProfile(repo, index)
+			}
+			return stackUp(repo, index, profile, time.Now().Add(stackWait), 5*time.Second, cmd.OutOrStdout())
 		},
 	}
+	up.Flags().StringVar(&profile, "profile", "", "the wtm profile to start, when the task needs another one than the worker's (default: the worker's)")
 	down := &cobra.Command{
 		Use:   "down",
 		Short: "Stop your worktree's stack and give its place back; its database is kept",
@@ -94,10 +99,10 @@ func stackWorker() (string, int, error) {
 }
 
 // stackUp takes a place for worker index as soon as one is free under
-// max-stacks, then starts its stack. Past deadline it gives the hand back
-// without one, saying so: the agent runs it again. A start that fails
-// gives the place back.
-func stackUp(repo string, index int, deadline time.Time, every time.Duration, out io.Writer) error {
+// max-stacks, then starts its stack on profile. Past deadline it gives the
+// hand back without one, saying so: the agent runs it again. A start that
+// fails gives the place back.
+func stackUp(repo string, index int, profile string, deadline time.Time, every time.Duration, out io.Writer) error {
 	for told := false; ; {
 		// Counted out of the lock: it may ask wtm.
 		held := 0
@@ -130,7 +135,7 @@ func stackUp(repo string, index int, deadline time.Time, every time.Duration, ou
 		if got {
 			branch, err := gitutil.CurrentBranch(w.Worktree)
 			if err == nil {
-				err = wtm.Start(w.Worktree, branch, poolProfile(repo, index), out)
+				err = wtm.Start(w.Worktree, branch, profile, out)
 			}
 			if err != nil {
 				dropStack(repo, index)

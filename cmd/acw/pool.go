@@ -851,7 +851,7 @@ func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, no
 		if p.Plan.Workers[w.Index-1].Kind != "claude" {
 			why = "its task is done, and acw cannot reset its context for another"
 		}
-		background(func() { closeWorker(repo, w, why) })
+		background(func() { closeWorker(repo, w, why, true) })
 	}
 }
 
@@ -927,7 +927,7 @@ func assignTask(repo string, plan provisionPlan, w poolWorker, t queuedTask) {
 		if note := branchNote(steps.String(), w.label()); note != "" {
 			msg += " (" + note + ")"
 		}
-		tell(plan, msg)
+		note(plan, msg)
 		return
 	}
 	t.Error = err.Error()
@@ -982,7 +982,7 @@ func recoverPool(repo string) {
 		tell(plan, msg)
 	}
 	for _, w := range interrupted {
-		background(func() { closeWorker(repo, w, "it was "+w.State+" when the watcher stopped") })
+		background(func() { closeWorker(repo, w, "it was "+w.State+" when the watcher stopped", false) })
 	}
 }
 
