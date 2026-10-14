@@ -84,6 +84,18 @@ func waitGone(path string, every time.Duration) {
 	}
 }
 
+// terminal says out is a terminal: an agent's command, piped into its tool
+// output, is not. A worker that ran acw board to read it as text opened a
+// tab on the user's screen and hung on a server that never ends.
+func terminal(out io.Writer) bool {
+	f, ok := out.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := f.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
 func boardCommand() *cobra.Command {
 	var port int
 	var untilStop string
@@ -92,6 +104,10 @@ func boardCommand() *cobra.Command {
 		Short: "Open a local page of what waits on you, where each ticket stands, and how the swarm runs",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if untilStop == "" && !terminal(cmd.OutOrStdout()) {
+				return errors.New("acw board serves a web page for the user and never ends: not from a script or an agent. " +
+					"Read the parked decisions with acw board parked, one in full with acw board parked <number>")
+			}
 			b, err := board.Open(board.Path())
 			if err != nil {
 				return err

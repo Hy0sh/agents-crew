@@ -424,3 +424,21 @@ func TestWaitGoneReturnsOnceTheDirIsRemoved(t *testing.T) {
 		t.Fatal("waitGone still waits after the dir was removed")
 	}
 }
+
+// An agent runs acw board with its output piped: refused at once, before
+// any server or browser tab, and pointed to the text read.
+func TestBoardRefusedWithoutATerminal(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+	cmd := boardCommand()
+	cmd.SetOut(w)
+	cmd.SetArgs(nil)
+	cmd.SilenceUsage = true
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "acw board parked") {
+		t.Errorf("err = %v, want a refusal pointing to acw board parked", err)
+	}
+}
