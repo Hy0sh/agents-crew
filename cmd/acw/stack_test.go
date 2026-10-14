@@ -79,7 +79,7 @@ func TestStackUpWaitsForAPlace(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := stackUp(repo, 1, time.Now().Add(50*time.Millisecond), 10*time.Millisecond, &out); err != nil {
+	if err := stackUp(repo, 1, "light", time.Now().Add(50*time.Millisecond), 10*time.Millisecond, &out); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(calls); len(got) != 0 || !strings.Contains(out.String(), "still no free place (1 of 1 stacks running)") {
@@ -88,10 +88,11 @@ func TestStackUpWaitsForAPlace(t *testing.T) {
 
 	dropStack(repo, 2)
 	out.Reset()
-	if err := stackUp(repo, 1, time.Now().Add(time.Second), 10*time.Millisecond, &out); err != nil {
+	// A task that needs a heavier profile asks for it, still under the cap.
+	if err := stackUp(repo, 1, "async", time.Now().Add(time.Second), 10*time.Millisecond, &out); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(calls); string(got) != "start agents/worker1-20260925140000 --profile light\n" {
+	if got, _ := os.ReadFile(calls); string(got) != "start agents/worker1-20260925140000 --profile async\n" {
 		t.Errorf("place free: wtm calls = %q", got)
 	}
 	p, _, _ = readPool(repo)

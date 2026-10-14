@@ -6,6 +6,23 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `acw stack up --profile <name>`: a task that needs a service the
+  worker's profile leaves out starts its stack on another wtm profile, still
+  counted under max-stacks. `acw stack up` always started the worker's own
+  profile, whatever the worker had switched to.
+- `acw board`: Done on a parked decision asks what was decided or done (the
+  option taken, or what the user did themselves). The master hears it, and
+  the closed decision keeps it; Done alone left it guessing.
+
+### Changed
+
+- A worker opened, a task handed out and a routine idle close no longer
+  wake the master: they wait and come with the next message that does. A
+  close that leaves something to settle still wakes it. An afternoon of
+  idle closes used to cost the master one turn of reading each.
+
 ## [0.29.1] - 2026-10-14
 
 ### Fixed

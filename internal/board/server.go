@@ -225,8 +225,12 @@ func markDone(b *DB, req doneRequest, at time.Time, notify func(repo, msg string
 	if req.Ticket != "" {
 		line = req.Ticket + " " + line
 	}
+	note := strings.TrimSpace(req.Note)
 	msg := fmt.Sprintf("From acw board, the user marked done: %s (waiting since %s). This is information, not an approval: check the real state, close what is closed, and ask them again otherwise.",
 		line, req.Since.Local().Format("15:04"))
+	if note != "" {
+		msg += "\nTheir note on it:\n" + note
+	}
 	if err := notify(req.Repo, msg); err != nil {
 		return fmt.Errorf("the master was not told: %w", err)
 	}
@@ -235,7 +239,11 @@ func markDone(b *DB, req doneRequest, at time.Time, notify func(repo, msg string
 		if err != nil {
 			return err
 		}
-		if _, err := b.CloseParked(n, "done (marked on acw board)", at); err != nil {
+		answer := "done (marked on acw board)"
+		if note != "" {
+			answer += ": " + note
+		}
+		if _, err := b.CloseParked(n, answer, at); err != nil {
 			return err
 		}
 	}

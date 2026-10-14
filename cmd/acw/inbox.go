@@ -109,11 +109,32 @@ func watchInbox(inbox string, w io.Writer, interval time.Duration) error {
 		if _, err := os.Stat(filepath.Dir(inbox)); errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
-		if err := drainOnce(inbox, w); err != nil {
+		var got bytes.Buffer
+		if err := drainOnce(inbox, &got); err != nil {
+			return err
+		}
+		if err := withLater(inbox, w, got.Bytes()); err != nil {
 			return err
 		}
 		time.Sleep(interval)
 	}
+}
+
+// laterFile holds the lines that wait for the next one that wakes the
+// master (see note).
+func laterFile(inbox string) string { return inbox + ".later" }
+
+// withLater writes out woke, the lines that wake the master, after those
+// waiting in the later file; nothing at all without one that wakes it.
+func withLater(inbox string, w io.Writer, woke []byte) error {
+	if len(woke) == 0 {
+		return nil
+	}
+	if err := drainOnce(laterFile(inbox), w); err != nil {
+		return err
+	}
+	_, err := w.Write(woke)
+	return err
 }
 
 // inboxQuiet is how long nextInbox waits before giving up: Claude Code
@@ -147,8 +168,7 @@ func nextInbox(inbox string, w io.Writer, interval, quiet time.Duration) error {
 			if err := drainOnce(inbox, &got); err != nil {
 				return err
 			}
-			_, err := w.Write(got.Bytes())
-			return err
+			return withLater(inbox, w, got.Bytes())
 		}
 		time.Sleep(interval)
 	}
