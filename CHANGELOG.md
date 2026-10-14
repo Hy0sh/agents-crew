@@ -6,6 +6,13 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Fixed
+
+- `acw board` run by an agent, to read the board as text, opened a tab on
+  the user's screen and left the agent's command hung on a server that
+  never ends. Without a terminal it now refuses at once and points to
+  `acw board parked`.
+
 ## [0.29.0] - 2026-10-13
 
 ### Added
