@@ -6,6 +6,17 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Changed
+
+- `acw --board` reuses the board another swarm opened, and that board stays
+  open until the last of those swarms is stopped. Each swarm opened its
+  own board, on its own port: stopping the first took away the board the
+  user was reading, while the second swarm still ran.
+
+### Added
+
+- `acw board` has a favicon, to find its tab among the others.
+
 ## [0.30.0] - 2026-10-14
 
 ### Added
