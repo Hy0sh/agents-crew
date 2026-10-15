@@ -86,10 +86,6 @@ func Open(path string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := db.Exec(schema); err != nil {
-		db.Close()
-		return nil, err
-	}
 	if err := migrate(db); err != nil {
 		db.Close()
 		return nil, err
@@ -97,9 +93,13 @@ func Open(path string) (*DB, error) {
 	return &DB{db}, nil
 }
 
-// migrate runs the migrations a base lacks. The watchers and the page may
-// open the base at the same moment: BEGIN IMMEDIATE takes the write lock
-// before reading the version, so the second one waits, then finds it done.
+// migrate creates the schema and runs the migrations a base lacks. The
+// watchers and the page may open the base at the same moment: BEGIN
+// IMMEDIATE takes the write lock before anything else, so the second one
+// waits, then finds it done. The schema too: run outside that lock, its
+// read-then-write statements (CREATE TABLE IF NOT EXISTS, the INSERT ...
+// WHERE NOT EXISTS) got SQLITE_BUSY at once, without the busy timeout,
+// when two openings raced on a new base.
 // A base already current is told by a plain read: every write the watcher
 // makes opens the base, and took the write lock for nothing.
 func migrate(db *sql.DB) error {
@@ -117,6 +117,9 @@ func migrate(db *sql.DB) error {
 		return err
 	}
 	err = func() error {
+		if _, err := conn.ExecContext(ctx, schema); err != nil {
+			return err
+		}
 		var version int
 		if err := conn.QueryRowContext(ctx, `SELECT version FROM meta`).Scan(&version); err != nil {
 			return err

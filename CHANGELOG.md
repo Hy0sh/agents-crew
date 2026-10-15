@@ -44,6 +44,11 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   Code shows the diff of every untracked file a command changes: every acw
   command of the master rewrote the swarm's state files there, briefs
   included, all over its terminal.
+- Two openings of a new board base at once (a watcher and the page at a
+  first launch) could fail with "database is locked": its schema was
+  created outside the write lock, and SQLite answers a read-then-write
+  statement that loses the race at once, without waiting. It is now
+  created under the same lock as the migrations.
 
 ## [0.30.0] - 2026-10-14
 
