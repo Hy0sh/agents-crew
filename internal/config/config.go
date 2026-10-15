@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Hy0sh/agents-crew/internal/harness"
 	"github.com/Hy0sh/agents-crew/internal/names"
 )
 
@@ -154,6 +155,27 @@ func (r Roles) MarshalJSON() ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+// Check refuses what Load must not hand out: roles that can't mean
+// anything, and an agent kind acw doesn't know.
+func (p *Project) Check() error {
+	if err := p.CheckRoles(); err != nil {
+		return err
+	}
+	kinds := map[string]*string{"master-kind": p.MasterKind, "worker-kind": p.WorkerKind}
+	for _, r := range p.Roles {
+		kinds["roles: "+r.Name+": kind"] = r.Kind
+	}
+	for key, kind := range kinds {
+		if kind == nil {
+			continue
+		}
+		if _, err := harness.Lookup(*kind); err != nil {
+			return fmt.Errorf("%s: %w", key, err)
+		}
+	}
+	return nil
+}
+
 // CheckRoles refuses what roles can't mean, and worker-overrides, which
 // they replace, with the roles to write instead.
 func (p *Project) CheckRoles() error {
@@ -265,7 +287,7 @@ func Load(repo string) (*Project, error) {
 	if key := f.keyOf(repo); key != "" {
 		p := f.Projects[key]
 		expandPaths(p)
-		if err := p.CheckRoles(); err != nil {
+		if err := p.Check(); err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
 		for name, preset := range p.Presets {
@@ -332,7 +354,7 @@ func Edit(repo string, change func(*Project) error) error {
 	}
 	// Never write what Load would refuse: every later acw start in the
 	// repo would fail until the JSON is fixed by hand.
-	if err := p.CheckRoles(); err != nil {
+	if err := p.Check(); err != nil {
 		return err
 	}
 	f.Projects[key] = p
@@ -417,7 +439,7 @@ func (p *Project) WithPreset(name string) (*Project, error) {
 		}
 	}
 	merged.Presets = nil
-	if err := merged.CheckRoles(); err != nil {
+	if err := merged.Check(); err != nil {
 		return nil, fmt.Errorf("preset %q: %w", name, err)
 	}
 	return &merged, nil

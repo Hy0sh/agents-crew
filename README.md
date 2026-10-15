@@ -86,7 +86,7 @@ only way to stop a swarm.
 | `--min-workers` | `0` | workers kept open with nothing queued; equal to `--workers`, the swarm is fixed |
 | `--idle-close-minutes` | `10` | how long a free worker above `--min-workers` stays open with nothing queued for it |
 | `--max-stacks` | same as `--workers` | stacks running at the same time, which the workers take with `acw stack up` for the minutes they need one; it caps no worker |
-| `--master-kind` | `claude` | Herdr agent kind for the master (`claude`, `codex`, `gemini`, `cursor`...) |
+| `--master-kind` | `claude` | Herdr agent kind for the master (`claude`, `codex`, `gemini`, `cursor`...); a kind acw doesn't know is refused, with the list of those it does. Claude Code gets more than the others: its brief as a system prompt, an end-of-turn hook, its context reset between tasks |
 | `--worker-kind` | `claude` | Herdr agent kind for the workers |
 | `--master-model` | `opus` | model for the master; **empty means no `--model` is passed** to its CLI, for a kind that has no such flag |
 | `--worker-model` | `sonnet` | model for the workers; same empty-means-nothing rule |

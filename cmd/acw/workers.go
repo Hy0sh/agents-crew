@@ -10,6 +10,7 @@ import (
 
 	"github.com/Hy0sh/agents-crew/internal/brief"
 	"github.com/Hy0sh/agents-crew/internal/config"
+	"github.com/Hy0sh/agents-crew/internal/harness"
 	"github.com/Hy0sh/agents-crew/internal/names"
 )
 
@@ -246,7 +247,7 @@ func systemPrompt(role, notes, prompt string) string {
 func writeSystemPrompts(statusDir, notes, stackCmd string, workers []workerSpec) error {
 	for i := range workers {
 		w := &workers[i]
-		if w.Kind != "claude" {
+		if !harness.Of(w.Kind).SystemPrompt {
 			continue
 		}
 		label := w.label()

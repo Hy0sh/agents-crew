@@ -12,6 +12,12 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   open until the last of those swarms is stopped. Each swarm opened its
   own board, on its own port: stopping the first took away the board the
   user was reading, while the second swarm still ran.
+- An agent kind acw doesn't know is refused, in the config (`master-kind`,
+  `worker-kind`, a role's `kind`, a preset) and on the command line, with
+  the list of the kinds it knows: the ones herdr starts. A typo used to
+  start a pane on a CLI that doesn't exist. What acw does with each kind is
+  now declared in one place, `internal/harness`, instead of twenty
+  comparisons with `"claude"` across the code.
 
 ### Added
 

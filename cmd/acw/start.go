@@ -14,6 +14,7 @@ import (
 
 	"github.com/Hy0sh/agents-crew/internal/brief"
 	"github.com/Hy0sh/agents-crew/internal/claudecode"
+	"github.com/Hy0sh/agents-crew/internal/harness"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
 	"github.com/Hy0sh/agents-crew/internal/preflight"
@@ -39,7 +40,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	for _, kind := range kinds {
 		preflight.WarnIfAgentsFileMissing(repo, kind, func(format string, a ...any) { fmt.Fprintf(out, format, a...) })
 	}
-	if opts.masterKind == claudecode.Kind || slices.Contains(kinds, claudecode.Kind) {
+	if harness.Of(opts.masterKind).ShowsUntrackedDiffs || slices.ContainsFunc(kinds, func(k string) bool { return harness.Of(k).ShowsUntrackedDiffs }) {
 		if err := claudecode.ExcludeWorktrees(repo); err != nil {
 			fmt.Fprintf(out, "⚠ .claude/worktrees/ not excluded from git, Claude Code will show its state files changing: %v\n", err)
 		}
@@ -165,7 +166,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	// and only a kickoff as its first prompt.
 	firstPrompt := masterBrief
 	briefPath := filepath.Join(names.StatusDir(repo), "master.system.md")
-	if opts.masterKind == "claude" {
+	if harness.Of(opts.masterKind).SystemPrompt {
 		if err := os.WriteFile(briefPath, []byte(masterBrief+"\n"), 0o644); err != nil {
 			return err
 		}

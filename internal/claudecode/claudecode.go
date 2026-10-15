@@ -1,14 +1,12 @@
 // Package claudecode holds what acw does only because an agent of the
 // swarm is Claude Code. The rest of acw stays agnostic of the agent it
-// runs: it calls in here when an agent's kind is claude, and nowhere else.
+// runs: it calls in here when the agent's capabilities (see harness) ask
+// for it, and nowhere else.
 package claudecode
 
 import (
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
 )
-
-// Kind is the agent kind that is Claude Code.
-const Kind = "claude"
 
 // ExcludeWorktrees keeps .claude/worktrees/, where acw keeps the workers'
 // worktrees and the swarm's state, out of git's untracked files. Claude
