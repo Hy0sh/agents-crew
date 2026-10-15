@@ -8,6 +8,12 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ### Changed
 
+- acw's defaults move from its code to the config file, under `defaults`:
+  the first launch writes them, each launch after adds a key acw has a
+  value for and drops one it no longer knows, leaving the user's values.
+  Any key may go there, roles included, merged by name with an entry's.
+  The value that applies is always written down, and one edit changes it
+  for every repo.
 - `acw --board` reuses the board another swarm opened, and that board stays
   open until the last of those swarms is stopped. Each swarm opened its
   own board, on its own port: stopping the first took away the board the
