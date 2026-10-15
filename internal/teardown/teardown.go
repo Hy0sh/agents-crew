@@ -9,9 +9,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/Hy0sh/agents-crew/internal/claudecode"
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
@@ -43,6 +45,11 @@ func Run() error {
 	if master, ok := herdr.FindAgent(agents, names.Master(slug)); ok {
 		workspaceID = master.WorkspaceID
 		fmt.Printf("Stopping the swarm of %s (workspace %s).\n", repo, workspaceID)
+	} else if id, err := os.ReadFile(names.WorkspaceFile(repo)); err == nil {
+		// A master in Claude Desktop is no herdr agent: its swarm wrote
+		// the workspace down.
+		workspaceID = strings.TrimSpace(string(id))
+		fmt.Printf("Stopping the swarm of %s (master in Claude Desktop, workspace %s).\n", repo, workspaceID)
 	} else {
 		// A Herdr crash or a master closed by hand ends the watcher with no
 		// teardown: the workers, their worktrees and stacks are still this
@@ -75,6 +82,11 @@ func Run() error {
 		fmt.Println("done.")
 	}
 
+	// Before the status dir goes: it records what acw added to the
+	// master's settings for Claude Desktop.
+	if err := claudecode.UninstallDesktop(statusDir); err != nil {
+		fmt.Fprintf(os.Stderr, "taking acw's hooks off the master's settings: %v\n", err)
+	}
 	if err := os.RemoveAll(statusDir); err != nil {
 		fmt.Fprintf(os.Stderr, "removing %s: %v\n", statusDir, err)
 	}

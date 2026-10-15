@@ -137,6 +137,7 @@ func terminal(out io.Writer) bool {
 func boardCommand() *cobra.Command {
 	var port int
 	var untilStop string
+	var noBrowser bool
 	cmd := &cobra.Command{
 		Use:   "board",
 		Short: "Open a local page of what waits on you, where each ticket stands, and how the swarm runs",
@@ -157,7 +158,9 @@ func boardCommand() *cobra.Command {
 			}
 			url := "http://" + ln.Addr().String() + "/"
 			fmt.Fprintf(cmd.OutOrStdout(), "acw board on %s (Ctrl-C stops it)\n", url)
-			openBrowser(url)
+			if !noBrowser {
+				openBrowser(url)
+			}
 			srv := &http.Server{Handler: board.Handler(b, time.Now, notifyMaster, boardQueue)}
 			if untilStop != "" {
 				if err := os.WriteFile(boardSwarms(), []byte(untilStop+"\n"), 0o600); err != nil {
@@ -181,6 +184,10 @@ func boardCommand() *cobra.Command {
 	cmd.Flags().IntVar(&port, "port", 0, "port on 127.0.0.1 (default: a free one)")
 	// Set by acw --board: acw stop removes the swarm's status dir.
 	cmd.Flags().StringVar(&untilStop, "until-stop", "", "stop once the swarm of this repo, and of every repo that joined the board since, is stopped")
+	// Set by acw --board for a master in Claude Desktop, which opens the
+	// board in its own Browser pane.
+	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "open no browser tab")
+	_ = cmd.Flags().MarkHidden("no-browser")
 	_ = cmd.Flags().MarkHidden("until-stop")
 
 	var worker, subject, why string

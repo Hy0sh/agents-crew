@@ -24,6 +24,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/Hy0sh/agents-crew/internal/board"
+	"github.com/Hy0sh/agents-crew/internal/claudecode"
 	"github.com/Hy0sh/agents-crew/internal/config"
 	"github.com/Hy0sh/agents-crew/internal/harness"
 	"github.com/Hy0sh/agents-crew/internal/names"
@@ -32,6 +33,10 @@ import (
 	"github.com/Hy0sh/agents-crew/internal/version"
 	"github.com/Hy0sh/agents-crew/internal/wtm"
 )
+
+// desktopHookUse is the internal command the hooks of a master in Claude
+// Desktop run.
+const desktopHookUse = "__desktop-hook"
 
 type startOptions struct {
 	workers     int
@@ -47,6 +52,7 @@ type startOptions struct {
 	notesPath   string       // same
 	extraPath   string       // same: brief-extra
 	masterDir   string       // same
+	masterApp   string       // same: where the master runs, "" for a herdr pane
 	roles       config.Roles // same
 	// silenceMinutes: same, see config.Project.SilenceMinutes.
 	silenceMinutes int
@@ -86,6 +92,7 @@ func applyConfig(opts *startOptions, p *config.Project, changed func(string) boo
 	setStr("notes", &opts.notesPath, p.Notes)
 	setStr("brief-extra", &opts.extraPath, p.BriefExtra)
 	setStr("master-dir", &opts.masterDir, p.MasterDir)
+	setStr("master-app", &opts.masterApp, p.MasterApp)
 	setInt("silence-minutes", &opts.silenceMinutes, p.SilenceMinutes)
 	setInt("idle-close-minutes", &opts.idleCloseMinutes, p.IdleCloseMinutes)
 	setInt("master-autocompact", &opts.masterAutocompact, p.MasterAutocompact)
@@ -187,6 +194,9 @@ launched from, keys are the flag names, plus seven with no flag:
                     environment or branch
   master-dir        absolute folder outside the repo the master starts in
                     (default: the repo)
+  master-app        where the master runs: claude-desktop for Claude
+                    Desktop, its workers then as Claude Code background
+                    sessions (default: a herdr pane, workers in panes too)
   silence-minutes   how long a working worker may show no activity (no turn
                     end, no status update, no file changed) before acw tells
                     the master (default: 30)
@@ -328,6 +338,9 @@ func main() {
 				if _, err := harness.Lookup(kind); err != nil {
 					return err
 				}
+			}
+			if err := harness.CheckApp(opts.masterApp, opts.masterKind, distinctKinds(workers)); err != nil {
+				return fmt.Errorf("config acw: %w", err)
 			}
 			if err := preflight.CheckStart(kinds...); err != nil {
 				return err
@@ -558,7 +571,18 @@ func main() {
 		},
 	}
 
-	root.AddCommand(stop, status, queue, done, closeCmd, projectCommand(), boardCommand(), stackCommand(), tell, clearCmd, dispatch, pause, resume, restartWatch, watch, inboxWatch, inboxNext, turnEnd, statusLine)
+	// Internal: what the hooks of a master in Claude Desktop run (see
+	// claudecode.InstallDesktop), the hook's JSON on stdin.
+	desktopHook := &cobra.Command{
+		Use:    desktopHookUse + " <status-dir> <session-start|pre-tool>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return claudecode.DesktopHook(args[1], args[0], cmd.InOrStdin(), cmd.OutOrStdout())
+		},
+	}
+
+	root.AddCommand(stop, status, queue, done, closeCmd, projectCommand(), boardCommand(), stackCommand(), tell, clearCmd, dispatch, pause, resume, restartWatch, watch, inboxWatch, inboxNext, turnEnd, statusLine, desktopHook)
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)

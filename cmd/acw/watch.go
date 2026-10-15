@@ -25,6 +25,10 @@ const watchUse = "__watch"
 type watchPlan struct {
 	Repo       string `json:"repo"`
 	MasterName string `json:"master_name"`
+	// MasterApp is where the master runs, "" for a herdr pane. In Claude
+	// Desktop it is no herdr agent: the watcher neither looks for it nor
+	// types into it.
+	MasterApp string `json:"master_app,omitempty"`
 	// Inbox is where messages go, "" when they are typed into the master.
 	Inbox string `json:"inbox,omitempty"`
 	// InboxNext is the command the master reruns to read its inbox, named
@@ -103,7 +107,7 @@ func runWatch(plan watchPlan, interval time.Duration) {
 		}
 		// The master is started before the watcher: gone from a list that
 		// did answer, the swarm was closed without acw stop.
-		if _, ok := herdr.FindAgent(agents, plan.MasterName); !ok {
+		if _, ok := herdr.FindAgent(agents, plan.MasterName); !ok && plan.MasterApp == "" {
 			fmt.Fprintln(os.Stderr, "master not found, the watcher stops")
 			return
 		}
@@ -278,7 +282,7 @@ func runWatch(plan watchPlan, interval time.Duration) {
 			})
 		}
 		runPool(plan.Repo, pool, queue, pollWorkers(pool, agents, statusDir, now, poolMem), now, poolMem)
-		if plan.Inbox != "" {
+		if plan.Inbox != "" && plan.MasterApp == "" {
 			info, err := os.Stat(plan.Inbox)
 			if w.remindInbox(now, err == nil && info.Size() > 0) {
 				remind := "acw messages have been waiting in your inbox for more than 5 min: run `" + plan.InboxNext + "` again in the background."

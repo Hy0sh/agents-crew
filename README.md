@@ -656,6 +656,7 @@ The commands above write this; editing it directly works just as well.
 | `notes` | *(no flag)* | none |
 | `roles` | *(no flag)* | none: one role, `worker`, of `workers` and `min-workers`, see [`roles`](#roles) |
 | `master-dir` | *(no flag)* | none: the master starts in the repo |
+| `master-app` | *(no flag)* | none: the master in a herdr pane; `claude-desktop` runs it in Claude Desktop, see [The master in Claude Desktop](#the-master-in-claude-desktop) |
 | `silence-minutes` | *(no flag)* | `30`: minutes a working worker may show no activity before acw's watcher tells the master |
 | `pr-watch` | `--pr-watch` | `false` |
 | `board` | `--board` | `false` |
@@ -773,6 +774,26 @@ role's name is its workers' name everywhere: `reviewer1`, `reviewer2`.
   read: a worker meant to verify that silently becomes a generic one
   would skew every dispatch. `worker-overrides`, which roles replace, is
   refused with the `roles` to write instead.
+
+### The master in Claude Desktop
+
+`"master-app": "claude-desktop"` runs the master in the Claude Desktop app
+instead of a herdr pane. Master and workers must be Claude Code.
+
+- `acw` creates the master's session, opens it in Desktop and starts it:
+  nothing to type. It reads its brief, watches its inbox, and opens
+  `acw board` in Desktop's Browser pane (one click on *Open*).
+- Desktop takes no command line, so what acw passes a master on it goes
+  through the master folder's `.claude/settings.local.json` and
+  `.claude/launch.json` instead: a `SessionStart` hook that points it to
+  its brief at every start and after every compaction, a `PreToolUse` hook
+  that refuses it the file tools and plan mode, the permission rules of
+  its acw commands, and the board's launch entry. They answer for the
+  master's session only, next to your own settings, and `acw stop` takes
+  them off.
+- Lost on Desktop: `master-autocompact` (Desktop doesn't pass it on), and
+  the watcher's reminder typed into the master after 5 minutes of unread
+  inbox.
 
 ### Working directories: `master-dir` and `dir`
 

@@ -81,3 +81,26 @@ func Of(kind string) Agent {
 func Kinds() []string {
 	return append([]string{claude.Kind}, generic...)
 }
+
+// DesktopApp is the master-app that runs the master in Claude Desktop.
+// Its workers then run as Claude Code background sessions: it is not a
+// choice of its own, since Desktop can't host them (tried: a worker it
+// relaunches loses its brief and its hooks).
+const DesktopApp = "claude-desktop"
+
+// CheckApp refuses a master-app acw doesn't know, and one the agents
+// can't run with. "" is the master in a herdr pane, which any kind runs.
+func CheckApp(app, masterKind string, workerKinds []string) error {
+	switch app {
+	case "":
+		return nil
+	case DesktopApp:
+		for _, kind := range append([]string{masterKind}, workerKinds...) {
+			if kind != claude.Kind {
+				return fmt.Errorf("master-app %s runs Claude Code only, the master and every worker: %q can't", app, kind)
+			}
+		}
+		return nil
+	}
+	return fmt.Errorf("%q is not a master-app acw knows: %s, or none for a herdr pane", app, DesktopApp)
+}

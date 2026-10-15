@@ -49,6 +49,9 @@ type Project struct {
 	// MasterDir is where the master starts instead of the repo, e.g. a
 	// folder whose .claude it needs. Checked by the caller.
 	MasterDir *string `json:"master-dir,omitempty"`
+	// MasterApp is where the master runs: absent, a herdr pane; "claude-
+	// desktop", Claude Desktop, its workers then in the background.
+	MasterApp *string `json:"master-app,omitempty"`
 	// SilenceMinutes is how long a working worker may show no activity at
 	// all before acw's watcher tells the master.
 	SilenceMinutes *int `json:"silence-minutes,omitempty"`
@@ -171,6 +174,19 @@ func (p *Project) Check() error {
 		}
 		if _, err := harness.Lookup(*kind); err != nil {
 			return fmt.Errorf("%s: %w", key, err)
+		}
+	}
+	if p.MasterApp != nil {
+		// The kinds written here; acw start checks again with the flags'
+		// defaults laid in.
+		var set []string
+		for _, kind := range kinds {
+			if kind != nil {
+				set = append(set, *kind)
+			}
+		}
+		if err := harness.CheckApp(*p.MasterApp, "claude", set); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -472,6 +488,7 @@ func (p *Project) Summary() string {
 	addStr("profile", p.Profile)
 	addStr("notes", p.Notes)
 	addStr("master-dir", p.MasterDir)
+	addStr("master-app", p.MasterApp)
 	addInt("silence-minutes", p.SilenceMinutes)
 	addInt("idle-close-minutes", p.IdleCloseMinutes)
 	if p.PRWatch != nil {
