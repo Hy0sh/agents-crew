@@ -97,7 +97,7 @@ func WakeSession(dir, id, name string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for !running(id) {
 		if time.Now().After(deadline) {
-			return fmt.Errorf("Claude Desktop did not start session %s within %s", id, timeout)
+			return fmt.Errorf("session %s not started by Claude Desktop within %s", id, timeout)
 		}
 		time.Sleep(2 * time.Second)
 	}
