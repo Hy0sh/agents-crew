@@ -92,16 +92,23 @@ func masterArgs(kind, model, exe, inboxWatch, briefPath string, autocompact int)
 		return args
 	}
 	args = append(args, "--disallowedTools", "Edit", "Write", "NotebookEdit", "EnterPlanMode", "ExitPlanMode")
-	args = append(args, "--allowedTools")
+	return append(append(args, "--allowedTools"), masterAllow(exe, inboxWatch)...)
+}
+
+// masterAllow are the permission rules for the acw commands the master
+// runs (see masterArgs), the same on its command line or in the settings
+// of a master in Claude Desktop.
+func masterAllow(exe, inboxWatch string) []string {
+	var rules []string
 	if inboxWatch != "" {
-		args = append(args,
+		rules = append(rules,
 			"Bash("+shellWord(exe)+" "+inboxWatchUse+":*)",
 			"Bash("+shellWord(exe)+" "+inboxNextUse+":*)")
 	}
 	for _, sub := range []string{"status", "queue", "done", "close", "tell", "board decision", "board park", "board parked", "board resume", "board edit"} {
-		args = append(args, "Bash("+shellWord(exe)+" "+sub+":*)")
+		rules = append(rules, "Bash("+shellWord(exe)+" "+sub+":*)")
 	}
-	return args
+	return rules
 }
 
 // watchInbox prints every line appended to inbox, forever, until the

@@ -22,6 +22,13 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 ### Added
 
 - `acw board` has a favicon, to find its tab among the others.
+- `"master-app": "claude-desktop"` runs the master in Claude Desktop. acw
+  creates its session, opens it there and starts it; the master reads its
+  brief from a `SessionStart` hook, is refused the file tools by a
+  `PreToolUse` hook, and opens `acw board` in Desktop's Browser pane. The
+  hooks, its permission rules and the board's launch entry go in the
+  master folder's `.claude`, for its session only, and `acw stop` takes
+  them off.
 
 ### Fixed
 

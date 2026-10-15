@@ -23,3 +23,20 @@ func TestLookup(t *testing.T) {
 		t.Errorf("Of(claud) = %+v, want the generic agent", o)
 	}
 }
+
+// Claude Desktop runs Claude Code only, master and workers; any kind runs
+// in a herdr pane; an unknown app is refused.
+func TestCheckApp(t *testing.T) {
+	if err := CheckApp("", "codex", []string{"gemini"}); err != nil {
+		t.Errorf("herdr pane with codex = %v", err)
+	}
+	if err := CheckApp(DesktopApp, "claude", []string{"claude"}); err != nil {
+		t.Errorf("desktop with claude = %v", err)
+	}
+	if err := CheckApp(DesktopApp, "claude", []string{"claude", "codex"}); err == nil || !strings.Contains(err.Error(), "codex") {
+		t.Errorf("desktop with a codex worker = %v, want it refused, naming codex", err)
+	}
+	if err := CheckApp("cursor-app", "claude", nil); err == nil {
+		t.Error("an unknown master-app was accepted")
+	}
+}

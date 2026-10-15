@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -57,6 +60,9 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if a, ok := herdr.FindAgent(agents, masterName); ok {
 		return fmt.Errorf("a master is already running in workspace %s for this directory. Attach to it (herdr workspace focus %s) "+
 			"instead of starting another one, or close it first (acw stop)", a.WorkspaceID, a.WorkspaceID)
+	}
+	if _, err := os.Stat(names.WorkspaceFile(repo)); err == nil {
+		return errors.New("a swarm is already running for this directory, its master in Claude Desktop: go on there, or stop it first (acw stop)")
 	}
 
 	// Before anything is created: a custom brief with a typo'd variable
@@ -147,7 +153,8 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if opts.masterDir != "" {
 		masterDir = opts.masterDir
 	}
-	workspaceID, masterPane, err := herdr.WorkspaceCreate(masterDir, names.Label(repo), true)
+	desktop := opts.masterApp == harness.DesktopApp
+	workspaceID, masterPane, err := herdr.WorkspaceCreate(masterDir, names.Label(repo), !desktop)
 	if err != nil {
 		return fmt.Errorf("herdr workspace create: %w", err)
 	}
@@ -159,13 +166,11 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		}
 	}()
 
-	if err := herdr.PaneRename(masterPane, "master"); err != nil {
-		return err
-	}
 	// A claude master gets its brief as a system prompt (see masterArgs),
-	// and only a kickoff as its first prompt.
+	// or reads it from this file in Claude Desktop, and only a kickoff as
+	// its first prompt.
 	firstPrompt := masterBrief
-	briefPath := filepath.Join(names.StatusDir(repo), "master.system.md")
+	briefPath := claudecode.BriefFile(names.StatusDir(repo))
 	if harness.Of(opts.masterKind).SystemPrompt {
 		if err := os.WriteFile(briefPath, []byte(masterBrief+"\n"), 0o644); err != nil {
 			return err
@@ -176,16 +181,29 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if previous != "" {
 		firstPrompt += "\n\n" + previous
 	}
-	if err := herdr.AgentStart(masterName, opts.masterKind, masterPane, masterArgs(opts.masterKind, opts.masterModel, self, inboxWatch, briefPath, opts.masterAutocompact)...); err != nil {
-		return fmt.Errorf("herdr agent start master: %w", explainStart(err, masterDir))
-	}
-
-	if err := herdr.AgentPrompt(masterName, firstPrompt); err != nil {
-		return fmt.Errorf("herdr agent prompt master: %w", err)
-	}
-	delivered()
-	if err := herdr.WorkspaceFocus(workspaceID); err != nil {
-		return err
+	if desktop {
+		// The master is in Claude Desktop: this pane is where the workers'
+		// panes split from, and acw stop finds the workspace by its id.
+		if err := herdr.PaneRename(masterPane, "acw"); err != nil {
+			return err
+		}
+		if err := os.WriteFile(names.WorkspaceFile(repo), []byte(workspaceID), 0o600); err != nil {
+			return err
+		}
+	} else {
+		if err := herdr.PaneRename(masterPane, "master"); err != nil {
+			return err
+		}
+		if err := herdr.AgentStart(masterName, opts.masterKind, masterPane, masterArgs(opts.masterKind, opts.masterModel, self, inboxWatch, briefPath, opts.masterAutocompact)...); err != nil {
+			return fmt.Errorf("herdr agent start master: %w", explainStart(err, masterDir))
+		}
+		if err := herdr.AgentPrompt(masterName, firstPrompt); err != nil {
+			return fmt.Errorf("herdr agent prompt master: %w", err)
+		}
+		delivered()
+		if err := herdr.WorkspaceFocus(workspaceID); err != nil {
+			return err
+		}
 	}
 
 	plan := provisionPlan{Repo: repo, MasterPane: masterPane, Stamp: stamp, Stacks: stacks, MaxStacks: maxStacks, Profile: opts.profile, Workers: workers, Inbox: inbox, SwitchAllowed: switchCommand != "", PRWatch: prWatchRepo != ""}
@@ -198,29 +216,43 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		return err
 	}
 	// The watcher is what opens the workers: without it there are none.
-	watch := watchPlan{Repo: repo, MasterName: masterName, Inbox: inbox, InboxNext: inboxNext,
+	watch := watchPlan{Repo: repo, MasterName: masterName, MasterApp: opts.masterApp, Inbox: inbox, InboxNext: inboxNext,
 		SilenceMinutes: opts.silenceMinutes, PRWatchRepo: prWatchRepo, Stamp: stamp}
 	if err := launchBackgroundWatch(watch); err != nil {
 		return fmt.Errorf("starting acw's watcher, which opens the workers: %w", err)
 	}
 	// Not fatal: the swarm runs without it, acw board opens it by hand.
+	var boardURL string
 	if opts.board {
-		// One board for every swarm: it shows them all already.
-		if url := sharedBoard(); url != "" {
-			if err := appendLine(boardSwarms(), repo); err != nil {
-				fmt.Fprintf(out, "⚠ acw board at %s not joined: %v\n", url, err)
-			} else {
-				openBrowser(url)
-				fmt.Fprintf(out, "→ acw board already open at %s, it now stays open for this swarm too\n", url)
-			}
-		} else {
-			boardLog := fmt.Sprintf("acw-board-%s.log", stamp)
-			if err := launchDetached(boardLog, "board", "--until-stop", repo); err != nil {
-				fmt.Fprintf(out, "⚠ acw board not started: %v\n", err)
-			} else {
-				fmt.Fprintf(out, "→ acw board opening in the browser, its URL in %s\n", filepath.Join(os.TempDir(), boardLog))
-			}
+		boardURL = startBoard(out, repo, stamp, desktop)
+	}
+
+	if desktop {
+		d := claudecode.Desktop{Dir: masterDir, Session: claudecode.NewSessionID(),
+			Hook:  shellWord(self) + " " + desktopHookUse + " " + shellWord(names.StatusDir(repo)),
+			Board: boardURL, InboxNext: inboxNext}
+		// Its name is its address for the message that starts it: the
+		// start time keeps it apart from an earlier run's, still listed in
+		// Claude Desktop after acw stop.
+		name := "acw master " + names.Label(repo) + " " + time.Now().Format("15:04")
+		if err := claudecode.CreateSession(masterDir, d.Session, name, opts.masterModel); err != nil {
+			return fmt.Errorf("creating the master's session: %w", err)
 		}
+		if err := claudecode.InstallDesktop(names.StatusDir(repo), d, masterAllow(self, inboxWatch), firstPrompt); err != nil {
+			return fmt.Errorf("installing the master's settings for Claude Desktop: %w", err)
+		}
+		delivered()
+		success = true
+		if err := claudecode.OpenDesktop(masterDir, d.Session); err != nil {
+			return err
+		}
+		fmt.Fprintln(out, "→ waiting for Claude Desktop to start the master...")
+		if err := claudecode.WakeSession(masterDir, d.Session, name, 2*time.Minute); err != nil {
+			fmt.Fprintf(out, "⚠ the master was not started for you (%v): write to it in Claude Desktop to start it\n", err)
+		}
+		fmt.Fprintf(out, "→ master (%s) running in Claude Desktop. Up to %d worker(s) (%s), %d opened at once, the others as tasks are queued.\n",
+			brief.DescribeAgent(opts.masterKind, opts.masterModel), len(workers), describeWorkers(workers), minOpen(workers))
+		return nil
 	}
 
 	success = true
@@ -229,6 +261,55 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 
 	// Replace this process with the Herdr TUI, attaching to the workspace just built.
 	return syscall.Exec(mustLookPath("herdr"), []string{"herdr"}, os.Environ())
+}
+
+// startBoard starts acw board for the swarm, or joins the one another
+// swarm opened, and returns its URL when it knows it. A master in Claude
+// Desktop opens it in its Browser pane, so it needs the URL now: the
+// board gets a free port picked here; a browser tab is opened otherwise.
+func startBoard(out io.Writer, repo, stamp string, desktop bool) string {
+	// One board for every swarm: it shows them all already.
+	if url := sharedBoard(); url != "" {
+		if err := appendLine(boardSwarms(), repo); err != nil {
+			fmt.Fprintf(out, "⚠ acw board at %s not joined: %v\n", url, err)
+			return ""
+		}
+		if !desktop {
+			openBrowser(url)
+		}
+		fmt.Fprintf(out, "→ acw board already open at %s, it now stays open for this swarm too\n", url)
+		return url
+	}
+	args := []string{"--until-stop", repo}
+	var url string
+	if desktop {
+		port, err := freePort()
+		if err != nil {
+			fmt.Fprintf(out, "⚠ acw board not started: %v\n", err)
+			return ""
+		}
+		args = append(args, "--port", strconv.Itoa(port), "--no-browser")
+		url = fmt.Sprintf("http://127.0.0.1:%d", port)
+	}
+	boardLog := fmt.Sprintf("acw-board-%s.log", stamp)
+	if err := launchDetached(boardLog, "board", args...); err != nil {
+		fmt.Fprintf(out, "⚠ acw board not started: %v\n", err)
+		return ""
+	}
+	if url == "" {
+		fmt.Fprintf(out, "→ acw board opening in the browser, its URL in %s\n", filepath.Join(os.TempDir(), boardLog))
+	}
+	return url
+}
+
+// freePort is a port nothing listens on, at the time of asking.
+func freePort() (int, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	defer ln.Close()
+	return ln.Addr().(*net.TCPAddr).Port, nil
 }
 
 // workerSwitch is the wtm switch the brief hands the workers: it starts

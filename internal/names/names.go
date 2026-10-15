@@ -63,6 +63,12 @@ func StatusDir(repo string) string {
 	return filepath.Join(WorktreesDir(repo), ".acw-status")
 }
 
+// WorkspaceFile holds the id of the swarm's herdr workspace when no master
+// agent in it gives it away: the master runs in Claude Desktop.
+func WorkspaceFile(repo string) string {
+	return filepath.Join(StatusDir(repo), "workspace")
+}
+
 // Inbox is the file workers' pings are appended to, for the master to
 // watch.
 func Inbox(repo string) string {
