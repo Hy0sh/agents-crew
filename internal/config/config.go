@@ -278,7 +278,166 @@ type WorkerOverride struct {
 }
 
 type file struct {
+	// Defaults is under every entry, and every repo without one: what acw
+	// does when nothing else says. SyncDefaults keeps it complete.
+	Defaults *Project           `json:"defaults,omitempty"`
 	Projects map[string]Project `json:"projects"`
+}
+
+// seed is the only place acw's own values live: written into the
+// config's defaults at the first launch, where the user reads and
+// changes them, and never read from here after.
+func seed() map[string]any {
+	return map[string]any{
+		"workers":            3,
+		"min-workers":        0,
+		"max-stacks":         0,
+		"idle-close-minutes": 10,
+		"silence-minutes":    30,
+		"master-kind":        "claude",
+		"worker-kind":        "claude",
+		"master-model":       "opus",
+		"worker-model":       "sonnet",
+		"master-autocompact": 250_000,
+		"pr-watch":           false,
+		"board":              false,
+	}
+}
+
+// SyncDefaults keeps the config's defaults complete and current: a key of
+// seed it lacks is added with acw's value, a key acw doesn't know (any
+// more) is dropped. The file is made when there is none. It returns what
+// it added and dropped, nothing when the defaults were complete.
+func SyncDefaults() (added, dropped []string, err error) {
+	path := Path()
+	top := map[string]json.RawMessage{}
+	content, err := os.ReadFile(path)
+	switch {
+	case err == nil:
+		if err := json.Unmarshal(content, &top); err != nil {
+			return nil, nil, fmt.Errorf("%s: %w", path, err)
+		}
+	case !errors.Is(err, fs.ErrNotExist):
+		return nil, nil, err
+	}
+	defaults := map[string]json.RawMessage{}
+	if raw, ok := top["defaults"]; ok {
+		if err := json.Unmarshal(raw, &defaults); err != nil {
+			return nil, nil, fmt.Errorf("%s: defaults: %w", path, err)
+		}
+	}
+	known := projectKeys()
+	for key := range defaults {
+		if !slices.Contains(known, key) || key == "presets" {
+			delete(defaults, key)
+			dropped = append(dropped, key)
+		}
+	}
+	for key, value := range seed() {
+		// Roles count the workers their own way: no workers next to them.
+		if _, roles := defaults["roles"]; roles && (key == "workers" || key == "min-workers") {
+			continue
+		}
+		if _, ok := defaults[key]; !ok {
+			raw, _ := json.Marshal(value)
+			defaults[key] = raw
+			added = append(added, key)
+		}
+	}
+	if len(added) == 0 && len(dropped) == 0 {
+		return nil, nil, nil
+	}
+	slices.Sort(added)
+	slices.Sort(dropped)
+	top["defaults"], _ = json.Marshal(defaults)
+	if _, ok := top["projects"]; !ok {
+		top["projects"] = json.RawMessage("{}")
+	}
+	out, err := json.MarshalIndent(top, "", "  ")
+	if err != nil {
+		return nil, nil, err
+	}
+	return added, dropped, writeAtomic(path, append(out, '\n'))
+}
+
+// projectKeys are the keys an entry may hold, from Project's tags.
+func projectKeys() []string {
+	var keys []string
+	t := reflect.TypeFor[Project]()
+	for i := range t.NumField() {
+		keys = append(keys, strings.Split(t.Field(i).Tag.Get("json"), ",")[0])
+	}
+	return keys
+}
+
+// Effective is what acw runs repo with: the defaults, its entry laid over
+// them, and the named preset over that. A preset needs an entry.
+func Effective(repo, preset string) (*Project, error) {
+	f, err := readFile()
+	if err != nil {
+		return nil, err
+	}
+	var defaults Project
+	if f.Defaults != nil {
+		defaults = *f.Defaults
+		expandPaths(defaults)
+		if err := defaults.Check(); err != nil {
+			return nil, fmt.Errorf("%s: defaults: %w", Path(), err)
+		}
+	}
+	entry, err := Load(repo)
+	if err != nil {
+		return nil, err
+	}
+	if entry == nil {
+		if preset != "" {
+			return nil, fmt.Errorf("--preset %s: no entry for %s in %s", preset, repo, Path())
+		}
+		return &defaults, nil
+	}
+	if preset != "" {
+		if entry, err = entry.WithPreset(preset); err != nil {
+			return nil, err
+		}
+	}
+	merged := withDefaults(defaults, *entry)
+	if err := merged.Check(); err != nil {
+		return nil, fmt.Errorf("%s: with the defaults: %w", Path(), err)
+	}
+	return &merged, nil
+}
+
+// withDefaults lays entry over defaults: a key the entry sets replaces
+// the default, but roles merge by name, so roles declared once for every
+// repo stay, an entry's role of the same name replacing it. An entry that
+// counts its workers with workers or min-workers has no roles at all.
+func withDefaults(defaults, entry Project) Project {
+	merged := defaults
+	switch {
+	case entry.Roles != nil:
+		merged.Workers, merged.MinWorkers = nil, nil
+		roles := slices.Clone(defaults.Roles)
+		for _, r := range entry.Roles {
+			if i := slices.IndexFunc(roles, func(d NamedRole) bool { return d.Name == r.Name }); i >= 0 {
+				roles[i] = r
+			} else {
+				roles = append(roles, r)
+			}
+		}
+		entry.Roles = roles
+	case entry.Workers != nil || entry.MinWorkers != nil:
+		merged.Roles = nil
+	case defaults.Roles != nil:
+		merged.Workers, merged.MinWorkers = nil, nil
+	}
+	dst, src := reflect.ValueOf(&merged).Elem(), reflect.ValueOf(entry)
+	for i := range src.NumField() {
+		if f := src.Field(i); !f.IsNil() {
+			dst.Field(i).Set(f)
+		}
+	}
+	merged.Presets = nil
+	return merged
 }
 
 // Path is where the config lives: $XDG_CONFIG_HOME/acw/config.json, else
@@ -379,7 +538,12 @@ func Edit(repo string, change func(*Project) error) error {
 	if err != nil {
 		return err
 	}
-	path := Path()
+	return writeAtomic(Path(), append(content, '\n'))
+}
+
+// writeAtomic replaces path with content in one rename: an interrupted
+// write never leaves half a config.
+func writeAtomic(path string, content []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -388,7 +552,7 @@ func Edit(repo string, change func(*Project) error) error {
 		return err
 	}
 	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(append(content, '\n')); err != nil {
+	if _, err := tmp.Write(content); err != nil {
 		tmp.Close()
 		return err
 	}

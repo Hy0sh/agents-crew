@@ -570,8 +570,34 @@ repo**:
 ```
 
 It is an **override, not a registry**. Nothing to declare: a repo with no
-entry (or no file at all) runs exactly as without config. Unlike `wtm`, acw
-needs no answers to work, so the file only changes the defaults.
+entry runs on the defaults. Unlike `wtm`, acw needs no answers to work.
+
+### Defaults
+
+acw's defaults are not in its code but in the file, under `defaults`: the
+first launch writes them, every launch after adds a key a newer acw has a
+value for and drops one it no longer knows, and leaves your values alone.
+So the value that applies is always written down, and changing it for
+every repo is one edit:
+
+```json
+{
+  "defaults": {
+    "workers": 3, "min-workers": 0, "max-stacks": 0,
+    "master-kind": "claude", "worker-kind": "claude",
+    "master-model": "opus", "worker-model": "sonnet",
+    "master-autocompact": 250000, "silence-minutes": 30, "idle-close-minutes": 10,
+    "pr-watch": false, "board": false
+  },
+  "projects": { ... }
+}
+```
+
+Any key of an entry may go there (not `presets`), roles included: a role
+in the defaults reaches every repo, and an entry's role of the same name
+replaces it. An entry that counts its workers with `workers` or
+`min-workers` has none of the default roles. What applies is the
+defaults, then the repo's entry, then its preset, then the flags given.
 
 ### Writing an entry: `acw project create` and `edit`
 

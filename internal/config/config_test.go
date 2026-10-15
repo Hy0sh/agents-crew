@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -135,6 +136,62 @@ func TestLoadRejectsUnknownKeyInRole(t *testing.T) {
 }
 
 // What roles can't mean is refused, each with what to write instead.
+// The defaults get every key acw has a value for, keep the user's own
+// values, lose the keys acw doesn't know; the projects are left as they
+// were. A second run has nothing to do.
+func TestSyncDefaults(t *testing.T) {
+	writeConfig(t, `{"defaults":{"worker-model":"haiku","old-key":1},"projects":{"/repo":{"workers":2}}}`)
+	added, dropped, err := SyncDefaults()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(added, "master-model") || slices.Contains(added, "worker-model") || !slices.Equal(dropped, []string{"old-key"}) {
+		t.Errorf("added %v, dropped %v; want the missing keys added, worker-model kept, old-key dropped", added, dropped)
+	}
+	p, err := Effective("/repo", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *p.WorkerModel != "haiku" || *p.MasterModel != "opus" || *p.Workers != 2 || *p.SilenceMinutes != 30 {
+		t.Errorf("effective = worker-model %s, master-model %s, workers %d, silence %d", *p.WorkerModel, *p.MasterModel, *p.Workers, *p.SilenceMinutes)
+	}
+	if added, dropped, err := SyncDefaults(); err != nil || added != nil || dropped != nil {
+		t.Errorf("second sync = %v, %v, %v; want nothing to do", added, dropped, err)
+	}
+	// A repo with no entry runs on the defaults alone.
+	if p, err := Effective("/other", ""); err != nil || *p.Workers != 3 {
+		t.Errorf("no entry = %+v, %v; want the defaults", p, err)
+	}
+}
+
+// Roles declared in the defaults reach every repo, an entry's role of the
+// same name replacing its default; an entry that counts workers with
+// workers drops them.
+func TestDefaultRolesMergeByName(t *testing.T) {
+	writeConfig(t, `{"defaults":{"roles":{"worker":{"max":3},"chore":{"max":1,"model":"haiku","tasks":["chore"]}}},
+	 "projects":{"/a":{"roles":{"chore":{"max":2,"model":"haiku","tasks":["chore"]},"reviewer":{"max":1,"tasks":["review"]}}},"/b":{"workers":2},"/c":{}}}`)
+	if _, _, err := SyncDefaults(); err != nil {
+		t.Fatal(err)
+	}
+	a, err := Effective("/a", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range a.Roles {
+		got = append(got, fmt.Sprintf("%s:%d", r.Name, *r.Max))
+	}
+	if !slices.Equal(got, []string{"worker:3", "chore:2", "reviewer:1"}) || a.Workers != nil {
+		t.Errorf("/a roles = %v, workers %v; want worker:3 chore:2 reviewer:1 and no workers", got, a.Workers)
+	}
+	if b, err := Effective("/b", ""); err != nil || b.Roles != nil || *b.Workers != 2 {
+		t.Errorf("/b = %+v, %v; want workers 2 and no roles", b, err)
+	}
+	if c, err := Effective("/c", ""); err != nil || len(c.Roles) != 2 || c.Workers != nil {
+		t.Errorf("/c = %+v, %v; want the default roles", c, err)
+	}
+}
+
 // A kind acw doesn't know is refused wherever it is written, with the key
 // that holds it; a preset is checked once laid over the entry.
 func TestUnknownKindRefused(t *testing.T) {

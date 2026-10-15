@@ -147,14 +147,7 @@ func completeFlags(cmd *cobra.Command, _ []string, toComplete string) ([]cobra.C
 // it when one is named. A preset asked for on a repo with no entry is an
 // error, not a silent launch with the defaults.
 func loadProject(repo, preset string) (*config.Project, error) {
-	project, err := config.Load(repo)
-	if err != nil || preset == "" {
-		return project, err
-	}
-	if project == nil {
-		return nil, fmt.Errorf("--preset %s: no entry for %s in %s", preset, repo, config.Path())
-	}
-	return project.WithPreset(preset)
+	return config.Effective(repo, preset)
 }
 
 const rootLong = `Launches a Herdr workspace with one master agent supervising N worker
@@ -293,7 +286,9 @@ func withWtm(run func(repo string) error) error {
 }
 
 func main() {
-	opts := &startOptions{silenceMinutes: 30, idleCloseMinutes: 10}
+	// Every default is in the config's defaults (see config.SyncDefaults):
+	// none here.
+	opts := &startOptions{}
 
 	root := &cobra.Command{
 		Use:     "acw",
@@ -308,17 +303,28 @@ func main() {
 			if err != nil {
 				return err
 			}
+			added, dropped, err := config.SyncDefaults()
+			if err != nil {
+				return fmt.Errorf("config acw: %w", err)
+			}
+			if len(added) > 0 {
+				fmt.Fprintf(cmd.ErrOrStderr(), "config: %s: defaults written for %s\n", config.Path(), strings.Join(added, ", "))
+			}
+			if len(dropped) > 0 {
+				fmt.Fprintf(cmd.ErrOrStderr(), "config: %s: defaults acw no longer knows dropped: %s\n", config.Path(), strings.Join(dropped, ", "))
+			}
 			project, err := loadProject(cwd, opts.preset)
 			if err != nil {
 				return fmt.Errorf("config acw: %w", err)
 			}
-			if project != nil {
-				applyConfig(opts, project, cmd.Flags().Changed)
-				summary := project.Summary()
+			applyConfig(opts, project, cmd.Flags().Changed)
+			// What this repo sets on top of the defaults.
+			if entry, _ := config.Load(cwd); entry != nil {
+				summary := entry.Summary()
 				if opts.preset != "" {
 					summary = strings.TrimSuffix(fmt.Sprintf("preset=%q, %s", opts.preset, summary), ", ")
 				}
-				fmt.Fprintf(cmd.ErrOrStderr(), "config: %s → %s\n", config.Path(), summary)
+				fmt.Fprintf(cmd.ErrOrStderr(), "config: %s → defaults, then %s\n", config.Path(), summary)
 			}
 			if err := checkCounts(opts, cmd.Flags().Changed); err != nil {
 				return fmt.Errorf("config acw: %w", err)
@@ -359,15 +365,16 @@ func main() {
 	// dependency) gets only its message instead of being buried under it.
 	root.PersistentPreRun = func(cmd *cobra.Command, args []string) { cmd.SilenceUsage = true }
 
-	root.Flags().IntVarP(&opts.workers, "workers", "n", 3, "most worker agents open at once, opened as tasks are queued (per-project: workers)")
+	// No default here: they are the config's defaults (see SyncDefaults).
+	root.Flags().IntVarP(&opts.workers, "workers", "n", 0, "most worker agents open at once, opened as tasks are queued (per-project: workers)")
 	root.Flags().IntVar(&opts.minWorkers, "min-workers", 0, "workers kept open with nothing queued; --workers for a fixed swarm (per-project: min-workers)")
-	root.Flags().IntVar(&opts.idleCloseMinutes, "idle-close-minutes", 10, "how long a free worker above --min-workers stays open with nothing queued for it (per-project: idle-close-minutes)")
+	root.Flags().IntVar(&opts.idleCloseMinutes, "idle-close-minutes", 0, "how long a free worker above --min-workers stays open with nothing queued for it (per-project: idle-close-minutes)")
 	root.Flags().IntVar(&opts.maxStacks, "max-stacks", 0, "stacks running at the same time, which the workers take with acw stack up for the minutes they need one (default: same as --workers) (per-project: max-stacks)")
-	root.Flags().StringVar(&opts.masterKind, "master-kind", "claude", "herdr agent kind for the master (claude, codex, gemini...) (per-project: master-kind)")
-	root.Flags().StringVar(&opts.workerKind, "worker-kind", "claude", "herdr agent kind for the workers (claude, codex, gemini...) (per-project: worker-kind)")
-	root.Flags().StringVar(&opts.masterModel, "master-model", "opus", "model for the master agent; empty means no --model is passed to its CLI (per-project: master-model)")
-	root.Flags().StringVar(&opts.workerModel, "worker-model", "sonnet", "model for worker agents; empty means no --model is passed to their CLI (per-project: worker-model)")
-	root.Flags().IntVar(&opts.masterAutocompact, "master-autocompact", 250_000, "context size in tokens, 100000 to 1000000, at which a claude master compacts; 0 leaves Claude Code's own (per-project: master-autocompact)")
+	root.Flags().StringVar(&opts.masterKind, "master-kind", "", "herdr agent kind for the master (claude, codex, gemini...) (per-project: master-kind)")
+	root.Flags().StringVar(&opts.workerKind, "worker-kind", "", "herdr agent kind for the workers (claude, codex, gemini...) (per-project: worker-kind)")
+	root.Flags().StringVar(&opts.masterModel, "master-model", "", "model for the master agent; empty means no --model is passed to its CLI (per-project: master-model)")
+	root.Flags().StringVar(&opts.workerModel, "worker-model", "", "model for worker agents; empty means no --model is passed to their CLI (per-project: worker-model)")
+	root.Flags().IntVar(&opts.masterAutocompact, "master-autocompact", 0, "context size in tokens, 100000 to 1000000, at which a claude master compacts; 0 leaves Claude Code's own (per-project: master-autocompact)")
 	root.Flags().StringVar(&opts.preset, "preset", "", "named preset of the per-project config entry, laid over it (see presets in the config)")
 	root.Flags().BoolVar(&opts.prWatch, "pr-watch", false, "follow your open non-draft pull requests on this repo and tell the master what changed on them; needs gh, logged in (per-project: pr-watch)")
 	root.Flags().BoolVar(&opts.board, "board", false, "open acw board along with the swarm, in the background; acw stop stops it (per-project: board)")
