@@ -28,7 +28,8 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   `PreToolUse` hook, and opens `acw board` in Desktop's Browser pane. The
   hooks, its permission rules and the board's launch entry go in the
   master folder's `.claude`, for its session only, and `acw stop` takes
-  them off.
+  them off. Its workers run as Claude Code background sessions, without
+  herdr: a task starts a new session, a message stops and resumes it.
 
 ### Fixed
 

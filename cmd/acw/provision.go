@@ -42,11 +42,8 @@ func openWorker(repo string, index int) {
 	label := pw.label()              // pane label, kept short
 	name := names.Agent(slug, label) // herdr agent name, unique per repo
 	w := plan.Workers[index-1]
-	fail := func(step string, err error, pane string) {
+	fail := func(step string, err error) {
 		fmt.Fprintf(os.Stderr, "%s: %s: %v\n", name, step, err)
-		if pane != "" {
-			_ = herdr.PaneClose(pane)
-		}
 		if pw.Worktree != "" {
 			teardown.Worktree(repo, pw.Worktree)
 		}
@@ -62,16 +59,12 @@ func openWorker(repo string, index int) {
 	if pw.Worktree != "" {
 		cwd = pw.Worktree
 	}
-	pane, step, err := placeWorker(repo, plan.MasterPane, *pw, cwd)
-	if err != nil {
-		if step == "git worktree add" {
+	if pw.Worktree != "" {
+		if err := makeWorktree(repo, *pw); err != nil {
 			pw.Worktree = "" // not made: nothing to tear down
+			fail("git worktree add", err)
+			return
 		}
-		fail(step, err, pane)
-		return
-	}
-	if err := herdr.PaneRename(pane, label); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: herdr pane rename: %v\n", name, err)
 	}
 
 	// The hook calls this same binary back; without its path the worker
@@ -96,8 +89,8 @@ func openWorker(repo string, index int) {
 		// Same for acw stack, which waits for a place then starts its stack.
 		allowed = append(allowed, "Bash("+shellWord(self)+" stack:*)")
 	}
-	if err := herdr.AgentStart(name, w.Kind, pane, workerArgs(w, label, hook, statusLine, allowed)...); err != nil {
-		fail("herdr agent start", explainStart(err, cwd), pane)
+	if step, err := engineOf(plan).start(repo, plan, *pw, name, label, w.Kind, cwd, workerArgs(w, label, hook, statusLine, allowed)); err != nil {
+		fail(step, err)
 		return
 	}
 
@@ -164,23 +157,28 @@ func adoptAlone(dir string) error {
 	return wtm.Adopt(dir)
 }
 
-// placeWorker makes w's worktree, when it has one, and its pane, recorded
-// in the pool before the next opening looks for where to split. step
-// names what failed; pane is the one made, if any, for the caller to close.
+// makeWorktree makes w's worktree, on its home branch, whatever runs it.
+func makeWorktree(repo string, w poolWorker) error {
+	placing.Lock()
+	defer placing.Unlock()
+	if err := gitutil.Fetch(repo); err != nil {
+		fmt.Fprintln(os.Stderr, "git fetch:", err)
+	}
+	branch := homeBranch(w)
+	if err := gitutil.WorktreeAdd(repo, w.Worktree, branch, gitutil.DefaultBaseRef(repo)); err != nil {
+		// Best effort: git may have made the branch before failing.
+		_ = gitutil.DeleteBranch(repo, branch)
+		return err
+	}
+	return nil
+}
+
+// placeWorker makes w's pane, recorded in the pool before the next
+// opening looks for where to split. step names what failed; pane is the
+// one made, if any, for the caller to close.
 func placeWorker(repo, masterPane string, w poolWorker, cwd string) (pane, step string, err error) {
 	placing.Lock()
 	defer placing.Unlock()
-	if w.Worktree != "" {
-		if err := gitutil.Fetch(repo); err != nil {
-			fmt.Fprintln(os.Stderr, "git fetch:", err)
-		}
-		branch := homeBranch(w)
-		if err := gitutil.WorktreeAdd(repo, w.Worktree, branch, gitutil.DefaultBaseRef(repo)); err != nil {
-			// Best effort: git may have made the branch before failing.
-			_ = gitutil.DeleteBranch(repo, branch)
-			return "", "git worktree add", err
-		}
-	}
 	p, _, err := readPool(repo)
 	if err != nil {
 		return "", "reading the pool", err
@@ -245,10 +243,8 @@ func closeWorker(repo string, w poolWorker, why string, routine bool) {
 		fmt.Fprintln(os.Stderr, "closing a worker:", err)
 		return
 	}
-	if w.Pane != "" {
-		if err := herdr.PaneClose(w.Pane); err != nil {
-			fmt.Fprintf(os.Stderr, "%s: herdr pane close: %v\n", w.label(), err)
-		}
+	if err := engineOf(plan.Plan).stop(w, names.Agent(names.Slug(repo), w.label())); err != nil {
+		fmt.Fprintf(os.Stderr, "%s: closing: %v\n", w.label(), err)
 	}
 	left := ""
 	if w.Worktree != "" {

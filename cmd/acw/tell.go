@@ -70,8 +70,8 @@ func tellByHand(repo, arg string, words []string, interrupt bool, stdin io.Reade
 		return err
 	}
 	if interrupt {
-		if err := pressKeys(names.Agent(names.Slug(repo), w.label()), "esc"); err != nil {
-			return fmt.Errorf("the message waits for its end of turn, but Escape failed: %w", err)
+		if err := engineFor(repo).interrupt(names.StatusDir(repo), w.label(), names.Agent(names.Slug(repo), w.label())); err != nil {
+			return fmt.Errorf("the message waits for its end of turn, but the interruption failed: %w", err)
 		}
 		fmt.Fprintf(out, "%s: current turn interrupted, it gets the message within seconds.\n", w.label())
 		return nil
@@ -109,31 +109,35 @@ func commandWorker(repo, arg, command string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	eng := engineFor(repo)
+	if _, bg := eng.(bgSessions); bg {
+		return fmt.Errorf("%s runs as a background session, which takes no command typed into it; each task starts a new session, plugins reloaded", w.label())
+	}
 	name := names.Agent(names.Slug(repo), w.label())
-	status, err := agentStatus(name)
+	status, err := agentStatus(eng, name)
 	if err != nil {
 		return err
 	}
 	if status == "working" {
 		fmt.Fprintf(out, "%s is still working, waiting for it to go idle…\n", w.label())
-		if err := herdr.AgentWait(name, []string{"idle", "done", "blocked"}, clearIdleTimeout); err != nil {
+		if err := eng.wait(name, []string{"idle", "done", "blocked"}, clearIdleTimeout); err != nil {
 			return fmt.Errorf("%s didn't go idle within %s: %w", w.label(), clearIdleTimeout, err)
 		}
-		if status, err = agentStatus(name); err != nil {
+		if status, err = agentStatus(eng, name); err != nil {
 			return err
 		}
 	}
 	if status == "blocked" {
 		return fmt.Errorf("%s is blocked: resolve its pending request first, then run the command again", w.label())
 	}
-	screen, err := herdr.AgentScreen(name)
+	screen, err := eng.screen(name)
 	if err != nil {
 		return err
 	}
 	if typed := typedInput(screen); typed != "" {
 		return fmt.Errorf("%s's input line holds “%s”: nothing typed; it goes once that line is empty", w.label(), oneLine(typed))
 	}
-	if err := herdr.AgentPrompt(name, command); err != nil {
+	if err := eng.prompt(names.StatusDir(repo), w.label(), name, command); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "%s: %s typed.\n", w.label(), command)
@@ -144,12 +148,12 @@ func commandWorker(repo, arg, command string, out io.Writer) error {
 // its input: no end of turn will come to carry them. Never over something
 // on its input line, the user's half-typed text or a choice on screen:
 // then it types nothing and returns that line, for the master to hear.
-func tellIdle(statusDir, label, agent string) (blocking string, err error) {
+func tellIdle(eng engine, statusDir, label, agent string) (blocking string, err error) {
 	path := filepath.Join(statusDir, label+".tell")
 	if info, err := os.Stat(path); err != nil || info.Size() == 0 {
 		return "", nil
 	}
-	screen, err := herdr.AgentScreen(agent)
+	screen, err := eng.screen(agent)
 	if err != nil {
 		return "", err
 	}
@@ -160,7 +164,7 @@ func tellIdle(statusDir, label, agent string) (blocking string, err error) {
 	if err := drainOnce(path, &held); err != nil || held.Len() == 0 {
 		return "", err
 	}
-	if err := herdr.AgentPrompt(agent, masterMessage(held.String())); err != nil {
+	if err := eng.prompt(statusDir, label, agent, masterMessage(held.String())); err != nil {
 		// Back where it was, for the next poll.
 		return "", errors.Join(err, tellWorker(statusDir, label, held.String()))
 	}

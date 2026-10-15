@@ -38,8 +38,11 @@ var (
 // PATH, returning one combined error naming every missing binary with how
 // to install it. wtm is checked separately by WarnIfWtmMissing — it's
 // optional, not a hard dependency.
-func CheckStart(kinds ...string) error {
-	deps := []dependency{herdrDep}
+func CheckStart(herdr bool, kinds ...string) error {
+	var deps []dependency
+	if herdr {
+		deps = append(deps, herdrDep)
+	}
 	seen := map[string]bool{}
 	for _, k := range kinds {
 		if seen[k] {
