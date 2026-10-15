@@ -94,7 +94,7 @@ only way to stop a swarm.
 | `--preset` | *(none)* | a named preset of the repo's config entry, laid over it, see [Presets](#presets) |
 | `--brief` | *(built-in)* | path to a custom master brief template, see [Custom brief template](#custom-brief-template) |
 | `--pr-watch` | off | tell the master what changed on your open pull requests, see [PR watch](#pr-watch) |
-| `--board` | off | open [`acw board`](#board) along with the swarm, in the background, no second terminal; `acw stop` stops it |
+| `--board` | off | open [`acw board`](#board) along with the swarm, in the background, no second terminal; a board already open for another swarm is reused, and the last `acw stop` stops it |
 
 Every flag can be set once and for all per repo: see
 [Per-project config](#per-project-config). `acw --help` documents them in
@@ -949,7 +949,10 @@ variables. A preset is where it usually belongs:
 
 `acw board` opens a local page on `127.0.0.1` (a free port, or `--port`),
 until Ctrl-C; started by `acw --board`, it runs in the background until
-`acw stop`, its URL in `acw-board-<stamp>.log` in the temp dir. It answers three questions, in this order: what waits on a
+`acw stop`, its URL in `acw-board-<stamp>.log` in the temp dir. Swarms
+started with `--board` share one board, which shows every repo: the
+second one opens the board already there, and it stays open until the
+last of them is stopped. It answers three questions, in this order: what waits on a
 gesture of yours, where each ticket stands, and whether the swarm runs
 well. Nothing on it is stored for it: it is read off what the watcher and
 the master write.

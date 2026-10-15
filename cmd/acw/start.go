@@ -196,11 +196,21 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	}
 	// Not fatal: the swarm runs without it, acw board opens it by hand.
 	if opts.board {
-		boardLog := fmt.Sprintf("acw-board-%s.log", stamp)
-		if err := launchDetached(boardLog, "board", "--until-stop", repo); err != nil {
-			fmt.Fprintf(out, "⚠ acw board not started: %v\n", err)
+		// One board for every swarm: it shows them all already.
+		if url := sharedBoard(); url != "" {
+			if err := appendLine(boardSwarms(), repo); err != nil {
+				fmt.Fprintf(out, "⚠ acw board at %s not joined: %v\n", url, err)
+			} else {
+				openBrowser(url)
+				fmt.Fprintf(out, "→ acw board already open at %s, it now stays open for this swarm too\n", url)
+			}
 		} else {
-			fmt.Fprintf(out, "→ acw board opening in the browser, its URL in %s\n", filepath.Join(os.TempDir(), boardLog))
+			boardLog := fmt.Sprintf("acw-board-%s.log", stamp)
+			if err := launchDetached(boardLog, "board", "--until-stop", repo); err != nil {
+				fmt.Fprintf(out, "⚠ acw board not started: %v\n", err)
+			} else {
+				fmt.Fprintf(out, "→ acw board opening in the browser, its URL in %s\n", filepath.Join(os.TempDir(), boardLog))
+			}
 		}
 	}
 

@@ -2,6 +2,8 @@ package main
 
 import (
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -403,25 +405,62 @@ func TestParkAndResume(t *testing.T) {
 	}
 }
 
-func TestWaitGoneReturnsOnceTheDirIsRemoved(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "status")
-	if err := os.Mkdir(dir, 0o755); err != nil {
+// A second acw --board joins the board that answers; one that died left
+// its URL behind, and a new board is started instead.
+func TestSharedBoardOnlyWhenItAnswers(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(board.Path()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got := sharedBoard(); got != "" {
+		t.Errorf("no board yet: sharedBoard = %q", got)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	if err := os.WriteFile(sharedBoardURL(), []byte(srv.URL+"/\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := sharedBoard(); got != srv.URL+"/" {
+		t.Errorf("board answering: sharedBoard = %q", got)
+	}
+	srv.Close()
+	if got := sharedBoard(); got != "" {
+		t.Errorf("board gone: sharedBoard = %q", got)
+	}
+}
+
+// The shared board stays open while any swarm that joined it runs: the
+// first one stopping no longer takes it away from the second.
+func TestWaitSwarmsGoneWaitsForTheLastSwarm(t *testing.T) {
+	first, second := t.TempDir(), t.TempDir()
+	for _, repo := range []string{first, second} {
+		if err := os.MkdirAll(names.StatusDir(repo), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	swarms := filepath.Join(t.TempDir(), "board.swarms")
+	if err := os.WriteFile(swarms, []byte(first+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := appendLine(swarms, second); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan struct{})
-	go func() { waitGone(dir, time.Millisecond); close(done) }()
+	go func() { waitSwarmsGone(swarms, time.Millisecond); close(done) }()
+	if err := os.RemoveAll(names.StatusDir(first)); err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case <-done:
-		t.Fatal("waitGone returned while the dir is still there")
+		t.Fatal("waitSwarmsGone returned while the second swarm still runs")
 	case <-time.After(20 * time.Millisecond):
 	}
-	if err := os.RemoveAll(dir); err != nil {
+	if err := os.RemoveAll(names.StatusDir(second)); err != nil {
 		t.Fatal(err)
 	}
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("waitGone still waits after the dir was removed")
+		t.Fatal("waitSwarmsGone still waits after the last swarm stopped")
 	}
 }
 

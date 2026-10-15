@@ -74,10 +74,48 @@ func openBrowser(url string) {
 	_ = exec.Command(name, url).Start()
 }
 
-// waitGone returns once path no longer exists, checked every so often.
-func waitGone(path string, every time.Duration) {
+// The board acw --board starts is shared by every swarm started with it:
+// its URL, and the repos whose swarm keeps it open, one per line. A second
+// swarm that opened its own board lost it when the first one stopped.
+func sharedBoardURL() string { return filepath.Join(filepath.Dir(board.Path()), "board.url") }
+func boardSwarms() string    { return filepath.Join(filepath.Dir(board.Path()), "board.swarms") }
+
+// sharedBoard returns the shared board's URL when it answers, else "".
+func sharedBoard() string {
+	data, err := os.ReadFile(sharedBoardURL())
+	if err != nil {
+		return ""
+	}
+	url := strings.TrimSpace(string(data))
+	resp, err := (&http.Client{Timeout: time.Second}).Get(url)
+	if err != nil {
+		return ""
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	return url
+}
+
+// waitSwarmsGone returns once no repo listed in path has its swarm running
+// (acw stop removes its status dir), checked every so often.
+// ponytail: a swarm that joins in the very tick the board stops finds it
+// gone on its next start; the board is restarted by hand.
+func waitSwarmsGone(path string, every time.Duration) {
 	for {
-		if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		data, _ := os.ReadFile(path)
+		running := false
+		for _, repo := range strings.Split(string(data), "\n") {
+			if repo == "" {
+				continue
+			}
+			if _, err := os.Stat(names.StatusDir(repo)); !errors.Is(err, fs.ErrNotExist) {
+				running = true
+				break
+			}
+		}
+		if !running {
 			return
 		}
 		time.Sleep(every)
@@ -122,8 +160,15 @@ func boardCommand() *cobra.Command {
 			openBrowser(url)
 			srv := &http.Server{Handler: board.Handler(b, time.Now, notifyMaster, boardQueue)}
 			if untilStop != "" {
+				if err := os.WriteFile(boardSwarms(), []byte(untilStop+"\n"), 0o600); err != nil {
+					return err
+				}
+				if err := os.WriteFile(sharedBoardURL(), []byte(url+"\n"), 0o600); err != nil {
+					return err
+				}
+				defer os.Remove(sharedBoardURL())
 				go func() {
-					waitGone(names.StatusDir(untilStop), 2*time.Second)
+					waitSwarmsGone(boardSwarms(), 2*time.Second)
 					srv.Close()
 				}()
 			}
@@ -135,7 +180,7 @@ func boardCommand() *cobra.Command {
 	}
 	cmd.Flags().IntVar(&port, "port", 0, "port on 127.0.0.1 (default: a free one)")
 	// Set by acw --board: acw stop removes the swarm's status dir.
-	cmd.Flags().StringVar(&untilStop, "until-stop", "", "stop once the swarm of this repo is stopped")
+	cmd.Flags().StringVar(&untilStop, "until-stop", "", "stop once the swarm of this repo, and of every repo that joined the board since, is stopped")
 	_ = cmd.Flags().MarkHidden("until-stop")
 
 	var worker, subject, why string
