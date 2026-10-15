@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Hy0sh/agents-crew/internal/harness"
 	"github.com/Hy0sh/agents-crew/internal/wtm"
 )
 
@@ -25,11 +26,6 @@ var (
 		bin:     "herdr",
 		purpose: "orchestrates the panes/agents (required, acw does nothing without it)",
 		install: "https://herdr.dev",
-	}
-	claudeDep = dependency{
-		bin:     "claude",
-		purpose: "the Claude Code CLI itself, started in every master/worker pane",
-		install: "npm install -g @anthropic-ai/claude-code",
 	}
 	ghDep = dependency{
 		bin:     "gh",
@@ -58,14 +54,15 @@ func CheckStart(kinds ...string) error {
 // kindDep describes the CLI herdr starts for an agent kind. A kind's name
 // is its canonical executable, so that's the binary to look for.
 func kindDep(kind string) dependency {
-	if kind == "claude" {
-		return claudeDep
-	}
-	return dependency{
+	d := dependency{
 		bin:     kind,
 		purpose: fmt.Sprintf("the CLI of the requested agent (--master-kind/--worker-kind %s), started in the panes", kind),
 		install: fmt.Sprintf("no %q binary in PATH: install that CLI, or pick another kind", kind),
 	}
+	if install := harness.Of(kind).Install; install != "" {
+		d.install = install
+	}
+	return d
 }
 
 // CheckStop verifies herdr is on PATH — the only hard dependency of
@@ -103,7 +100,7 @@ func check(deps ...dependency) error {
 // with *no* project instructions at all — no error, no signal, just code
 // written outside the repo's conventions.
 func WarnIfAgentsFileMissing(repo, workerKind string, printf func(format string, a ...any)) {
-	if workerKind == "claude" {
+	if harness.Of(workerKind).ReadsClaudeMD {
 		return
 	}
 	home, _ := os.UserHomeDir()

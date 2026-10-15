@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Hy0sh/agents-crew/internal/harness"
 )
 
 // The inbox is how workers reach a claude master without typing into its
@@ -45,7 +47,7 @@ var inboxBatch = 2 * time.Second
 // never tells the master to watch — pings would pile up in a file nobody
 // reads. warn reports that last case, which the user should hear about.
 func inboxWatchCommand(masterKind, customBrief, exe, inbox string) (cmd string, warn bool) {
-	if masterKind != "claude" {
+	if !harness.Of(masterKind).InboxMonitor {
 		return "", false
 	}
 	if customBrief != "" && !strings.Contains(customBrief, ".InboxWatch") && !strings.Contains(customBrief, ".InboxNext") {
@@ -79,14 +81,17 @@ func inboxNextCommand(exe, inbox string) string {
 // It is denied the file tools: it dispatches, it does not code.
 func masterArgs(kind, model, exe, inboxWatch, briefPath string, autocompact int) []string {
 	args := modelArgs(model)
-	if kind != "claude" {
-		return args
-	}
-	if autocompact > 0 {
+	a := harness.Of(kind)
+	if a.Settings && autocompact > 0 {
 		args = append(args, "--autocompact", strconv.Itoa(autocompact))
 	}
-	args = append(args, "--append-system-prompt-file", briefPath,
-		"--disallowedTools", "Edit", "Write", "NotebookEdit", "EnterPlanMode", "ExitPlanMode")
+	if a.SystemPrompt {
+		args = append(args, "--append-system-prompt-file", briefPath)
+	}
+	if !a.Settings {
+		return args
+	}
+	args = append(args, "--disallowedTools", "Edit", "Write", "NotebookEdit", "EnterPlanMode", "ExitPlanMode")
 	args = append(args, "--allowedTools")
 	if inboxWatch != "" {
 		args = append(args,

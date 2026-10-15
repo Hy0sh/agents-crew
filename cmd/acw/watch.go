@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Hy0sh/agents-crew/internal/board"
+	"github.com/Hy0sh/agents-crew/internal/harness"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
 )
@@ -126,7 +127,7 @@ func runWatch(plan watchPlan, interval time.Duration) {
 				continue
 			}
 			agentNames[label] = name
-			v := workerView{Label: label, Hooked: pool.Plan.Workers[pw.Index-1].Kind == "claude", Status: a.Status}
+			v := workerView{Label: label, Hooked: harness.Of(pool.Plan.Workers[pw.Index-1].Kind).Settings, Status: a.Status}
 			// Only a working worker's activity counts (see observe), and
 			// reading it costs a git status: skipped for the others.
 			if a.Status == "working" {

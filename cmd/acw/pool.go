@@ -17,6 +17,7 @@ import (
 
 	"github.com/Hy0sh/agents-crew/internal/board"
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
+	"github.com/Hy0sh/agents-crew/internal/harness"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
 	"github.com/Hy0sh/agents-crew/internal/teardown"
@@ -694,7 +695,7 @@ func pollWorkers(p poolState, agents []herdr.Agent, statusDir string, now time.T
 		var poll workerPoll
 		if a, ok := herdr.FindAgent(agents, names.Agent(slug, w.label())); ok && (a.Status == "idle" || a.Status == "done") {
 			_, err := os.Stat(filepath.Join(statusDir, w.label()+".usage.json"))
-			poll.Ready = spec.Kind != "claude" || err == nil
+			poll.Ready = !harness.Of(spec.Kind).Settings || err == nil
 		} else if ok && (a.Status == "working" || a.Status == "blocked") {
 			poll.Active = true
 		}
@@ -719,7 +720,7 @@ func pollWorkers(p poolState, agents []herdr.Agent, statusDir string, now time.T
 			poll.Parking, poll.Ready = true, false
 		}
 		mem.mu.Unlock()
-		if now.Sub(w.Since) >= idle || spec.Kind != "claude" || poll.offHome() {
+		if now.Sub(w.Since) >= idle || !harness.Of(spec.Kind).ResetsContext || poll.offHome() {
 			poll.Clean = w.Worktree == "" || gitutil.Clean(w.Worktree)
 		}
 		polls[w.Index] = poll
@@ -848,7 +849,7 @@ func runPool(repo string, p poolState, q taskQueue, polls map[int]workerPoll, no
 	}
 	for _, w := range closes {
 		why := fmt.Sprintf("free for %d min with nothing queued for it", p.IdleCloseMinutes)
-		if p.Plan.Workers[w.Index-1].Kind != "claude" {
+		if !harness.Of(p.Plan.Workers[w.Index-1].Kind).ResetsContext {
 			why = "its task is done, and acw cannot reset its context for another"
 		}
 		background(func() { closeWorker(repo, w, why, true) })

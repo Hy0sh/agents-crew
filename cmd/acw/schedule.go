@@ -3,6 +3,8 @@ package main
 import (
 	"slices"
 	"time"
+
+	"github.com/Hy0sh/agents-crew/internal/harness"
 )
 
 // schedule decides, from one poll, what the pool does next: which task
@@ -279,7 +281,7 @@ func schedule(p poolState, q taskQueue, polls map[int]workerPoll, now time.Time)
 			continue
 		}
 		limit := idle
-		if spec(w.Index).Kind != "claude" && w.Used {
+		if !harness.Of(spec(w.Index).Kind).ResetsContext && w.Used {
 			limit = 0
 		}
 		since := w.Since

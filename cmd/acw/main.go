@@ -25,6 +25,7 @@ import (
 
 	"github.com/Hy0sh/agents-crew/internal/board"
 	"github.com/Hy0sh/agents-crew/internal/config"
+	"github.com/Hy0sh/agents-crew/internal/harness"
 	"github.com/Hy0sh/agents-crew/internal/names"
 	"github.com/Hy0sh/agents-crew/internal/preflight"
 	"github.com/Hy0sh/agents-crew/internal/teardown"
@@ -321,7 +322,14 @@ func main() {
 					return fmt.Errorf("config acw: master-dir: %w", err)
 				}
 			}
-			if err := preflight.CheckStart(append([]string{opts.masterKind}, distinctKinds(workers)...)...); err != nil {
+			// The flags too: the config refused unknown kinds already.
+			kinds := append([]string{opts.masterKind}, distinctKinds(workers)...)
+			for _, kind := range kinds {
+				if _, err := harness.Lookup(kind); err != nil {
+					return err
+				}
+			}
+			if err := preflight.CheckStart(kinds...); err != nil {
 				return err
 			}
 			preflight.WarnIfWtmMissing(func(format string, a ...any) { fmt.Fprintf(cmd.ErrOrStderr(), format, a...) })

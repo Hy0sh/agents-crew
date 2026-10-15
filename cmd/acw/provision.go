@@ -13,6 +13,7 @@ import (
 
 	"github.com/Hy0sh/agents-crew/internal/board"
 	"github.com/Hy0sh/agents-crew/internal/gitutil"
+	"github.com/Hy0sh/agents-crew/internal/harness"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
 	"github.com/Hy0sh/agents-crew/internal/teardown"
@@ -418,11 +419,12 @@ func claims(line, branch string) bool {
 // stack run wtm switch without a prompt.
 func workerArgs(w workerSpec, label, hook, statusLine string, allowed []string) []string {
 	args := modelArgs(w.Model)
-	if w.Kind != "claude" {
-		return args
-	}
-	if w.PromptPath != "" {
+	a := harness.Of(w.Kind)
+	if a.SystemPrompt && w.PromptPath != "" {
 		args = append(args, "--append-system-prompt-file", w.PromptPath)
+	}
+	if !a.Settings {
+		return args
 	}
 	if len(allowed) > 0 {
 		args = append(append(args, "--allowedTools"), allowed...)

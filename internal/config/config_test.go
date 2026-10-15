@@ -135,6 +135,29 @@ func TestLoadRejectsUnknownKeyInRole(t *testing.T) {
 }
 
 // What roles can't mean is refused, each with what to write instead.
+// A kind acw doesn't know is refused wherever it is written, with the key
+// that holds it; a preset is checked once laid over the entry.
+func TestUnknownKindRefused(t *testing.T) {
+	for key, raw := range map[string]string{
+		"master-kind":         `{"master-kind":"claud"}`,
+		"worker-kind":         `{"worker-kind":"gpt"}`,
+		"roles: review: kind": `{"roles":{"review":{"max":1,"kind":"x"}}}`,
+	} {
+		writeConfig(t, `{"projects": {"/repo": `+raw+`}}`)
+		if _, err := Load("/repo"); err == nil || !strings.Contains(err.Error(), key) || !strings.Contains(err.Error(), "claude, pi, codex") {
+			t.Errorf("%s: Load() error = %v; want it named, with the known kinds", key, err)
+		}
+	}
+	writeConfig(t, `{"projects": {"/repo": {"worker-kind":"codex","presets":{"p":{"master-kind":"nope"}}}}}`)
+	p, err := Load("/repo")
+	if err != nil {
+		t.Fatalf("Load() = %v; a known kind and an unused preset are fine", err)
+	}
+	if _, err := p.WithPreset("p"); err == nil {
+		t.Error("a preset with an unknown master-kind was accepted")
+	}
+}
+
 func TestRolesRefuseBadOnes(t *testing.T) {
 	for name, raw := range map[string]string{
 		"max absent":   `{"roles":{"worker":{}}}`,

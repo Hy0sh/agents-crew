@@ -12,6 +12,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/Hy0sh/agents-crew/internal/harness"
 	"github.com/Hy0sh/agents-crew/internal/names"
 )
 
@@ -225,12 +226,12 @@ func coders(workers []Worker) int {
 	return n
 }
 
-// pingingWorkers names the claude workers: only they get the Stop hook
-// (see workerArgs in cmd/acw).
+// pingingWorkers names the workers that take acw's settings: only they
+// get the end-of-turn hook (see workerArgs in cmd/acw).
 func pingingWorkers(slug string, workers []Worker) string {
 	var list []string
 	for _, w := range workers {
-		if w.Kind == "claude" {
+		if harness.Of(w.Kind).Settings {
 			list = append(list, names.Agent(slug, w.Label))
 		}
 	}
@@ -299,7 +300,7 @@ func rolesSection(slug string, workers []Worker) string {
 			b.WriteString("; no instructions of their own.\n")
 			continue
 		}
-		if w.Kind == "claude" {
+		if harness.Of(w.Kind).SystemPrompt {
 			b.WriteString(". Their own instructions are already in their system prompt, they survive their resets: do NOT copy them into their briefs, only take them into account when assigning them tasks.\n")
 		} else {
 			b.WriteString(". Their agent has no system prompt this setup can set: copy their own instructions VERBATIM into EACH of their briefs, after every reset, and take them into account when assigning them tasks.\n")
