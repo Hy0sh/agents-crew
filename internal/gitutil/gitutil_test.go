@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,6 +24,34 @@ func gitInit(t *testing.T) string {
 		}
 	}
 	return dir
+}
+
+// Exclude writes one line however often it runs, and the path drops out
+// of the untracked files.
+func TestExcludeOnce(t *testing.T) {
+	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+	dir := gitInit(t)
+	if err := os.MkdirAll(filepath.Join(dir, ".claude", "worktrees"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".claude", "worktrees", "pool.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := Exclude(dir, ".claude/worktrees/"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exclude, err := os.ReadFile(filepath.Join(dir, ".git", "info", "exclude"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(exclude), "/.claude/worktrees/\n"); n != 1 {
+		t.Errorf("exclude holds the line %d times:\n%s", n, exclude)
+	}
+	if status, _ := run(dir, "status", "--porcelain"); status != "" {
+		t.Errorf("git status = %q, want nothing untracked", status)
+	}
 }
 
 // A worker coding for 35 minutes without touching its status file is

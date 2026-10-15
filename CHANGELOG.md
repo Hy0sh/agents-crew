@@ -17,6 +17,14 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 - `acw board` has a favicon, to find its tab among the others.
 
+### Fixed
+
+- With a Claude Code agent in the swarm, `acw start` keeps `.claude/worktrees/`
+  out of git's untracked files, in the clone's own `info/exclude`. Claude
+  Code shows the diff of every untracked file a command changes: every acw
+  command of the master rewrote the swarm's state files there, briefs
+  included, all over its terminal.
+
 ## [0.30.0] - 2026-10-14
 
 ### Added
