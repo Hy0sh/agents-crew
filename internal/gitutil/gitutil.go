@@ -31,6 +31,36 @@ func output(args ...string) ([]byte, error) {
 	return stdout.Bytes(), nil
 }
 
+// Exclude makes git ignore path in repo, for this clone only: a line in
+// info/exclude, never a .gitignore to commit. Nothing is written when
+// path is ignored already.
+func Exclude(repo, path string) error {
+	if _, err := run(repo, "check-ignore", "-q", path); err == nil {
+		return nil
+	}
+	common, err := run(repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return err
+	}
+	file := filepath.Join(common, "info", "exclude")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		return err
+	}
+	line := "/" + strings.TrimPrefix(path, "/") + "\n"
+	if old, err := os.ReadFile(file); err == nil && len(old) > 0 && !bytes.HasSuffix(old, []byte("\n")) {
+		line = "\n" + line
+	}
+	f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(line)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err
+}
+
 // Fetch runs `git fetch origin` in repo.
 func Fetch(repo string) error {
 	// Two workers taking a task at once fetched into the same refs and

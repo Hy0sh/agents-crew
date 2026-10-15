@@ -7,11 +7,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/Hy0sh/agents-crew/internal/brief"
+	"github.com/Hy0sh/agents-crew/internal/claudecode"
 	"github.com/Hy0sh/agents-crew/internal/herdr"
 	"github.com/Hy0sh/agents-crew/internal/names"
 	"github.com/Hy0sh/agents-crew/internal/preflight"
@@ -33,8 +35,14 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	slug := names.Slug(repo)
 	masterName := names.Master(slug)
 
-	for _, kind := range distinctKinds(workers) {
+	kinds := distinctKinds(workers)
+	for _, kind := range kinds {
 		preflight.WarnIfAgentsFileMissing(repo, kind, func(format string, a ...any) { fmt.Fprintf(out, format, a...) })
+	}
+	if opts.masterKind == claudecode.Kind || slices.Contains(kinds, claudecode.Kind) {
+		if err := claudecode.ExcludeWorktrees(repo); err != nil {
+			fmt.Fprintf(out, "⚠ .claude/worktrees/ not excluded from git, Claude Code will show its state files changing: %v\n", err)
+		}
 	}
 
 	// Scoped to this directory, not global: two different repos each get
