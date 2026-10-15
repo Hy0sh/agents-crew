@@ -342,7 +342,9 @@ func main() {
 			if err := harness.CheckApp(opts.masterApp, opts.masterKind, distinctKinds(workers)); err != nil {
 				return fmt.Errorf("config acw: %w", err)
 			}
-			if err := preflight.CheckStart(kinds...); err != nil {
+			// A master in Claude Desktop and its background workers run
+			// without herdr.
+			if err := preflight.CheckStart(opts.masterApp != harness.DesktopApp, kinds...); err != nil {
 				return err
 			}
 			preflight.WarnIfWtmMissing(func(format string, a ...any) { fmt.Fprintf(cmd.ErrOrStderr(), format, a...) })

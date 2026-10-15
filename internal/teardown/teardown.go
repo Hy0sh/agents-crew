@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -45,11 +44,10 @@ func Run() error {
 	if master, ok := herdr.FindAgent(agents, names.Master(slug)); ok {
 		workspaceID = master.WorkspaceID
 		fmt.Printf("Stopping the swarm of %s (workspace %s).\n", repo, workspaceID)
-	} else if id, err := os.ReadFile(names.WorkspaceFile(repo)); err == nil {
-		// A master in Claude Desktop is no herdr agent: its swarm wrote
-		// the workspace down.
-		workspaceID = strings.TrimSpace(string(id))
-		fmt.Printf("Stopping the swarm of %s (master in Claude Desktop, workspace %s).\n", repo, workspaceID)
+	} else if claudecode.IsDesktop(statusDir) {
+		// A master in Claude Desktop is no herdr agent, and its workers
+		// run in the background: no workspace to close.
+		fmt.Printf("Stopping the swarm of %s (master in Claude Desktop).\n", repo)
 	} else {
 		// A Herdr crash or a master closed by hand ends the watcher with no
 		// teardown: the workers, their worktrees and stacks are still this
@@ -71,6 +69,11 @@ func Run() error {
 	// run during that window found nothing to clean up otherwise, leaving
 	// real Docker stacks orphaned despite reporting success.
 	stopWatcher(repo)
+	// A master in Claude Desktop runs its workers as background sessions,
+	// which outlive any terminal: stopped here, before their worktrees go.
+	if claudecode.IsDesktop(statusDir) {
+		claudecode.StopAll(func(name string) bool { return names.IsWorkerAgent(name, slug) }, 30*time.Second)
+	}
 	cleanupWorkerWorktrees(repo)
 
 	if workspaceID != "" {

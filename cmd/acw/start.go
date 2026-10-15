@@ -53,16 +53,18 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	// their own master/worker names (see internal/names), and a swarm
 	// already running for a DIFFERENT repo never blocks this one. Found by
 	// name, not by its pane's cwd: with master-dir it runs elsewhere.
-	agents, err := herdr.AgentList()
-	if err != nil {
-		return fmt.Errorf("herdr agent list: %w", err)
-	}
-	if a, ok := herdr.FindAgent(agents, masterName); ok {
-		return fmt.Errorf("a master is already running in workspace %s for this directory. Attach to it (herdr workspace focus %s) "+
-			"instead of starting another one, or close it first (acw stop)", a.WorkspaceID, a.WorkspaceID)
-	}
-	if _, err := os.Stat(names.WorkspaceFile(repo)); err == nil {
+	if claudecode.IsDesktop(names.StatusDir(repo)) {
 		return errors.New("a swarm is already running for this directory, its master in Claude Desktop: go on there, or stop it first (acw stop)")
+	}
+	if opts.masterApp != harness.DesktopApp {
+		agents, err := herdr.AgentList()
+		if err != nil {
+			return fmt.Errorf("herdr agent list: %w", err)
+		}
+		if a, ok := herdr.FindAgent(agents, masterName); ok {
+			return fmt.Errorf("a master is already running in workspace %s for this directory. Attach to it (herdr workspace focus %s) "+
+				"instead of starting another one, or close it first (acw stop)", a.WorkspaceID, a.WorkspaceID)
+		}
 	}
 
 	// Before anything is created: a custom brief with a typo'd variable
@@ -153,18 +155,22 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if opts.masterDir != "" {
 		masterDir = opts.masterDir
 	}
+	// A master in Claude Desktop runs its workers as background sessions:
+	// no herdr workspace at all.
 	desktop := opts.masterApp == harness.DesktopApp
-	workspaceID, masterPane, err := herdr.WorkspaceCreate(masterDir, names.Label(repo), !desktop)
-	if err != nil {
-		return fmt.Errorf("herdr workspace create: %w", err)
-	}
-	// From here on, clean up the half-built workspace on any failure.
 	success := false
-	defer func() {
-		if !success {
-			_ = herdr.WorkspaceClose(workspaceID, true)
+	var workspaceID, masterPane string
+	if !desktop {
+		if workspaceID, masterPane, err = herdr.WorkspaceCreate(masterDir, names.Label(repo), true); err != nil {
+			return fmt.Errorf("herdr workspace create: %w", err)
 		}
-	}()
+		// From here on, clean up the half-built workspace on any failure.
+		defer func() {
+			if !success {
+				_ = herdr.WorkspaceClose(workspaceID, true)
+			}
+		}()
+	}
 
 	// A claude master gets its brief as a system prompt (see masterArgs),
 	// or reads it from this file in Claude Desktop, and only a kickoff as
@@ -181,16 +187,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if previous != "" {
 		firstPrompt += "\n\n" + previous
 	}
-	if desktop {
-		// The master is in Claude Desktop: this pane is where the workers'
-		// panes split from, and acw stop finds the workspace by its id.
-		if err := herdr.PaneRename(masterPane, "acw"); err != nil {
-			return err
-		}
-		if err := os.WriteFile(names.WorkspaceFile(repo), []byte(workspaceID), 0o600); err != nil {
-			return err
-		}
-	} else {
+	if !desktop {
 		if err := herdr.PaneRename(masterPane, "master"); err != nil {
 			return err
 		}
@@ -207,6 +204,9 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	}
 
 	plan := provisionPlan{Repo: repo, MasterPane: masterPane, Stamp: stamp, Stacks: stacks, MaxStacks: maxStacks, Profile: opts.profile, Workers: workers, Inbox: inbox, SwitchAllowed: switchCommand != "", PRWatch: prWatchRepo != ""}
+	if desktop {
+		plan.Engine = bgEngine
+	}
 	pool := poolState{Plan: plan, IdleCloseMinutes: opts.idleCloseMinutes}
 	if err := writeJSON(names.PoolFile(repo), pool); err != nil {
 		return err

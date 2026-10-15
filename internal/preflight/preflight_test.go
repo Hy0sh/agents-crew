@@ -11,7 +11,7 @@ import (
 func TestCheckStartReportsEveryMissingBinary(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // an empty directory: nothing resolves
 
-	err := CheckStart("claude", "claude")
+	err := CheckStart(true, "claude", "claude")
 	if err == nil {
 		t.Fatal("CheckStart() = nil, want an error when herdr and claude are both missing")
 	}
@@ -28,7 +28,7 @@ func TestCheckStartReportsEveryMissingBinary(t *testing.T) {
 func TestCheckStartChecksEachKindsOwnBinary(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 
-	err := CheckStart("claude", "codex")
+	err := CheckStart(true, "claude", "codex")
 	if err == nil {
 		t.Fatal("CheckStart() = nil, want an error when no agent CLI resolves")
 	}
@@ -43,7 +43,7 @@ func TestCheckStartChecksEachKindsOwnBinary(t *testing.T) {
 func TestCheckStartDoesNotRequireClaudeForOtherKinds(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 
-	err := CheckStart("codex", "codex")
+	err := CheckStart(true, "codex", "codex")
 	if err == nil {
 		t.Fatal("CheckStart() = nil, want an error when herdr and codex are both missing")
 	}

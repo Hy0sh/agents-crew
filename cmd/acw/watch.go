@@ -88,6 +88,7 @@ func runWatch(plan watchPlan, interval time.Duration) {
 		}
 	}
 	defer inflight.Wait()
+	eng := engineFor(plan.Repo)
 	// With the lock held, no other watcher runs: whatever is half done in
 	// the pool of this run was left by one that died.
 	if locked && ownsRun(plan.Repo, plan.Stamp) {
@@ -99,9 +100,9 @@ func runWatch(plan watchPlan, interval time.Duration) {
 		if !ownsRun(plan.Repo, plan.Stamp) {
 			return
 		}
-		agents, err := herdr.AgentList()
+		agents, err := eng.agents()
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "herdr agent list:", err)
+			fmt.Fprintln(os.Stderr, "listing the workers:", err)
 			time.Sleep(interval)
 			continue
 		}
@@ -146,7 +147,7 @@ func runWatch(plan watchPlan, interval time.Duration) {
 			}
 			views = append(views, v)
 			if pw.State == workerBusy && (a.Status == "idle" || a.Status == "done") {
-				blocking, err := tellIdle(statusDir, label, name)
+				blocking, err := tellIdle(eng, statusDir, label, name)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "%s: master's message: %v\n", label, err)
 				}
@@ -168,7 +169,7 @@ func runWatch(plan watchPlan, interval time.Duration) {
 			s, _ := readWorkerStatus(filepath.Join(statusDir, pw.label()+".json"))
 			row := boardWorker(plan.Repo, pw, a.Status, s, now)
 			if found {
-				row.Busy = screens.get(now, pw.label(), a.Name)
+				row.Busy = screens.get(eng, now, pw.label(), a.Name)
 			}
 			if u, err := readUsage(filepath.Join(statusDir, pw.label()+".usage.json")); err == nil {
 				row.Context, row.FiveHour = u.Context, u.FiveHour
@@ -229,12 +230,12 @@ func runWatch(plan watchPlan, interval time.Duration) {
 			// Waiting on a long tool or on background work writes nothing
 			// in the worktree: that silence is work, read on its screen.
 			if e.Kind == eventSilent {
-				if screen, err := herdr.AgentScreen(agentNames[e.Label]); err == nil && busyOnScreen(screen) != "" {
+				if screen, err := eng.screen(agentNames[e.Label]); err == nil && busyOnScreen(screen) != "" {
 					w.rearm(e.Label, now)
 					continue
 				}
 			}
-			toMaster(eventMessage(statusDir, agentNames[e.Label], e))
+			toMaster(eventMessage(eng, statusDir, agentNames[e.Label], e))
 		}
 		resolveAccepts(plan.Repo, queue)
 		if prs != nil && now.Sub(prs.last) >= prWatchEvery {
@@ -307,12 +308,12 @@ type screenCache map[string]struct {
 	busy string
 }
 
-func (c screenCache) get(now time.Time, label, agent string) string {
+func (c screenCache) get(eng engine, now time.Time, label, agent string) string {
 	if e, ok := c[label]; ok && now.Sub(e.at) < worktreeEvery {
 		return e.busy
 	}
 	var busy string
-	if screen, err := herdr.AgentScreen(agent); err == nil {
+	if screen, err := eng.screen(agent); err == nil {
 		busy = busyOnScreen(screen)
 	}
 	c[label] = struct {
@@ -354,10 +355,10 @@ func (c worktreeCache) get(now time.Time, label, worktree string) time.Time {
 
 // eventMessage builds the text for one event. A blocked worker's pane is
 // read now, while the prompt is still on it.
-func eventMessage(statusDir, agentName string, e watchEvent) string {
+func eventMessage(eng engine, statusDir, agentName string, e watchEvent) string {
 	switch e.Kind {
 	case eventBlocked, eventIdleNoTurnEnd:
-		pane, err := herdr.AgentRead(agentName, 40)
+		pane, err := eng.read(agentName, 40)
 		if err != nil {
 			pane = "(pane unreadable: " + err.Error() + ")"
 		}

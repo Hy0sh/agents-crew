@@ -778,7 +778,19 @@ role's name is its workers' name everywhere: `reviewer1`, `reviewer2`.
 ### The master in Claude Desktop
 
 `"master-app": "claude-desktop"` runs the master in the Claude Desktop app
-instead of a herdr pane. Master and workers must be Claude Code.
+instead of a herdr pane, and its workers as Claude Code background
+sessions (`claude --bg`, listed by `claude agents`): no herdr at all.
+Master and workers must be Claude Code. That the workers run in the
+background is not a setting of its own: Desktop can't host them (a worker
+it relaunches loses its brief and its hooks).
+
+- Nothing types into a background session from outside it, so acw never
+  does: a task starts a new session with its brief as first prompt (that
+  is the reset between tasks), and a message (`acw tell`, `--interrupt`
+  included) stops the worker's session and resumes it with the message,
+  same session, same options. A worker waiting on a permission prompt is
+  answered in a terminal with `claude attach <its name>`; acw tells the
+  master which one.
 
 - `acw` creates the master's session, opens it in Desktop and starts it:
   nothing to type. It reads its brief, watches its inbox, and opens

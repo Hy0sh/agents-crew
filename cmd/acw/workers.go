@@ -311,4 +311,7 @@ type provisionPlan struct {
 	// PRWatch is set when the watcher follows the PRs: it is what tells
 	// acw a task's PR was merged (see queuedTask.AfterMerge).
 	PRWatch bool `json:"pr_watch,omitempty"`
+	// Engine is how the workers run (see engine): "" in herdr panes,
+	// claude-bg as Claude Code background sessions.
+	Engine string `json:"engine,omitempty"`
 }

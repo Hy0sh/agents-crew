@@ -139,9 +139,10 @@ func collectStatus(repo string) (rows []statusRow, unread int, lastAt time.Time,
 	if _, err := os.Stat(statusDir); err != nil {
 		return nil, 0, time.Time{}, fmt.Errorf("no acw swarm in %s", repo)
 	}
-	agents, err := herdr.AgentList()
+	eng := engineFor(repo)
+	agents, err := eng.agents()
 	if err != nil {
-		return nil, 0, time.Time{}, fmt.Errorf("herdr agent list: %w", err)
+		return nil, 0, time.Time{}, fmt.Errorf("listing the workers: %w", err)
 	}
 	rows = scanWorkers(statusDir, agents, names.Slug(repo), statusLabels(repo))
 	// What the PR watch last saw: a PR on auto-merge merges on its own.
@@ -152,7 +153,7 @@ func collectStatus(repo string) (rows []statusRow, unread int, lastAt time.Time,
 			rows[i].PR += " (auto-merge)"
 		}
 		if r.Name != "" {
-			if screen, err := herdr.AgentScreen(r.Name); err == nil {
+			if screen, err := eng.screen(r.Name); err == nil {
 				rows[i].Busy = busyOnScreen(screen)
 			}
 		}

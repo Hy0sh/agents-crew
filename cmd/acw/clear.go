@@ -55,7 +55,7 @@ func clearWorker(repo, arg string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return resetContext(t, out)
+	return engineFor(repo).reset(t, out)
 }
 
 // readyToClear resolves arg and waits until the worker can take a /clear:
@@ -70,7 +70,8 @@ func readyToClear(repo, arg string, out io.Writer) (clearTarget, error) {
 	t := clearTarget{label: label, index: index, name: names.Agent(slug, label), statusDir: statusDir,
 		usagePath: filepath.Join(statusDir, label+".usage.json")}
 
-	status, err := agentStatus(t.name)
+	eng := engineFor(repo)
+	status, err := agentStatus(eng, t.name)
 	if err != nil {
 		return clearTarget{}, err
 	}
@@ -80,10 +81,10 @@ func readyToClear(repo, arg string, out io.Writer) (clearTarget, error) {
 	}
 	if status == "working" {
 		fmt.Fprintf(out, "%s is still working, waiting for it to go idle…\n", label)
-		if err := herdr.AgentWait(t.name, []string{"idle", "done", "blocked"}, clearIdleTimeout); err != nil {
+		if err := eng.wait(t.name, []string{"idle", "done", "blocked"}, clearIdleTimeout); err != nil {
 			return clearTarget{}, fmt.Errorf("%s didn't go idle within %s: %w", label, clearIdleTimeout, err)
 		}
-		if status, err = agentStatus(t.name); err != nil {
+		if status, err = agentStatus(eng, t.name); err != nil {
 			return clearTarget{}, err
 		}
 		if why := clearRefusal(label, status, true); why != "" {
@@ -122,14 +123,14 @@ func resetContext(t clearTarget, out io.Writer) error {
 	return fmt.Errorf("%s: no new session within %s after /clear, check its pane", t.label, clearTimeout)
 }
 
-func agentStatus(name string) (string, error) {
-	agents, err := herdr.AgentList()
+func agentStatus(eng engine, name string) (string, error) {
+	agents, err := eng.agents()
 	if err != nil {
-		return "", fmt.Errorf("herdr agent list: %w", err)
+		return "", fmt.Errorf("listing the workers: %w", err)
 	}
 	a, ok := herdr.FindAgent(agents, name)
 	if !ok {
-		return "", fmt.Errorf("agent %s not found in herdr", name)
+		return "", fmt.Errorf("worker %s not running", name)
 	}
 	return a.Status, nil
 }

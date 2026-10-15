@@ -47,6 +47,13 @@ type Desktop struct {
 
 func desktopFile(statusDir string) string { return filepath.Join(statusDir, "desktop.json") }
 
+// IsDesktop reports that the swarm whose status dir this is has its
+// master in Claude Desktop.
+func IsDesktop(statusDir string) bool {
+	_, err := os.Stat(desktopFile(statusDir))
+	return err == nil
+}
+
 // kickoffFile holds what the master reads once, at its first start.
 func kickoffFile(statusDir string) string { return filepath.Join(statusDir, "master.kickoff") }
 
@@ -278,6 +285,7 @@ func DesktopHook(event, statusDir string, in io.Reader, out io.Writer) error {
 func startContext(statusDir string, d Desktop, source string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are the master of an acw swarm, running in Claude Desktop. Your brief is the file %s: read it in full with your Read tool now, before anything else, and follow it; read it again after every compaction. It stands for the system prompt Claude Desktop can't take.", BriefFile(statusDir))
+	b.WriteString(" One correction to it: you are in no Herdr pane, and your workers run as Claude Code background sessions, not Herdr panes. Whatever your brief says about herdr (agent read, agent prompt, agent send-keys, agent wait) does not apply to them: never run a herdr command. A worker's status file and acw status are what you read; acw tell reaches it as before. A worker waiting on a permission prompt is the user's to answer, in a terminal, with `claude attach <its name>`: tell them so.")
 	if d.InboxNext != "" {
 		fmt.Fprintf(&b, " Claude Desktop drops your background commands whenever it restarts this session: run `%s` in the background again now, as your brief says.", d.InboxNext)
 	}
