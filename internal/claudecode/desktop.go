@@ -246,6 +246,7 @@ func DesktopHook(event, statusDir string, in io.Reader, out io.Writer) error {
 	var input struct {
 		SessionID string `json:"session_id"`
 		Source    string `json:"source"`
+		toolUse
 	}
 	if err := json.NewDecoder(in).Decode(&input); err != nil {
 		return err
@@ -264,11 +265,7 @@ func DesktopHook(event, statusDir string, in io.Reader, out io.Writer) error {
 	}
 	switch event {
 	case "pre-tool":
-		return json.NewEncoder(out).Encode(map[string]any{"hookSpecificOutput": map[string]any{
-			"hookEventName":            "PreToolUse",
-			"permissionDecision":       "deny",
-			"permissionDecisionReason": "acw: the master dispatches and supervises, it never edits files nor plans in plan mode",
-		}})
+		return guard(BriefsDir(statusDir), input.toolUse, out)
 	case "session-start":
 		return json.NewEncoder(out).Encode(map[string]any{"hookSpecificOutput": map[string]any{
 			"hookEventName":     "SessionStart",

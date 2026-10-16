@@ -591,7 +591,18 @@ func main() {
 		},
 	}
 
-	root.AddCommand(stop, status, queue, done, closeCmd, projectCommand(), boardCommand(), stackCommand(), tell, clearCmd, dispatch, pause, resume, restartWatch, watch, inboxWatch, inboxNext, turnEnd, statusLine, desktopHook)
+	// Internal: a claude master's PreToolUse hook on Write (see
+	// masterSettings): it writes in its briefs folder only.
+	masterWrite := &cobra.Command{
+		Use:    masterWriteUse + " <briefs-dir>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return claudecode.GuardWrite(args[0], cmd.InOrStdin(), cmd.OutOrStdout())
+		},
+	}
+
+	root.AddCommand(stop, status, queue, done, closeCmd, projectCommand(), boardCommand(), stackCommand(), tell, clearCmd, dispatch, pause, resume, restartWatch, watch, inboxWatch, inboxNext, turnEnd, statusLine, desktopHook, masterWrite)
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)

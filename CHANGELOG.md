@@ -8,6 +8,22 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ### Changed
 
+- The master writes its briefs, messages and decisions with Write, in a
+  briefs folder of the status directory, then hands acw the file: Claude
+  Code folds a Write, where the heredocs it wrote in Bash showed in full in
+  the user's terminal. Write works there only: a hook refuses it anywhere
+  else, and Edit stays denied, so the master still never edits the code.
+- A worker's turn end tells the master its status fields (summary,
+  decision, blocked_on, pr_url, proof_path, doc_path): the master no longer
+  prints the whole status file to read them.
+- The master's brief carries rules learnt on real swarms: a review before
+  every push of commits, the workers' status files left to them, a done on
+  the board checked once and dropped, an accepted plan spread over several
+  workers, a rule copied word for word, production left to the master, a
+  demo video handed to the user unwatched, a system notification for what
+  waits on the user; and parked options written `(a) …; (b) …`, for the
+  board's buttons. A worker sets a `_ready` state only once the user can
+  act, and never touches production.
 - acw's defaults move from its code to the config file, under `defaults`:
   the first launch writes them, each launch after adds a key acw has a
   value for and drops one it no longer knows, leaving the user's values.

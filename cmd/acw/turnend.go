@@ -119,7 +119,7 @@ func turnEnd(statusDir, label, inbox, masterName string, now time.Time, out io.W
 	_, toldErr := os.Stat(filepath.Join(statusDir, label+".told"))
 	quiet := toldErr != nil && freeInPool(statusDir, label)
 	if delta, ping := statusDelta(statusDir, label, now); ping && !quiet {
-		if derr := deliver(inbox, masterName, label+pingHead+delta+pingTail); err == nil {
+		if derr := deliver(inbox, masterName, label+pingHead+delta+statusFields(statusDir, label)+pingTail); err == nil {
 			err = derr
 		}
 	}
@@ -255,6 +255,33 @@ func statusDelta(statusDir, label string, at time.Time) (delta string, ping bool
 
 // oneLine is a status field as the ping can carry it: the inbox is read
 // line by line, and state is free text of any length.
+// statusFields is what the master reads in a worker's status file before
+// reacting, carried by the ping itself: read with cat, the whole JSON
+// showed in its terminal at every turn end. Empty fields are left out,
+// "" when there is no status to read.
+func statusFields(statusDir, label string) string {
+	content, err := os.ReadFile(filepath.Join(statusDir, label+".json"))
+	var status map[string]any
+	if err != nil || json.Unmarshal(content, &status) != nil {
+		return ""
+	}
+	var parts []string
+	for _, key := range []string{"summary", "decision", "blocked_on", "pr_url", "proof_path", "doc_path"} {
+		s, _ := status[key].(string)
+		if s = strings.Join(strings.Fields(s), " "); s == "" {
+			continue
+		}
+		if r := []rune(s); len(r) > 400 {
+			s = string(r[:400]) + "…"
+		}
+		parts = append(parts, key+": "+s)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return ". Its status: " + strings.Join(parts, " · ")
+}
+
 func oneLine(v any) string {
 	s, _ := v.(string)
 	s = strings.Join(strings.Fields(s), " ")

@@ -69,6 +69,21 @@ func TestDesktopHookOnlyForTheMaster(t *testing.T) {
 	if err := DesktopHook("pre-tool", status, strings.NewReader(`{"session_id":"master-id"}`), &out); err != nil || !strings.Contains(out.String(), `"deny"`) {
 		t.Errorf("pre-tool for the master = %q, %v; want a deny", out.String(), err)
 	}
+	// Its briefs are the one thing it writes, with Write, in its folder.
+	for _, c := range []struct {
+		call string
+		deny bool
+	}{
+		{`"tool_name":"Write","tool_input":{"file_path":"` + BriefsDir(status) + `/task.md"}`, false},
+		{`"tool_name":"Write","tool_input":{"file_path":"` + BriefsDir(status) + `/../pool.json"}`, true},
+		{`"tool_name":"Write","tool_input":{"file_path":"/repo/main.go"}`, true},
+		{`"tool_name":"Edit","tool_input":{"file_path":"` + BriefsDir(status) + `/task.md"}`, true},
+	} {
+		out.Reset()
+		if err := DesktopHook("pre-tool", status, strings.NewReader(`{"session_id":"master-id",`+c.call+`}`), &out); err != nil || strings.Contains(out.String(), `"deny"`) != c.deny {
+			t.Errorf("pre-tool %s = %q, %v; want deny %v", c.call, out.String(), err, c.deny)
+		}
+	}
 	for i, want := range []bool{true, false} {
 		out.Reset()
 		if err := DesktopHook("session-start", status, strings.NewReader(`{"session_id":"master-id","source":"startup"}`), &out); err != nil {
