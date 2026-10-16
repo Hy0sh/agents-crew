@@ -164,7 +164,39 @@ func PaneSplit(paneID, direction string, ratio float64, cwd string) (newPaneID s
 // the pane itself exists — herdr then refuses the start with
 // "agent_pane_busy" even though nothing is actually wrong. That's
 // retried with backoff here rather than surfaced as a real failure.
+//
+// herdr may also type the command while a new pane's shell is still
+// starting: the shell swallows it and sits there, and herdr times out
+// with nothing run. Seen on about one start in three. When only the shell
+// is in the pane's foreground then, Ctrl-C frees it and the start is
+// tried again, once; with the agent there, it is a slow start, left alone.
 func AgentStart(name, kind, paneID string, extraArgs ...string) error {
+	err := agentStart(name, kind, paneID, extraArgs)
+	if err == nil || !strings.Contains(err.Error(), "timed out waiting for agent startup") || !shellOnly(paneID) {
+		return err
+	}
+	if _, kerr := run("pane", "send-keys", paneID, "C-c"); kerr != nil {
+		return err
+	}
+	return agentStart(name, kind, paneID, extraArgs)
+}
+
+// shellOnly reports whether paneID's foreground is its shell: nothing it
+// was asked to run is running.
+func shellOnly(paneID string) bool {
+	var result struct {
+		ProcessInfo struct {
+			ShellPID   int `json:"shell_pid"`
+			Foreground int `json:"foreground_process_group_id"`
+		} `json:"process_info"`
+	}
+	if err := runResult(&result, "pane", "process-info", "--pane", paneID); err != nil {
+		return false
+	}
+	return result.ProcessInfo.ShellPID != 0 && result.ProcessInfo.Foreground == result.ProcessInfo.ShellPID
+}
+
+func agentStart(name, kind, paneID string, extraArgs []string) error {
 	args := []string{"agent", "start", name, "--kind", kind, "--pane", paneID}
 	if len(extraArgs) > 0 {
 		args = append(args, "--")
