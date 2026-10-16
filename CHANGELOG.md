@@ -6,6 +6,8 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-10-16
+
 ### Added
 
 - `acw stop --all` stops every running swarm from anywhere, each as `acw
@@ -1279,7 +1281,8 @@ project: 7 PRs, 3 merged. Each entry names what actually went wrong.
   anything, with a clear message and install instructions if not; `wtm` is
   checked too but stays optional.
 
-[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.31.1...HEAD
+[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.32.0...HEAD
+[0.32.0]: https://github.com/Hy0sh/agents-crew/compare/v0.31.1...v0.32.0
 [0.31.1]: https://github.com/Hy0sh/agents-crew/compare/v0.31.0...v0.31.1
 [0.31.0]: https://github.com/Hy0sh/agents-crew/compare/v0.30.0...v0.31.0
 [0.30.0]: https://github.com/Hy0sh/agents-crew/compare/v0.29.1...v0.30.0
