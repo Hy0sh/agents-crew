@@ -27,6 +27,11 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ### Added
 
+- `acw board` shows a worker's terminal: a click on it opens its screen,
+  colours included, as its herdr pane or `claude attach` would show it,
+  read every 2 seconds while open and never otherwise. A worker running as
+  a background session has no pane to look at: a prompt or a dialog it
+  sat on went unseen. The terminal is xterm.js, served by acw itself.
 - `acw board` has a favicon, to find its tab among the others.
 - `"master-app": "claude-desktop"` runs the master in Claude Desktop. acw
   creates its session, opens it there and starts it; the master reads its
