@@ -82,7 +82,8 @@ button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px
 #decide-options { display: grid; gap: 8px; }
 .option { text-align: left; font: 14px/1.4 var(--f-body); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; cursor: pointer; }
 .option:hover { border-color: var(--ok); background: var(--ok-soft); } .option:disabled { opacity: .5; cursor: wait; }
-.option b { font-family: var(--f-data); margin-right: 6px; } .option.reco { border-color: var(--ok); }
+.option b { font-family: var(--f-data); margin-right: 6px; }
+.option[aria-pressed="true"] { border: 2px solid var(--ok); background: var(--ok-soft); padding: 7px 11px; }
 .option.reco::after { content: "recommended"; margin-left: 8px; font: 600 11px var(--f-body); color: var(--ok); }
 #doc-note, #decide-note { font: 14px/1.4 var(--f-body); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; resize: vertical; cursor: auto; }
 .icon-btn { font: 13px var(--f-data); color: var(--accent); background: none; border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; margin-left: 5px; cursor: pointer; }
@@ -160,8 +161,8 @@ dialog::backdrop { background: rgb(0 0 0 / .45); }
   <div class="doc-body" style="display:grid; gap:12px; padding:16px">
     <div id="decide-text"></div>
     <div id="decide-options"></div>
-    <textarea id="decide-note" rows="3" aria-label="Notes for the master" placeholder="Something else, or what you did yourself; sent alone, or with the option clicked"></textarea>
-    <div style="display:flex; gap:8px; align-items:center"><button type="button" class="done-btn" id="decide-send">Send this note</button><span class="flag" id="decide-flag"></span></div>
+    <textarea id="decide-note" rows="3" aria-label="Notes for the master" placeholder="Something else, or what you did yourself; sent with the option selected, or alone"></textarea>
+    <div style="display:flex; gap:8px; align-items:center"><button type="button" class="done-btn" id="decide-send">Send</button><span class="flag" id="decide-flag"></span></div>
   </div>
 </dialog>
 <dialog id="term">
@@ -275,9 +276,12 @@ function choices(text) {
   const tag = /^\[recomm?and[^\]]*\]\s*/i; // recommended, recommandé
   return out.map(o => ({ letter: o.letter, text: o.text.replace(tag, ""), reco: reco?.[1] === o.letter || tag.test(o.text) }));
 }
-let decideWait = null;
+let decideWait = null, decideChoice = "";
+// A click selects an option, the recommended one from the start, and Send
+// sends it with the note if any: what shows selected is what goes out.
 function openDecide(w) {
   decideWait = w;
+  decideChoice = "";
   $("decide-key").textContent = w.ticket || "no ticket";
   // The detail often starts with the text: shown once.
   $("decide-text").textContent = w.detail?.startsWith(w.text) ? w.detail : [w.text, w.detail].filter(Boolean).join("\n\n");
@@ -288,7 +292,14 @@ function openDecide(w) {
     const b = el("button", "option" + (reco ? " reco" : ""));
     b.type = "button";
     b.append(el("b", null, label), text);
-    b.addEventListener("click", () => decide(answer));
+    const select = () => {
+      decideChoice = answer;
+      $("decide-options").querySelectorAll(".option").forEach(o => o.setAttribute("aria-pressed", String(o === b)));
+      $("decide-flag").textContent = "";
+    };
+    b.setAttribute("aria-pressed", "false");
+    b.addEventListener("click", select);
+    if (reco) queueMicrotask(select);
     return b;
   };
   // Without options, a yes or a no (a gesture done, a go): no "ok" to type.
@@ -297,11 +308,11 @@ function openDecide(w) {
     : [button("✓", "Accept", false, "The user accepted"), button("✗", "Refuse", false, "The user refused")]));
   $("decide").showModal();
 }
-// The option clicked, with the note typed if any; or the note alone.
+// The option selected, with the note typed if any; or the note alone.
 async function decide(choice) {
   const note = $("decide-note").value.trim();
   const text = [choice, note].filter(Boolean).join(". ");
-  if (!text) { $("decide-flag").textContent = "Click an option or type what was decided."; return; }
+  if (!text) { $("decide-flag").textContent = "Select an option or type what was decided."; return; }
   const buttons = [...$("decide").querySelectorAll("button")];
   buttons.forEach(b => b.disabled = true);
   try {
@@ -314,7 +325,7 @@ async function decide(choice) {
     buttons.forEach(b => b.disabled = false);
   }
 }
-$("decide-send").addEventListener("click", () => decide(""));
+$("decide-send").addEventListener("click", () => decide(decideChoice));
 $("decide-close").addEventListener("click", () => $("decide").close());
 // A parked document, read from its file now: accept is the user's go,
 // refuse holds it. The notes typed go with either answer, and are the

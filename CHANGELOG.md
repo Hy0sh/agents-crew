@@ -8,6 +8,10 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ### Fixed
 
+- On the board, a parked decision's options are selected, then sent with
+  *Send*: the recommended one is selected from the start, and a note is no
+  longer needed. Its green frame looked like a selection, and *Send this
+  note* refused to go without a note.
 - `acw --help` no longer documents `worker-overrides`, which the config
   refuses: it shows `roles` and `kinds` instead, and the `defaults` the
   file holds. `queue add --kind` says the role's tasks pick the worker.
