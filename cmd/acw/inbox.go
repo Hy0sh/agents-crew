@@ -102,12 +102,19 @@ func masterArgs(kind, model, exe, inboxWatch, statusDir string, autocompact int)
 }
 
 // masterSettings is the --settings JSON of a claude master: the hook that
-// refuses its Write outside briefs.
+// refuses its Write outside briefs, and the focus view. A Write showed the
+// first ten lines of every brief, a Bash command its whole output: in
+// focus, a turn's tool calls are one summary line before its answer, the
+// detail one /focus or ctrl+o away. Focus needs the fullscreen renderer.
 func masterSettings(exe, briefs string) string {
-	out, _ := json.Marshal(map[string]any{"hooks": map[string]any{"PreToolUse": []any{map[string]any{
-		"matcher": "Write",
-		"hooks":   []any{map[string]string{"type": "command", "command": shellWord(exe) + " " + masterWriteUse + " " + shellWord(briefs)}},
-	}}}})
+	out, _ := json.Marshal(map[string]any{
+		"viewMode": "focus",
+		"tui":      "fullscreen",
+		"hooks": map[string]any{"PreToolUse": []any{map[string]any{
+			"matcher": "Write",
+			"hooks":   []any{map[string]string{"type": "command", "command": shellWord(exe) + " " + masterWriteUse + " " + shellWord(briefs)}},
+		}}},
+	})
 	return string(out)
 }
 

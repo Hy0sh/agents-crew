@@ -231,7 +231,7 @@ func TestMasterArgsAllowOnlyTheInboxWatch(t *testing.T) {
 	// dispatch, a worker's plan is parked for the user. Write stays, for
 	// its briefs only: a hook refuses it anywhere else.
 	want := []string{"--model", "opus", "--autocompact", "250000", "--append-system-prompt-file", "/s/master.system.md", "--disallowedTools", "Edit", "NotebookEdit", "EnterPlanMode", "ExitPlanMode",
-		"--settings", `{"hooks":{"PreToolUse":[{"hooks":[{"command":"/bin/acw __master-write /s/briefs","type":"command"}],"matcher":"Write"}]}}`,
+		"--settings", `{"hooks":{"PreToolUse":[{"hooks":[{"command":"/bin/acw __master-write /s/briefs","type":"command"}],"matcher":"Write"}]},"tui":"fullscreen","viewMode":"focus"}`,
 		"--allowedTools", "Bash(/bin/acw status:*)", "Bash(/bin/acw queue:*)", "Bash(/bin/acw done:*)", "Bash(/bin/acw close:*)", "Bash(/bin/acw tell:*)", "Bash(/bin/acw board decision:*)",
 		"Bash(/bin/acw board park:*)", "Bash(/bin/acw board parked:*)", "Bash(/bin/acw board resume:*)", "Bash(/bin/acw board edit:*)", "Edit(//s/briefs/**)"}
 	if !slices.Equal(got, want) {
