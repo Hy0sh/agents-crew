@@ -32,6 +32,11 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
   read every 2 seconds while open and never otherwise. A worker running as
   a background session has no pane to look at: a prompt or a dialog it
   sat on went unseen. The terminal is xterm.js, served by acw itself.
+- On `acw board`, *Done* on a parked decision opens it with a button per
+  option it lists, the recommended one marked, and a field for anything
+  else; the master hears the option taken. It used to be the browser's
+  own prompt, one line of free text over a decision you could no longer
+  read.
 - `acw board` has a favicon, to find its tab among the others.
 - `"master-app": "claude-desktop"` runs the master in Claude Desktop. acw
   creates its session, opens it there and starts it; the master reads its

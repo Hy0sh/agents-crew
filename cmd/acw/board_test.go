@@ -80,6 +80,18 @@ func TestBoardWorkerState(t *testing.T) {
 	}
 }
 
+// Before its status file, a busy worker is on the task acw gave it.
+func TestBoardWorkerSubjectBeforeItsStatusFile(t *testing.T) {
+	now := time.Now()
+	pw := poolWorker{Index: 1, State: workerBusy, Since: now, Task: 7, Current: &queuedTask{ID: 7, Brief: "Fix the CSV export\n\nDetails..."}}
+	if got := boardWorker("/r", pw, "working", workerStatus{}, now); got.Subject != "#7 Fix the CSV export" {
+		t.Errorf("subject = %q, want the task's first line", got.Subject)
+	}
+	if got := boardWorker("/r", pw, "working", workerStatus{Tache: "SHOP-142"}, now); got.Subject != "SHOP-142" {
+		t.Errorf("subject = %q, want the status file's", got.Subject)
+	}
+}
+
 // The worker's own state dates from state_since, and carries blocked_on.
 func TestBoardWorkerSinceAndBlockedOn(t *testing.T) {
 	now := time.Now()
