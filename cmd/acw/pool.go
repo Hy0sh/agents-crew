@@ -417,6 +417,17 @@ func queueAdd(repo, path string, o addOptions, now time.Time, out io.Writer) err
 }
 
 // queueBrief queues text as a task's brief, as o says.
+// withMethod puts the method of kind, when one is declared, ahead of the
+// master's brief: the master writes only what is particular to the task,
+// never the method it would rewrite in every brief of that kind.
+func withMethod(methods map[string]string, kind, brief string) string {
+	method := methods[kind]
+	if kind == "" || method == "" {
+		return brief
+	}
+	return "Method for a " + kind + " task:\n" + method + "\n\n---\n\n" + brief
+}
+
 func queueBrief(repo, text string, o addOptions, now time.Time, out io.Writer) error {
 	br, worker, kind, after, afterMerge, top := o.Branch, o.Worker, o.Kind, o.After, o.AfterMerge, o.Top
 	if err := br.check(); err != nil {
@@ -490,7 +501,7 @@ func queueBrief(repo, text string, o addOptions, now time.Time, out io.Writer) e
 			}
 		}
 		q.NextID++
-		t := queuedTask{ID: q.NextID, Brief: text, Branch: br.Branch, Base: br.Base, Worker: index, Kind: kind, After: after, AfterMerge: afterMerge, AfterAccept: awaiting, AddedAt: now}
+		t := queuedTask{ID: q.NextID, Brief: withMethod(p.Plan.Kinds, kind, text), Branch: br.Branch, Base: br.Base, Worker: index, Kind: kind, After: after, AfterMerge: afterMerge, AfterAccept: awaiting, AddedAt: now}
 		if top {
 			q.Tasks = slices.Insert(q.Tasks, 0, t)
 		} else {
