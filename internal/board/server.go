@@ -36,6 +36,11 @@ var xterm embed.FS
 // another site open in the same browser can't write to the master.
 const doneHeader = "X-Acw-Board"
 
+// OpenURL opens a link in the user's own browser, for POST /api/open: the
+// board shown in Claude Desktop's Browser pane opened a PR there, where
+// the user is not logged in to GitHub.
+var OpenURL = func(string) {}
+
 // doneRequest is a line of "Waiting on you" the user marked done.
 type doneRequest struct {
 	Repo   string    `json:"repo"`
@@ -226,6 +231,22 @@ func Handler(b *DB, now func() time.Time, notify func(repo, msg string) error, q
 			reply(w, nil, err)
 			return
 		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /api/open", func(w http.ResponseWriter, r *http.Request) {
+		if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); r.Header.Get(doneHeader) != "1" || mt != "application/json" {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		var req struct {
+			URL string `json:"url"`
+		}
+		// Only an https link: the command opens whatever it is given.
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil || !strings.HasPrefix(req.URL, "https://") {
+			http.Error(w, "an https url is needed", http.StatusBadRequest)
+			return
+		}
+		OpenURL(req.URL)
 		w.WriteHeader(http.StatusNoContent)
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

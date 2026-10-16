@@ -191,8 +191,16 @@ const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls)
 const toned = (node, tone) => { node.dataset.tone = tone; return node; };
 const pill = (text, tone) => toned(el("span", "pill", text), tone);
 // Only an https link: a pr_url comes from a worker's status file, and a
-// javascript: one would run on the board's origin.
-const link = (text, url, cls = "ref") => { const s = el("span", cls); if (/^https:\/\//.test(url || "")) { const a = el("a", null, text); a.href = url; a.target = "_blank"; a.rel = "noopener"; s.append(a); } else s.textContent = text; return s; };
+// javascript: one would run on the board's origin. acw opens it in the
+// user's own browser, where they are logged in: the board may be shown in
+// Claude Desktop's Browser pane. Opened here when acw can't.
+const link = (text, url, cls = "ref") => { const s = el("span", cls); if (/^https:\/\//.test(url || "")) { const a = el("a", null, text); a.href = url; a.target = "_blank"; a.rel = "noopener"; a.addEventListener("click", e => { e.preventDefault(); openURL(url); }); s.append(a); } else s.textContent = text; return s; };
+async function openURL(url) {
+  try {
+    const res = await fetch("/api/open", { method: "POST", headers: { "Content-Type": "application/json", "X-Acw-Board": "1" }, body: JSON.stringify({ url }) });
+    if (!res.ok) throw new Error();
+  } catch { window.open(url, "_blank", "noopener"); }
+}
 const secs = iso => (Date.now() - new Date(iso)) / 1000;
 const span = s => s < 60 ? Math.round(s) + " s" : s < 3600 ? Math.floor(s / 60) + " min" : s < 86400 ? Math.floor(s / 3600) + " h " + String(Math.floor(s % 3600 / 60)).padStart(2, "0") : Math.floor(s / 86400) + " d";
 const hm = iso => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
