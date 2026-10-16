@@ -8,6 +8,9 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ### Fixed
 
+- A PR link on the board opens in your own browser: shown in Claude
+  Desktop's Browser pane, the board opened it there, where you are not
+  logged in to GitHub.
 - On the board, a parked decision's options are selected, then sent with
   *Send*: the recommended one is selected from the start, and a note is no
   longer needed. Its green frame looked like a selection, and *Send this

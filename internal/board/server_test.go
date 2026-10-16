@@ -90,6 +90,37 @@ const doneBody = `{"repo": "/r", "id": "worker:worker1:plan_ready:1", "ticket": 
 
 var doneHeaders = map[string]string{"X-Acw-Board": "1", "Content-Type": "application/json; charset=utf-8"}
 
+// A link opens in the user's own browser, an https one only, and only
+// from the page itself.
+func TestOpenURL(t *testing.T) {
+	_, h := handler(t)
+	var opened []string
+	OpenURL = func(u string) { opened = append(opened, u) }
+	t.Cleanup(func() { OpenURL = func(string) {} })
+	send := func(headers map[string]string, body string) int {
+		r := httptest.NewRequest("POST", "/api/open", strings.NewReader(body))
+		r.Host = "127.0.0.1:1"
+		for k, v := range headers {
+			r.Header.Set(k, v)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w.Code
+	}
+	if c := send(doneHeaders, `{"url": "https://github.com/some-org/some-repo/pull/42"}`); c != http.StatusNoContent {
+		t.Errorf("https link = %d", c)
+	}
+	if c := send(doneHeaders, `{"url": "file:///etc/passwd"}`); c != http.StatusBadRequest {
+		t.Errorf("file link = %d, want 400", c)
+	}
+	if c := send(map[string]string{"Content-Type": "application/json"}, `{"url": "https://example.com"}`); c != http.StatusForbidden {
+		t.Errorf("without the board's header = %d, want 403", c)
+	}
+	if len(opened) != 1 || opened[0] != "https://github.com/some-org/some-repo/pull/42" {
+		t.Errorf("opened = %q", opened)
+	}
+}
+
 // Marked done: the master is told, then the mark is kept.
 func TestDone(t *testing.T) {
 	b := open(t)

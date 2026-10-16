@@ -162,6 +162,7 @@ func boardCommand() *cobra.Command {
 			if !noBrowser {
 				openBrowser(url)
 			}
+			board.OpenURL = openBrowser
 			srv := &http.Server{Handler: board.Handler(b, time.Now, notifyMaster, boardQueue, boardTerminal)}
 			if untilStop != "" {
 				if err := os.WriteFile(boardSwarms(), []byte(untilStop+"\n"), 0o600); err != nil {
