@@ -117,8 +117,9 @@ func buildSlots(opts *startOptions, repo string) ([]workerSpec, error) {
 			w.Dir = dir
 		}
 		for _, k := range r.Tasks {
-			if k = strings.TrimSpace(k); k == "" || strings.HasPrefix(k, "-") || strings.ContainsAny(k, " \t") {
-				return nil, fmt.Errorf("roles %s: tasks: %q is not a task kind (one word, like need-review)", r.Name, k)
+			k = strings.TrimSpace(k)
+			if err := config.CheckKindName(k); err != nil {
+				return nil, fmt.Errorf("roles %s: tasks: %w", r.Name, err)
 			}
 			w.Tasks = append(w.Tasks, k)
 		}
