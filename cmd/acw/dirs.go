@@ -53,12 +53,13 @@ func coderCount(workers []workerSpec) int {
 	return n
 }
 
-// explainStart names the likely cause when an agent never became ready:
-// Claude Code asks whether to trust a folder it has never opened, and an
-// agent started in a new master-dir or dir sits on that prompt.
+// explainStart names the likely cause when an agent never became ready: a
+// Claude Code dialog at startup, such as whether to trust a folder it has
+// never opened, which an agent started in a new master-dir or dir sits on.
+// A worker's screen, joined by its engine, shows which.
 func explainStart(err error, dir string) error {
 	if err == nil || !strings.Contains(err.Error(), "blocked during startup") {
 		return err
 	}
-	return fmt.Errorf("%w (probably Claude Code's trust prompt for %s: run `claude` once in that directory to accept it, then try again)", err, dir)
+	return fmt.Errorf("%w (a Claude Code dialog holds it at startup, such as the trust prompt for a folder it never opened: run `claude` once in %s to answer it, then try again)", err, dir)
 }
