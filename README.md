@@ -106,7 +106,7 @@ the terminal too.
 
 | Command | What it does | Who runs it |
 |---|---|---|
-| `acw stop` | tear down the swarm of the current directory | you |
+| `acw stop [--all]` | tear down the swarm of the current directory, or of every repo | you |
 | `acw status [--repo <dir>]` | every worker at a glance | master, you |
 | `acw queue [--repo <dir>] [add \| move \| remove ...]` | list or change the task queue | master, you |
 | `acw done [--repo <dir>] <worker> [task-id]` | end a worker's task | master, you |
@@ -136,6 +136,11 @@ you.
 Tears down the swarm running in the **current directory**: each worker's
 environment, the worktrees, the shared status directory and the Herdr
 workspace. A swarm running for another repo is left alone.
+
+`acw stop --all`, from anywhere, stops every swarm: each repo whose watcher
+ever reported to the board and that still has a status directory, one after
+the other, exactly as `acw stop` run there. One that fails is said, and the
+others are still stopped.
 
 - **Tasks kept first**: `acw stop` asks the master nothing. It keeps in
   the board's base the task each busy worker was on (brief, branch, PR,

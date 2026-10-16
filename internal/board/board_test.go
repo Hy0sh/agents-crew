@@ -2,6 +2,7 @@ package board
 
 import (
 	"database/sql"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -95,6 +96,20 @@ func TestBoardOrdersAndFiltersByRepo(t *testing.T) {
 	d, _ := b.Board("/r", noon, noon)
 	if len(d.Handled) != 2 || d.Handled[0].Subject != "second" {
 		t.Errorf("handled = %+v", d.Handled)
+	}
+}
+
+// Every repo whose watcher reported, once each: what acw stop --all looks
+// through.
+func TestWatched(t *testing.T) {
+	b := open(t)
+	for _, repo := range []string{"/b", "/a", "/b"} {
+		if err := b.Beat(repo, noon, Beat{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, err := b.Watched(); err != nil || !slices.Equal(got, []string{"/a", "/b"}) {
+		t.Errorf("Watched() = %v, %v", got, err)
 	}
 }
 
