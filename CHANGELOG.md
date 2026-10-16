@@ -6,6 +6,12 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Fixed
+
+- `acw --help` no longer documents `worker-overrides`, which the config
+  refuses: it shows `roles` and `kinds` instead, and the `defaults` the
+  file holds. `queue add --kind` says the role's tasks pick the worker.
+
 ## [0.31.1] - 2026-10-16
 
 ### Fixed

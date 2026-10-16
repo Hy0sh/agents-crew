@@ -159,16 +159,20 @@ agents, in the current directory.
 Per-project config (optional): ~/.config/acw/config.json, or
 $XDG_CONFIG_HOME/acw/config.json. It lives outside the repo, so it works
 where nothing may be committed. Entries are keyed by the directory acw is
-launched from, keys are the flag names, plus seven with no flag:
+launched from, keys are the flag names, plus nine with no flag. acw's
+defaults live in the same file, under "defaults", written at the first
+launch and kept current at every launch after:
 
   {
+    "defaults": { "workers": 3, "master-model": "opus", ... },
     "projects": {
       "/path/to/repo": {
-        "workers": 4,
         "profile": "light",
         "notes": "~/.config/acw/repo.md",
-        "worker-overrides": {
-          "3": {"kind": "codex", "model": "gpt-5-codex", "prompt": "verifier.md"}
+        "roles": {
+          "worker":   {"max": 4},
+          "reviewer": {"max": 1, "model": "opus", "prompt": "reviewer.md",
+                       "tasks": ["need-review"]}
         }
       }
     }
@@ -181,13 +185,14 @@ launched from, keys are the flag names, plus seven with no flag:
                     the whole brief
   notes             markdown file copied verbatim into the master's brief,
                     then into every worker's: the repo's hard rules
-  worker-overrides  per worker index (1 to workers): its own kind, model,
-                    and prompt, a file of standing instructions (system
-                    prompt for a claude worker, copied into each of its
-                    briefs by the master otherwise), and dir, an absolute
-                    folder outside the repo that makes it a worker outside
-                    the code: it starts there, with no worktree,
-                    environment or branch
+  roles             the workers by role: max and min open, kind, model,
+                    prompt (a file of standing instructions: system prompt
+                    for a claude worker, copied into each of its briefs by
+                    the master otherwise), tasks (the kinds it takes),
+                    profile, and dir, an absolute folder outside the repo
+                    that makes its workers ones outside the code
+  kinds             kinds of task: when the master queues one, and prompt,
+                    its method, put at the head of the task's brief
   master-dir        absolute folder outside the repo the master starts in
                     (default: the repo)
   master-app        where the master runs: claude-desktop for Claude
@@ -198,14 +203,14 @@ launched from, keys are the flag names, plus seven with no flag:
                     the master (default: 30)
   presets           named variants of the entry, picked with --preset: same
                     keys, each one set replacing the entry's whole value
-                    (worker-overrides included)
+                    (roles included)
 
 Paths accept ~, and a relative one is read from the repo, for a file the
 team commits there.
 
 Precedence: a flag given on the command line > the preset given with
---preset > the project's entry > the built-in default. No file or no
-entry: acw behaves as without config. An unknown key refuses to start, so
+--preset > the project's entry > the file's defaults. No entry: acw runs
+on the defaults. An unknown key refuses to start, so
 a typo never goes unnoticed.`
 
 // repoOrCwd is the swarm's repo for a command the master may run from
