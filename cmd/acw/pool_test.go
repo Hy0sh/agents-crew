@@ -241,9 +241,11 @@ func TestQueueAddKind(t *testing.T) {
 	}
 }
 
-// A task of a declared kind carries its method ahead of the master's
-// brief; a kind without one, or no kind, leaves the brief as written.
-func TestQueueAddPutsTheKindsMethodFirst(t *testing.T) {
+// A task of a declared kind reaches its worker with its method ahead of
+// the master's brief; the queue keeps the brief as written, which titles
+// the task in acw queue, on the board and in the master's messages. A
+// kind without a method, or no kind, leaves the brief as written.
+func TestDispatchPutsTheKindsMethodFirst(t *testing.T) {
 	repo := testSwarm(t, 2)
 	p, _, _ := readPool(repo)
 	p.Plan.Workers[1] = workerSpec{Kind: "claude", Overridden: true, Tasks: []string{"ci-triage", "rebase"}}
@@ -256,15 +258,18 @@ func TestQueueAddPutsTheKindsMethodFirst(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	_, q, _ := readPool(repo)
+	p, q, _ := readPool(repo)
 	want := []string{
 		"Method for a ci-triage task:\nName the failing job.\n\n---\n\nPR #9 is red",
 		"PR #9 is red",
 		"PR #9 is red",
 	}
 	for i, w := range want {
-		if got := strings.TrimSpace(q.Tasks[i].Brief); got != w {
-			t.Errorf("task %d brief = %q, want %q", i+1, got, w)
+		if got := strings.TrimSpace(q.Tasks[i].Brief); got != "PR #9 is red" {
+			t.Errorf("task %d queued brief = %q, want it as written", i+1, got)
+		}
+		if got := strings.TrimSpace(dispatchText(p.Plan, q.Tasks[i])); got != w {
+			t.Errorf("task %d dispatched = %q, want %q", i+1, got, w)
 		}
 	}
 }

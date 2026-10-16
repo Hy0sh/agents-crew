@@ -416,18 +416,21 @@ func queueAdd(repo, path string, o addOptions, now time.Time, out io.Writer) err
 	return queueBrief(repo, text, o, now, out)
 }
 
-// queueBrief queues text as a task's brief, as o says.
-// withMethod puts the method of kind, when one is declared, ahead of the
-// master's brief: the master writes only what is particular to the task,
-// never the method it would rewrite in every brief of that kind.
-func withMethod(methods map[string]string, kind, brief string) string {
-	method := methods[kind]
-	if kind == "" || method == "" {
-		return brief
+// dispatchText is what a task's worker gets: the method of its kind, when
+// one is declared, ahead of the master's brief. The master writes only
+// what is particular to the task, never the method it would rewrite in
+// every brief of that kind. Added here, not when queued: the brief as
+// written titles the task in acw queue, on the board and in the master's
+// messages, and goes as is into the reviews of its branch.
+func dispatchText(plan provisionPlan, t queuedTask) string {
+	method := plan.Kinds[t.Kind]
+	if t.Kind == "" || method == "" {
+		return t.Brief
 	}
-	return "Method for a " + kind + " task:\n" + method + "\n\n---\n\n" + brief
+	return "Method for a " + t.Kind + " task:\n" + method + "\n\n---\n\n" + t.Brief
 }
 
+// queueBrief queues text as a task's brief, as o says.
 func queueBrief(repo, text string, o addOptions, now time.Time, out io.Writer) error {
 	br, worker, kind, after, afterMerge, top := o.Branch, o.Worker, o.Kind, o.After, o.AfterMerge, o.Top
 	if err := br.check(); err != nil {
@@ -501,7 +504,7 @@ func queueBrief(repo, text string, o addOptions, now time.Time, out io.Writer) e
 			}
 		}
 		q.NextID++
-		t := queuedTask{ID: q.NextID, Brief: withMethod(p.Plan.Kinds, kind, text), Branch: br.Branch, Base: br.Base, Worker: index, Kind: kind, After: after, AfterMerge: afterMerge, AfterAccept: awaiting, AddedAt: now}
+		t := queuedTask{ID: q.NextID, Brief: text, Branch: br.Branch, Base: br.Base, Worker: index, Kind: kind, After: after, AfterMerge: afterMerge, AfterAccept: awaiting, AddedAt: now}
 		if top {
 			q.Tasks = slices.Insert(q.Tasks, 0, t)
 		} else {
@@ -923,7 +926,7 @@ func background(f func()) {
 // move once it is fixed.
 func assignTask(repo string, plan provisionPlan, w poolWorker, t queuedTask) {
 	var steps bytes.Buffer
-	err := dispatchWorker(repo, w.label(), t.Brief, branchRequest{Branch: t.Branch, Base: t.Base}, io.MultiWriter(os.Stderr, &steps))
+	err := dispatchWorker(repo, w.label(), dispatchText(plan, t), branchRequest{Branch: t.Branch, Base: t.Base}, io.MultiWriter(os.Stderr, &steps))
 	if err == nil {
 		_ = withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
 			pw := p.worker(w.Index)
