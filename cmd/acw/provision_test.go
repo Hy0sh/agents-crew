@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/Hy0sh/agents-crew/internal/names"
 )
 
 // Only the clash sections reach the master: the rest of the report (docker
@@ -81,7 +83,8 @@ func TestWorkerSettingsIsValidAndCarriesTheCommands(t *testing.T) {
 	}
 
 	var parsed struct {
-		Hooks map[string][]struct {
+		EnableMCP bool `json:"enableAllProjectMcpServers"`
+		Hooks     map[string][]struct {
 			Hooks []struct {
 				Type    string `json:"type"`
 				Command string `json:"command"`
@@ -106,6 +109,9 @@ func TestWorkerSettingsIsValidAndCarriesTheCommands(t *testing.T) {
 	}
 	if cmd.Command != ping {
 		t.Errorf("hook command = %q, want %q", cmd.Command, ping)
+	}
+	if !parsed.EnableMCP {
+		t.Errorf("settings must enable the repo's .mcp.json servers, approved per folder: %s", got)
 	}
 	if parsed.StatusLine == nil || parsed.StatusLine.Type != "command" || parsed.StatusLine.Command != statusLine {
 		t.Errorf("statusLine = %+v, want a command status line running %q", parsed.StatusLine, statusLine)
@@ -254,6 +260,57 @@ func TestTurnEndCommandPassesItsArguments(t *testing.T) {
 		}
 		if want := turnEndUse + "\n" + dir + "\nworker2\n" + tc.want + "\nmaster-3f9a1c\n"; string(args) != want {
 			t.Errorf("acw got args %q, want %q", args, want)
+		}
+	}
+}
+
+// A worker that never starts holds the tasks it would have taken: left
+// queued, the next poll opened it again, a new worktree every few seconds.
+// Its screen, the only trace of what blocked it, reaches the master.
+func TestOpenWorkerFailureHoldsItsTasks(t *testing.T) {
+	repo, _ := fakeSwarm(t, "")
+	bin := t.TempDir()
+	herdr := `#!/bin/sh
+case "$1 $2" in
+"pane split") echo '{"result":{"pane":{"pane_id":"w1:p2"}}}' ;;
+"agent start") echo 'agent_not_ready: blocked during startup' >&2; exit 1 ;;
+"pane read") echo 'Do you trust the files in this folder?' ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(herdr), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	p := poolState{
+		Plan: provisionPlan{Repo: repo, Inbox: names.Inbox(repo), MasterPane: "w1:p1",
+			Workers: []workerSpec{{Kind: "claude", Role: "worker", Rank: 1}, {Kind: "claude", Role: "worker", Rank: 2}}},
+		Workers: []poolWorker{{Index: 2, State: workerOpening, Label: "worker2", Worktree: names.WorkerWorktree(repo, "worker2", "20261016083501")}},
+	}
+	q := taskQueue{NextID: 3, Tasks: []queuedTask{{ID: 1, Brief: "a"}, {ID: 2, Brief: "b", Kind: "review"}}}
+	if err := writeJSON(names.PoolFile(repo), p); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeJSON(names.QueueFile(repo), q); err != nil {
+		t.Fatal(err)
+	}
+
+	openWorker(repo, 2)
+
+	p, q, err := readPool(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Workers) != 0 {
+		t.Errorf("pool workers = %+v, want the failed one removed", p.Workers)
+	}
+	if q.Tasks[0].Error == "" || q.Tasks[1].Error != "" {
+		t.Errorf("errors = %q, %q: want #1 held, #2 (a kind worker2 doesn't take) left as is", q.Tasks[0].Error, q.Tasks[1].Error)
+	}
+	inbox, _ := os.ReadFile(names.Inbox(repo))
+	for _, want := range []string{"Tasks #1 are held", "Do you trust the files"} {
+		if !strings.Contains(string(inbox), want) {
+			t.Errorf("inbox = %q, want %q", inbox, want)
 		}
 	}
 }

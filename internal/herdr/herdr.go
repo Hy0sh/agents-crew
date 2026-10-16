@@ -230,6 +230,13 @@ func AgentRead(name string, lines int) (string, error) {
 	return string(out), err
 }
 
+// PaneRead returns the last lines of a pane's terminal, for a pane whose
+// agent never registered: what it shows tells why.
+func PaneRead(paneID string, lines int) (string, error) {
+	out, err := run("pane", "read", paneID, "--source", "recent-unwrapped", "--lines", fmt.Sprint(lines))
+	return string(out), err
+}
+
 // AgentScreen is the agent's visible screen with its ANSI styling: what
 // tells an input's dimmed placeholder from text typed into it.
 func AgentScreen(name string) (string, error) {

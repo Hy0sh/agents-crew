@@ -39,6 +39,14 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ### Fixed
 
+- A worker starts in a repo with a `.mcp.json`: its servers are enabled in
+  the worker's settings. Claude Code asks to approve them once per folder,
+  so each new worktree sat on that dialog and the worker never opened.
+- A worker that can't be opened holds the tasks it would have taken, and
+  the master hears it once, with the last lines of its screen. The tasks
+  stayed queued, the next poll opened it again in a new worktree, and the
+  master got a message every few seconds; the reason given was a guess
+  (the trust prompt), never what the screen showed.
 - With a Claude Code agent in the swarm, `acw start` keeps `.claude/worktrees/`
   out of git's untracked files, in the clone's own `info/exclude`. Claude
   Code shows the diff of every untracked file a command changes: every acw

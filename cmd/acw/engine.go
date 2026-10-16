@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Hy0sh/agents-crew/internal/claudecode"
@@ -75,8 +76,15 @@ func (panes) start(repo string, plan provisionPlan, pw poolWorker, name, label, 
 		fmt.Fprintf(os.Stderr, "%s: herdr pane rename: %v\n", name, err)
 	}
 	if err := herdr.AgentStart(name, kind, pane, args...); err != nil {
+		// Read before the close: the screen is the only trace of what
+		// held the agent, which acw only guesses at.
+		screen, _ := herdr.PaneRead(pane, 15)
 		_ = herdr.PaneClose(pane)
-		return "herdr agent start", explainStart(err, cwd)
+		err = explainStart(err, cwd)
+		if screen = strings.TrimSpace(screen); screen != "" {
+			err = fmt.Errorf("%w. Its screen:\n%s", err, screen)
+		}
+		return "herdr agent start", err
 	}
 	return "", nil
 }

@@ -47,11 +47,25 @@ func openWorker(repo string, index int) {
 		if pw.Worktree != "" {
 			teardown.Worktree(repo, pw.Worktree)
 		}
+		// The tasks it would take are held: left waiting, the next poll
+		// opened it again, a new worktree each time, failing the same way
+		// every few seconds.
+		var ids []string
 		_ = withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
 			p.remove(index)
+			for i, t := range q.Tasks {
+				if !held(t, *p, *q) && canTake(w, poolWorker{Index: index}, t) {
+					q.Tasks[i].Error = fmt.Sprintf("%s could not be opened for it", label)
+					ids = append(ids, fmt.Sprintf("#%d", t.ID))
+				}
+			}
 			return true, nil
 		})
-		tell(plan, fmt.Sprintf("%s could not be opened (%s: %v). The tasks waiting for it stay queued.", label, step, err))
+		msg := fmt.Sprintf("%s could not be opened (%s: %v).", label, step, err)
+		if len(ids) > 0 {
+			msg += fmt.Sprintf(" Tasks %s are held so that it is not opened again in a loop: fix the cause, then acw queue move <id> 1 for each (or remove them).", strings.Join(ids, ", "))
+		}
+		tell(plan, msg)
 	}
 
 	// A worker outside the code starts in its own dir: no worktree.
@@ -472,20 +486,24 @@ func turnEndCommand(exe, statusDir, label, inbox, masterName string) string {
 	return shellWord(exe) + " " + turnEndUse + " " + shellWord(statusDir) + " " + shellWord(label) + " " + inbox + " " + shellWord(masterName)
 }
 
-// workerSettings is the --settings JSON of a claude worker: its Stop hook
-// and, when statusLine is not empty, acw's status line (see
-// recordUsage).
+// workerSettings is the --settings JSON of a claude worker: its Stop hook,
+// the repo's .mcp.json servers enabled and, when statusLine is not empty,
+// acw's status line (see recordUsage). Claude Code records the approval
+// of those servers per folder: each new worktree asked again, and the
+// worker sat on that dialog, never ready.
 func workerSettings(stop, statusLine string) (string, error) {
 	type command struct {
 		Type    string `json:"type"`
 		Command string `json:"command"`
 	}
 	settings := struct {
-		Hooks map[string][]struct {
+		EnableMCP bool `json:"enableAllProjectMcpServers"`
+		Hooks     map[string][]struct {
 			Hooks []command `json:"hooks"`
 		} `json:"hooks"`
 		StatusLine *command `json:"statusLine,omitempty"`
 	}{
+		EnableMCP: true,
 		Hooks: map[string][]struct {
 			Hooks []command `json:"hooks"`
 		}{
