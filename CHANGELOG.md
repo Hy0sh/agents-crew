@@ -49,6 +49,11 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ### Fixed
 
+- A master in Claude Desktop no longer loops once the swarm is stopped. Its
+  inbox command ended without a word when the status directory was gone:
+  each end woke the master, which ran it again at once, turn after turn,
+  until someone closed the session. It now says the swarm is over and not
+  to run it again.
 - A worker starts in a repo with a `.mcp.json`: its servers are enabled in
   the worker's settings. Claude Code asks to approve them once per folder,
   so each new worktree sat on that dialog and the worker never opened.

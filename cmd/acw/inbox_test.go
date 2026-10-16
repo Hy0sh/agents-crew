@@ -155,8 +155,10 @@ func TestNextInboxGivesUpWhenQuiet(t *testing.T) {
 func TestNextInboxStopsWhenTheStatusDirIsGone(t *testing.T) {
 	inbox := filepath.Join(t.TempDir(), "gone", "inbox")
 	var out bytes.Buffer
-	if err := nextInbox(inbox, &out, 0, time.Hour); err != nil || out.Len() != 0 {
-		t.Errorf("nextInbox() = %q, %v; a removed status dir (acw stop) ends it silently", out.String(), err)
+	// Silent, it woke a master left open (Claude Desktop) that re-ran it
+	// at once, in a loop.
+	if err := nextInbox(inbox, &out, 0, time.Hour); err != nil || !strings.Contains(out.String(), "do NOT run this command again") {
+		t.Errorf("nextInbox() = %q, %v; a removed status dir (acw stop) must tell the master not to re-run it", out.String(), err)
 	}
 }
 

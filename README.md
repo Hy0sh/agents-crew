@@ -485,7 +485,9 @@ Claude Code kills a background command at its timeout (30 minutes by
 default), so after 25 minutes with no message `__inbox-next` exits on its
 own, printing "nothing new", and the master runs it again as after any
 batch. If the master forgets to, acw types a reminder into its input after
-5 minutes of unread messages.
+5 minutes of unread messages. Once the swarm is stopped, it exits saying so,
+and that it must not be run again: a master in Claude Desktop stays open
+after `acw stop`.
 
 A claude master is started with exactly these permissions, nothing
 broader:
