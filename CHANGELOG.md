@@ -74,6 +74,12 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ### Fixed
 
+- `acw` no longer fails now and then with "timed out waiting for agent
+  startup" when it starts the master (or a worker). herdr could type the
+  command while the new pane's shell was still starting: the shell
+  swallowed it and sat there, with nothing run. When only the shell is in
+  the pane after such a timeout, acw frees it with Ctrl-C and starts the
+  agent again, once. It failed about one start in three.
 - A master in Claude Desktop no longer loops once the swarm is stopped. Its
   inbox command ended without a word when the status directory was gone:
   each end woke the master, which ran it again at once, turn after turn,
