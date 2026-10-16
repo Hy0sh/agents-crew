@@ -702,6 +702,7 @@ The commands above write this; editing it directly works just as well.
 | `profile` | *(no flag)* | none: the whole stack |
 | `notes` | *(no flag)* | none |
 | `roles` | *(no flag)* | none: one role, `worker`, of `workers` and `min-workers`, see [`roles`](#roles) |
+| `kinds` | *(no flag)* | none, see [`kinds`](#kinds) |
 | `master-dir` | *(no flag)* | none: the master starts in the repo |
 | `master-app` | *(no flag)* | none: the master in a herdr pane; `claude-desktop` runs it in Claude Desktop, see [The master in Claude Desktop](#the-master-in-claude-desktop) |
 | `silence-minutes` | *(no flag)* | `30`: minutes a working worker may show no activity before acw's watcher tells the master |
@@ -821,6 +822,36 @@ role's name is its workers' name everywhere: `reviewer1`, `reviewer2`.
   read: a worker meant to verify that silently becomes a generic one
   would skew every dispatch. `worker-overrides`, which roles replace, is
   refused with the `roles` to write instead.
+
+#### `kinds`
+
+A kind of task is declared once, with when the master queues it and its
+method:
+
+```json
+"kinds": {
+  "ci-triage": {
+    "when": "a pull request's CI turns red",
+    "prompt": "~/.config/acw/kinds/ci-triage.md"
+  }
+},
+"roles": {
+  "chore": { "max": 2, "model": "haiku", "tasks": ["chore", "ci-triage"] }
+}
+```
+
+- `when` goes into the master's brief, as a line *situation → `--kind` →
+  the roles that take it*.
+- `prompt` is the kind's method: acw puts it at the head of the brief of
+  every task queued with that kind (`acw queue add --kind`, and the
+  reviews acw writes with `acw queue review --kind`), so the master writes
+  only what is particular to the task. A relative path is read from the
+  repo, a missing file stops the start. It is read at start.
+- Which role takes a kind stays in the roles' `tasks`. A kind listed there
+  but not declared works as before; a kind declared that no role takes is
+  a warning at start.
+- Declared under `defaults`, a kind serves every repo; an entry's kind of
+  the same name replaces it. A preset that sets `kinds` replaces them all.
 
 ### The master in Claude Desktop
 
@@ -981,6 +1012,7 @@ and keep the variables you need:
 | `{{.RepoRules}}` | the `notes` file's content, empty when none is configured |
 | `{{.PingingWorkers}}` | the names of the workers that ping the master on each turn (the `claude` ones, which have the Stop hook), empty when none does |
 | `{{.Roles}}` | the workers role by role: their names, kind and model, the tasks they take, their profile or folder, and their standing instructions in full with whether the master must copy them into briefs; empty for one plain role |
+| `{{.Kinds}}` | one line per declared kind with a `when`: the situation, `--kind <name>`, the roles that take it; empty when none |
 | `{{.InboxWatch}}` | the command the master must arm a Monitor on to receive pings and acw's messages, empty when the master is not `claude`. A custom brief that mentions neither it nor `{{.InboxNext}}` gets pings typed into the master's input, as before, with a warning at launch |
 | `{{.InboxNext}}` | the command the master runs in the background to read its next messages, and runs again after each batch; empty when the master is not `claude`. The built-in brief uses this one |
 | `{{.SilenceMinutes}}` | the `silence-minutes` value: how long a working worker may show no activity before acw's watcher tells the master |

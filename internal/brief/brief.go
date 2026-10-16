@@ -9,6 +9,7 @@ import (
 	_ "embed"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"text/template"
 
@@ -52,6 +53,9 @@ type MasterData struct {
 	// Roles describes the workers role by role (names, kind, model,
 	// what they take, standing instructions), empty for one plain role.
 	Roles string
+	// Kinds lists, kind by kind, when to queue it and the roles that
+	// take it; "" when no kind is declared with a When.
+	Kinds string
 	// InboxWatch is the command the master arms a Monitor on to receive
 	// pings, empty when they are typed into its input instead. Kept for
 	// custom briefs; the built-in one uses InboxNext.
@@ -109,6 +113,8 @@ type Params struct {
 	Profile          string // stack profile environments start on, "" for the whole stack
 	Notes            string // content of the per-project notes file, "" when none
 	Workers          []Worker
+	// Kinds are the declared kinds with a When, by name.
+	Kinds []Kind
 	// InboxWatch is the master's inbox watch command, "" for none.
 	InboxWatch string
 	// InboxNext is its background read command, "" for none.
@@ -129,6 +135,12 @@ type Params struct {
 	// SwitchCommand: see MasterData.
 	SwitchCommand string
 	PRWatch       bool
+}
+
+// Kind is a declared kind of task the master is told when to queue.
+type Kind struct {
+	Name string
+	When string
 }
 
 // Worker is one worker as it was actually started.
@@ -177,6 +189,7 @@ func newMasterData(p Params) MasterData {
 		RepoRules:        strings.TrimSpace(p.Notes),
 		PingingWorkers:   pingingWorkers(p.Slug, p.Workers),
 		Roles:            rolesSection(p.Slug, p.Workers),
+		Kinds:            kindsSection(p.Workers, p.Kinds),
 		InboxWatch:       p.InboxWatch,
 		InboxNext:        p.InboxNext,
 		SilenceMinutes:   p.SilenceMinutes,
@@ -255,6 +268,26 @@ func kindFlags(kinds []string) string {
 		flags[i] = "`--kind " + k + "`"
 	}
 	return strings.Join(flags, " or ")
+}
+
+// kindsSection is one line per kind: the situation, the flag, and the
+// roles whose tasks list it (none: the kind can't be queued yet).
+func kindsSection(workers []Worker, kinds []Kind) string {
+	var b strings.Builder
+	for _, k := range kinds {
+		var roles []string
+		for _, w := range workers {
+			if slices.Contains(w.Tasks, k.Name) && !slices.Contains(roles, w.Role) {
+				roles = append(roles, w.Role)
+			}
+		}
+		taken := strings.Join(roles, ", ")
+		if taken == "" {
+			taken = "no role takes it yet"
+		}
+		fmt.Fprintf(&b, "- %s → `--kind %s` → %s\n", k.When, k.Name, taken)
+	}
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 // rolesSection tells the master the workers role by role: their names,

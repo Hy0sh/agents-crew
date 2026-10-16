@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -117,8 +119,9 @@ func buildSlots(opts *startOptions, repo string) ([]workerSpec, error) {
 			w.Dir = dir
 		}
 		for _, k := range r.Tasks {
-			if k = strings.TrimSpace(k); k == "" || strings.HasPrefix(k, "-") || strings.ContainsAny(k, " \t") {
-				return nil, fmt.Errorf("roles %s: tasks: %q is not a task kind (one word, like need-review)", r.Name, k)
+			k = strings.TrimSpace(k)
+			if err := config.CheckKindName(k); err != nil {
+				return nil, fmt.Errorf("roles %s: tasks: %w", r.Name, err)
 			}
 			w.Tasks = append(w.Tasks, k)
 		}
@@ -134,6 +137,37 @@ func buildSlots(opts *startOptions, repo string) ([]workerSpec, error) {
 		}
 	}
 	return slots, nil
+}
+
+// readKinds reads the method of each declared kind, a path relative to
+// the repo like a role's prompt, and lists the kinds with a When for the
+// master's brief, by name. A missing file stops the start: a brief would
+// go out without the method the user wrote. A kind no role takes is said,
+// not refused: it may be declared once in the defaults for every repo.
+func readKinds(repo string, kinds map[string]config.Kind, slots []workerSpec, warn io.Writer) (map[string]string, []brief.Kind, error) {
+	methods := map[string]string{}
+	var when []brief.Kind
+	for _, name := range slices.Sorted(maps.Keys(kinds)) {
+		k := kinds[name]
+		if k.Prompt != "" {
+			path := k.Prompt
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(repo, path)
+			}
+			content, err := os.ReadFile(path)
+			if err != nil {
+				return nil, nil, fmt.Errorf("kinds %s: prompt unreadable: %w", name, err)
+			}
+			methods[name] = strings.TrimSpace(string(content))
+		}
+		if k.When != "" {
+			when = append(when, brief.Kind{Name: name, When: k.When})
+		}
+		if !slices.ContainsFunc(slots, func(w workerSpec) bool { return slices.Contains(w.Tasks, name) }) {
+			fmt.Fprintf(warn, "⚠ kind %s: no role lists it in its tasks, no task of it can be queued\n", name)
+		}
+	}
+	return methods, when, nil
 }
 
 // slotOf is the slot arg names, by its label (reviewer2) or its herdr
@@ -316,4 +350,7 @@ type provisionPlan struct {
 	// Engine is how the workers run (see engine): "" in herdr panes,
 	// claude-bg as Claude Code background sessions.
 	Engine string `json:"engine,omitempty"`
+	// Kinds is the method of each declared kind (see readKinds), put at
+	// the head of a task's brief by queueBrief.
+	Kinds map[string]string `json:"kinds,omitempty"`
 }

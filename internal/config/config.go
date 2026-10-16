@@ -67,6 +67,11 @@ type Project struct {
 	// what each runs, which tasks it takes, how many may be open. Without
 	// them, workers and min-workers make one role, worker.
 	Roles Roles `json:"roles,omitempty"`
+	// Kinds are the kinds of task, declared once: when the master queues
+	// one (When, listed in its brief) and its method (Prompt, a file acw
+	// puts at the head of every brief of that kind). Which role takes a
+	// kind stays in the roles' tasks.
+	Kinds map[string]Kind `json:"kinds,omitempty"`
 	// WorkerOverrides is only read to be refused with the roles that
 	// replace it (see CheckRoles).
 	WorkerOverrides map[string]WorkerOverride `json:"worker-overrides,omitempty"`
@@ -95,6 +100,21 @@ type Role struct {
 	// Tasks are the kinds of task its instances take (acw queue add
 	// --kind); a role without any takes the tasks with no kind.
 	Tasks []string `json:"tasks,omitempty"`
+}
+
+// Kind is a kind of task (acw queue add --kind): both keys optional.
+type Kind struct {
+	When   string `json:"when,omitempty"`
+	Prompt string `json:"prompt,omitempty"`
+}
+
+// CheckKindName refuses what can't be a kind of task: it goes on a
+// command line after --kind, as one word.
+func CheckKindName(k string) error {
+	if strings.TrimSpace(k) == "" || strings.HasPrefix(k, "-") || strings.ContainsAny(k, " \t") {
+		return fmt.Errorf("%q is not a task kind (one word, like need-review)", k)
+	}
+	return nil
 }
 
 // NamedRole is a role and its name, the prefix of its instances' names.
@@ -163,6 +183,11 @@ func (r Roles) MarshalJSON() ([]byte, error) {
 func (p *Project) Check() error {
 	if err := p.CheckRoles(); err != nil {
 		return err
+	}
+	for name := range p.Kinds {
+		if err := CheckKindName(name); err != nil {
+			return fmt.Errorf("kinds: %w", err)
+		}
 	}
 	kinds := map[string]*string{"master-kind": p.MasterKind, "worker-kind": p.WorkerKind}
 	for _, r := range p.Roles {
@@ -408,8 +433,8 @@ func Effective(repo, preset string) (*Project, error) {
 }
 
 // withDefaults lays entry over defaults: a key the entry sets replaces
-// the default, but roles merge by name, so roles declared once for every
-// repo stay, an entry's role of the same name replacing it. An entry that
+// the default, but roles and kinds merge by name, so those declared once
+// for every repo stay, an entry's of the same name replacing it. An entry that
 // counts its workers with workers or min-workers has no roles at all.
 func withDefaults(defaults, entry Project) Project {
 	merged := defaults
@@ -429,6 +454,14 @@ func withDefaults(defaults, entry Project) Project {
 		merged.Roles = nil
 	case defaults.Roles != nil:
 		merged.Workers, merged.MinWorkers = nil, nil
+	}
+	if entry.Kinds != nil {
+		kinds := maps.Clone(defaults.Kinds)
+		if kinds == nil {
+			kinds = map[string]Kind{}
+		}
+		maps.Copy(kinds, entry.Kinds)
+		entry.Kinds = kinds
 	}
 	dst, src := reflect.ValueOf(&merged).Elem(), reflect.ValueOf(entry)
 	for i := range src.NumField() {
@@ -584,6 +617,10 @@ func expandPaths(p Project) {
 		if s != nil {
 			*s = expandHome(*s)
 		}
+	}
+	for name, k := range p.Kinds {
+		k.Prompt = expandHome(k.Prompt)
+		p.Kinds[name] = k
 	}
 }
 

@@ -241,6 +241,39 @@ func TestQueueAddKind(t *testing.T) {
 	}
 }
 
+// A task of a declared kind reaches its worker with its method ahead of
+// the master's brief; the queue keeps the brief as written, which titles
+// the task in acw queue, on the board and in the master's messages. A
+// kind without a method, or no kind, leaves the brief as written.
+func TestDispatchPutsTheKindsMethodFirst(t *testing.T) {
+	repo := testSwarm(t, 2)
+	p, _, _ := readPool(repo)
+	p.Plan.Workers[1] = workerSpec{Kind: "claude", Overridden: true, Tasks: []string{"ci-triage", "rebase"}}
+	p.Plan.Kinds = map[string]string{"ci-triage": "Name the failing job."}
+	if err := writeJSON(names.PoolFile(repo), p); err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range []addOptions{{Kind: "ci-triage"}, {Kind: "rebase"}, {}} {
+		if err := queueAdd(repo, briefFile(t, "PR #9 is red"), o, t0, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, q, _ := readPool(repo)
+	want := []string{
+		"Method for a ci-triage task:\nName the failing job.\n\n---\n\nPR #9 is red",
+		"PR #9 is red",
+		"PR #9 is red",
+	}
+	for i, w := range want {
+		if got := strings.TrimSpace(q.Tasks[i].Brief); got != "PR #9 is red" {
+			t.Errorf("task %d queued brief = %q, want it as written", i+1, got)
+		}
+		if got := strings.TrimSpace(dispatchText(p.Plan, q.Tasks[i])); got != w {
+			t.Errorf("task %d dispatched = %q, want %q", i+1, got, w)
+		}
+	}
+}
+
 // A branch or a base starting with a dash would reach git as an option.
 func TestQueueAddRefusesOptionLikeBranches(t *testing.T) {
 	repo := testSwarm(t, 1)

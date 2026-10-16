@@ -416,6 +416,20 @@ func queueAdd(repo, path string, o addOptions, now time.Time, out io.Writer) err
 	return queueBrief(repo, text, o, now, out)
 }
 
+// dispatchText is what a task's worker gets: the method of its kind, when
+// one is declared, ahead of the master's brief. The master writes only
+// what is particular to the task, never the method it would rewrite in
+// every brief of that kind. Added here, not when queued: the brief as
+// written titles the task in acw queue, on the board and in the master's
+// messages, and goes as is into the reviews of its branch.
+func dispatchText(plan provisionPlan, t queuedTask) string {
+	method := plan.Kinds[t.Kind]
+	if t.Kind == "" || method == "" {
+		return t.Brief
+	}
+	return "Method for a " + t.Kind + " task:\n" + method + "\n\n---\n\n" + t.Brief
+}
+
 // queueBrief queues text as a task's brief, as o says.
 func queueBrief(repo, text string, o addOptions, now time.Time, out io.Writer) error {
 	br, worker, kind, after, afterMerge, top := o.Branch, o.Worker, o.Kind, o.After, o.AfterMerge, o.Top
@@ -912,7 +926,7 @@ func background(f func()) {
 // move once it is fixed.
 func assignTask(repo string, plan provisionPlan, w poolWorker, t queuedTask) {
 	var steps bytes.Buffer
-	err := dispatchWorker(repo, w.label(), t.Brief, branchRequest{Branch: t.Branch, Base: t.Base}, io.MultiWriter(os.Stderr, &steps))
+	err := dispatchWorker(repo, w.label(), dispatchText(plan, t), branchRequest{Branch: t.Branch, Base: t.Base}, io.MultiWriter(os.Stderr, &steps))
 	if err == nil {
 		_ = withPool(repo, func(p *poolState, q *taskQueue) (bool, error) {
 			pw := p.worker(w.Index)

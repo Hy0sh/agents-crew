@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -443,5 +444,39 @@ func TestEditCreatesOrChanges(t *testing.T) {
 	}
 	if p, err := Load("/repo"); err != nil || p == nil || *p.Workers != 5 {
 		t.Errorf("Load = %v, %v; want workers=5", p, err)
+	}
+}
+
+// kinds merge by name with the defaults, like roles: a kind written once
+// for every repo stays, an entry's kind of the same name replaces it.
+func TestKindsMergeByNameWithTheDefaults(t *testing.T) {
+	defaults := Project{Kinds: map[string]Kind{
+		"ci-triage": {When: "a CI turns red", Prompt: "/k/ci.md"},
+		"rebase":    {When: "a branch conflicts", Prompt: "/k/rebase.md"},
+	}}
+	entry := Project{Kinds: map[string]Kind{"rebase": {Prompt: "/repo/rebase.md"}}}
+	got := withDefaults(defaults, entry).Kinds
+	want := map[string]Kind{
+		"ci-triage": {When: "a CI turns red", Prompt: "/k/ci.md"},
+		"rebase":    {Prompt: "/repo/rebase.md"},
+	}
+	if !maps.Equal(got, want) {
+		t.Errorf("kinds = %v, want %v", got, want)
+	}
+	if defaults.Kinds["rebase"].Prompt != "/k/rebase.md" {
+		t.Error("withDefaults changed the defaults' own map")
+	}
+}
+
+func TestCheckRefusesABadKindName(t *testing.T) {
+	for _, name := range []string{"", "-x", "two words", "tab\there"} {
+		p := Project{Kinds: map[string]Kind{name: {When: "w"}}}
+		if err := p.Check(); err == nil {
+			t.Errorf("Check(kind %q) = nil, want a refusal", name)
+		}
+	}
+	p := Project{Kinds: map[string]Kind{"ci-triage": {When: "w"}}}
+	if err := p.Check(); err != nil {
+		t.Errorf("Check(ci-triage) = %v", err)
 	}
 }

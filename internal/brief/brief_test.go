@@ -444,3 +444,22 @@ func TestBuildPRWatchParagraphOnlyWhenOn(t *testing.T) {
 		}
 	}
 }
+
+// The master reads, kind by kind, when to queue it and which roles take
+// it; acw adds the method, so it is told not to repeat it.
+func TestBuildListsTheKindsWithTheirRoles(t *testing.T) {
+	p := params("claude", 2, 2)
+	p.Workers[1].Role, p.Workers[1].Tasks = "chore", []string{"ci-triage"}
+	p.Kinds = []Kind{{Name: "ci-triage", When: "a pull request's CI turns red"}}
+	got := Build(p)
+	if !strings.Contains(got, "- a pull request's CI turns red → `--kind ci-triage` → chore") {
+		t.Errorf("brief misses the kinds table:\n%s", got)
+	}
+	if !strings.Contains(got, "do not repeat it") {
+		t.Error("brief does not tell the master acw adds the method")
+	}
+	p.Kinds = nil
+	if got := Build(p); strings.Contains(got, "Kinds of task") {
+		t.Error("brief shows a kinds section with no kind declared")
+	}
+}

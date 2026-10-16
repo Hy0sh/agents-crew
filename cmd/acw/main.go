@@ -54,6 +54,8 @@ type startOptions struct {
 	masterDir   string       // same
 	masterApp   string       // same: where the master runs, "" for a herdr pane
 	roles       config.Roles // same
+	// kinds: same, see config.Project.Kinds.
+	kinds map[string]config.Kind
 	// silenceMinutes: same, see config.Project.SilenceMinutes.
 	silenceMinutes int
 	// idleCloseMinutes: same, see config.Project.IdleCloseMinutes.
@@ -103,6 +105,7 @@ func applyConfig(opts *startOptions, p *config.Project, changed func(string) boo
 		opts.board = *p.Board
 	}
 	opts.roles = p.Roles
+	opts.kinds = p.Kinds
 }
 
 // checkCounts refuses counts the pool cannot run with: workers is how
