@@ -6,6 +6,16 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+## [0.31.1] - 2026-10-16
+
+### Fixed
+
+- `acw` no longer takes half a minute to start the master now and then.
+  The retry on a start swallowed by a new pane's shell only came after
+  herdr's 30-second startup timeout; acw now waits for the pane's shell to
+  draw its first character before starting the agent, which takes a
+  fraction of a second, and keeps the retry for anything that slips past.
+
 ## [0.31.0] - 2026-10-16
 
 ### Changed
@@ -1251,7 +1261,8 @@ project: 7 PRs, 3 merged. Each entry names what actually went wrong.
   anything, with a clear message and install instructions if not; `wtm` is
   checked too but stays optional.
 
-[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.31.0...HEAD
+[Unreleased]: https://github.com/Hy0sh/agents-crew/compare/v0.31.1...HEAD
+[0.31.1]: https://github.com/Hy0sh/agents-crew/compare/v0.31.0...v0.31.1
 [0.31.0]: https://github.com/Hy0sh/agents-crew/compare/v0.30.0...v0.31.0
 [0.30.0]: https://github.com/Hy0sh/agents-crew/compare/v0.29.1...v0.30.0
 [0.29.1]: https://github.com/Hy0sh/agents-crew/compare/v0.29.0...v0.29.1
