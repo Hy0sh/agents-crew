@@ -284,13 +284,17 @@ function openDecide(w) {
   $("decide-note").value = "";
   $("decide-flag").textContent = "";
   const opts = choices($("decide-text").textContent);
-  $("decide-options").replaceChildren(...opts.map(o => {
-    const b = el("button", "option" + (o.reco ? " reco" : ""));
+  const button = (label, text, reco, answer) => {
+    const b = el("button", "option" + (reco ? " reco" : ""));
     b.type = "button";
-    b.append(el("b", null, `(${o.letter})`), o.text);
-    b.addEventListener("click", () => decide(`The user chose (${o.letter}): ${o.text}`));
+    b.append(el("b", null, label), text);
+    b.addEventListener("click", () => decide(answer));
     return b;
-  }));
+  };
+  // Without options, a yes or a no (a gesture done, a go): no "ok" to type.
+  $("decide-options").replaceChildren(...(opts.length
+    ? opts.map(o => button(`(${o.letter})`, o.text, o.reco, `The user chose (${o.letter}): ${o.text}`))
+    : [button("✓", "Accept", false, "The user accepted"), button("✗", "Refuse", false, "The user refused")]));
   $("decide").showModal();
 }
 // The option clicked, with the note typed if any; or the note alone.
