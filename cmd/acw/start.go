@@ -126,6 +126,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		DoneCommand:      shellWord(self) + " done --repo " + shellWord(repo),
 		CloseCommand:     shellWord(self) + " close --repo " + shellWord(repo),
 		TellCommand:      shellWord(self) + " tell --repo " + shellWord(repo),
+		BriefsDir:        claudecode.BriefsDir(names.StatusDir(repo)),
 		DecisionCommand:  shellWord(self) + " board decision --repo " + shellWord(repo),
 		ParkCommand:      shellWord(self) + " board park --repo " + shellWord(repo),
 		ParkedCommand:    shellWord(self) + " board parked --repo " + shellWord(repo),
@@ -139,7 +140,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	}
 
 	// Briefs, system prompts and the master's inbox: the user's only.
-	if err := os.MkdirAll(names.StatusDir(repo), 0o700); err != nil {
+	if err := os.MkdirAll(claudecode.BriefsDir(names.StatusDir(repo)), 0o700); err != nil {
 		return err
 	}
 	stackCmd := ""
@@ -191,7 +192,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		if err := herdr.PaneRename(masterPane, "master"); err != nil {
 			return err
 		}
-		if err := herdr.AgentStart(masterName, opts.masterKind, masterPane, masterArgs(opts.masterKind, opts.masterModel, self, inboxWatch, briefPath, opts.masterAutocompact)...); err != nil {
+		if err := herdr.AgentStart(masterName, opts.masterKind, masterPane, masterArgs(opts.masterKind, opts.masterModel, self, inboxWatch, names.StatusDir(repo), opts.masterAutocompact)...); err != nil {
 			return fmt.Errorf("herdr agent start master: %w", explainStart(err, masterDir))
 		}
 		if err := herdr.AgentPrompt(masterName, firstPrompt); err != nil {
@@ -238,7 +239,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		if err := claudecode.CreateSession(masterDir, d.Session, name, opts.masterModel); err != nil {
 			return fmt.Errorf("creating the master's session: %w", err)
 		}
-		if err := claudecode.InstallDesktop(names.StatusDir(repo), d, masterAllow(self, inboxWatch), firstPrompt); err != nil {
+		if err := claudecode.InstallDesktop(names.StatusDir(repo), d, append(masterAllow(self, inboxWatch), claudecode.WriteRule(claudecode.BriefsDir(names.StatusDir(repo)))), firstPrompt); err != nil {
 			return fmt.Errorf("installing the master's settings for Claude Desktop: %w", err)
 		}
 		delivered()

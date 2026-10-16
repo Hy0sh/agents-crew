@@ -193,7 +193,7 @@ func TestInboxWatchCommand(t *testing.T) {
 // command the brief gives, and only that command.
 func TestMasterArgsAllowOnlyTheInboxWatch(t *testing.T) {
 	watch, _ := inboxWatchCommand("claude", "", "/bin/acw", "/repo/inbox")
-	got := masterArgs("claude", "opus", "/bin/acw", watch, "/s/master.system.md", 0)
+	got := masterArgs("claude", "opus", "/bin/acw", watch, "/s", 0)
 	i := slices.Index(got, "--allowedTools")
 	if i < 0 || i+1 >= len(got) || got[i+1] != "Bash(/bin/acw __inbox-watch:*)" {
 		t.Errorf("masterArgs() = %v, want --allowedTools Bash(/bin/acw __inbox-watch:*)", got)
@@ -226,16 +226,19 @@ func TestMasterArgsAllowOnlyTheInboxWatch(t *testing.T) {
 	// A claude master with a custom brief that reads no inbox still runs
 	// status, queue and done: without the rules every acw queue add would
 	// stop on an approval.
-	got = masterArgs("claude", "opus", "/bin/acw", "", "/s/master.system.md", 250000)
+	got = masterArgs("claude", "opus", "/bin/acw", "", "/s", 250000)
 	// Plan mode would stop it on an approval screen: its job is to
-	// dispatch, a worker's plan is parked for the user.
-	want := []string{"--model", "opus", "--autocompact", "250000", "--append-system-prompt-file", "/s/master.system.md", "--disallowedTools", "Edit", "Write", "NotebookEdit", "EnterPlanMode", "ExitPlanMode", "--allowedTools", "Bash(/bin/acw status:*)", "Bash(/bin/acw queue:*)", "Bash(/bin/acw done:*)", "Bash(/bin/acw close:*)", "Bash(/bin/acw tell:*)", "Bash(/bin/acw board decision:*)",
-		"Bash(/bin/acw board park:*)", "Bash(/bin/acw board parked:*)", "Bash(/bin/acw board resume:*)", "Bash(/bin/acw board edit:*)"}
+	// dispatch, a worker's plan is parked for the user. Write stays, for
+	// its briefs only: a hook refuses it anywhere else.
+	want := []string{"--model", "opus", "--autocompact", "250000", "--append-system-prompt-file", "/s/master.system.md", "--disallowedTools", "Edit", "NotebookEdit", "EnterPlanMode", "ExitPlanMode",
+		"--settings", `{"hooks":{"PreToolUse":[{"hooks":[{"command":"/bin/acw __master-write /s/briefs","type":"command"}],"matcher":"Write"}]}}`,
+		"--allowedTools", "Bash(/bin/acw status:*)", "Bash(/bin/acw queue:*)", "Bash(/bin/acw done:*)", "Bash(/bin/acw close:*)", "Bash(/bin/acw tell:*)", "Bash(/bin/acw board decision:*)",
+		"Bash(/bin/acw board park:*)", "Bash(/bin/acw board parked:*)", "Bash(/bin/acw board resume:*)", "Bash(/bin/acw board edit:*)", "Edit(//s/briefs/**)"}
 	if !slices.Equal(got, want) {
 		t.Errorf("masterArgs(claude, no inbox) = %v, want %v", got, want)
 	}
 
-	if got := masterArgs("claude", "opus", "/bin/acw", "", "/s/master.system.md", 0); slices.Contains(got, "--autocompact") {
+	if got := masterArgs("claude", "opus", "/bin/acw", "", "/s", 0); slices.Contains(got, "--autocompact") {
 		t.Errorf("masterArgs(autocompact 0) = %v, want Claude Code's own window", got)
 	}
 	if got := masterArgs("codex", "gpt", "/bin/acw", "", "", 250000); slices.Contains(got, "--allowedTools") {

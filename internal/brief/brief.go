@@ -75,6 +75,9 @@ type MasterData struct {
 	// TellCommand, followed by a worker's label, leaves it a message read
 	// from stdin (acw tell).
 	TellCommand string
+	// BriefsDir is where the master writes its briefs and messages, the
+	// one folder its file-writing tool may touch.
+	BriefsDir string
 	// DecisionCommand records a decision on acw board, its text on stdin
 	// (acw board decision).
 	DecisionCommand string
@@ -118,6 +121,7 @@ type Params struct {
 	DoneCommand     string
 	CloseCommand    string
 	TellCommand     string
+	BriefsDir       string
 	DecisionCommand string
 	// ParkCommand, ParkedCommand, ResumeCommand, ReassignCommand: see
 	// MasterData.
@@ -181,6 +185,7 @@ func newMasterData(p Params) MasterData {
 		DoneCommand:      p.DoneCommand,
 		CloseCommand:     p.CloseCommand,
 		TellCommand:      p.TellCommand,
+		BriefsDir:        p.BriefsDir,
 		DecisionCommand:  p.DecisionCommand,
 		ParkCommand:      p.ParkCommand,
 		ParkedCommand:    p.ParkedCommand,

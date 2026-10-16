@@ -422,10 +422,15 @@ A claude master lives all day, and every turn re-reads its whole context.
 It therefore compacts at `master-autocompact` tokens (250000 by default)
 instead of the model's 1M window. **Its brief is in its system prompt**,
 so no compaction summarizes it away; its first prompt only tells it to
-start. **It cannot edit a file**: `Edit`, `Write` and `NotebookEdit` are
-denied to it (`--disallowedTools`), whatever its permission mode. It
-dispatches, it does not code. It still has Bash, for the briefs it writes
-with a heredoc, so a rule against coding through Bash stays in its brief.
+start. **It cannot edit the code**: `Edit` and `NotebookEdit` are denied
+to it (`--disallowedTools`), whatever its permission mode, and `Write`
+only works in its briefs folder, `.claude/worktrees/.acw-status/briefs/`:
+a hook acw installs refuses it anywhere else. It writes its briefs,
+messages and decisions there, then hands the file to acw
+(`acw queue add <file>`, `acw tell <worker> < <file>`). Claude Code folds
+a `Write` in the terminal (*Wrote 40 lines*), where the heredocs it used
+to write in Bash showed in full. It still has Bash, so a rule against
+coding through Bash stays in its brief.
 
 ### What each claude worker gets
 
@@ -441,6 +446,9 @@ finished PR could sit unnoticed until someone thought to look.
 
 - The ping says which worker moved and what moved in its status file since
   its previous ping: `state` before and after, or that it was rewritten.
+  It carries the fields the master reads before reacting (`summary`,
+  `decision`, `blocked_on`, `pr_url`, `proof_path`, `doc_path`, the ones
+  set): it no longer prints the whole status file at every turn end.
 - A turn end with nothing moved sends nothing. In a day of real use, about
   a hundred pings woke the master to read "status unchanged".
 - Two exceptions ping anyway. The turn end that answers a brief or an
@@ -498,8 +506,14 @@ broader:
                "Bash(<acw> tell:*)" "Bash(<acw> board decision:*)"
                "Bash(<acw> board park:*)" "Bash(<acw> board parked:*)"
                "Bash(<acw> board resume:*)" "Bash(<acw> board edit:*)"
---disallowedTools Edit Write NotebookEdit EnterPlanMode ExitPlanMode
+               "Edit(/<status dir>/briefs/**)"
+--disallowedTools Edit NotebookEdit EnterPlanMode ExitPlanMode
+--settings '{"hooks":{"PreToolUse":[{"matcher":"Write",
+             "hooks":[{"type":"command","command":"<acw> __master-write <briefs>"}]}]}}'
 ```
+
+The `Edit(...)` rule covers `Write` in the briefs folder, so writing there
+asks nothing; the hook refuses a `Write` anywhere else.
 
 Plan mode is off for the master: it would stop it on an approval screen,
 and a worker's plan is parked for you instead (see acw board).
@@ -970,6 +984,7 @@ and keep the variables you need:
 | `{{.DoneCommand}}` | `acw done --repo <repo>`, fully written, to follow with a worker's label (`worker2`): ends its task |
 | `{{.CloseCommand}}` | `acw close --repo <repo>`, fully written, to follow with a worker's label: closes a free worker at once |
 | `{{.TellCommand}}` | `acw tell --repo <repo>`, fully written, to follow with a worker's label and the message on stdin: leaves it a message |
+| `{{.BriefsDir}}` | the folder the master writes its briefs and messages in, with its Write tool: the only place a claude master may write |
 | `{{.DecisionCommand}}` | `acw board decision --repo <repo>`, fully written, to follow with the decision on stdin: records it on the board |
 | `{{.ParkCommand}}` | `acw board park --repo <repo>`, fully written, to follow with `--ticket`, `--on` and the question on stdin: puts a decision off, prints its number |
 | `{{.ParkedCommand}}` | `acw board parked --repo <repo>`, fully written: lists the parked decisions, or prints one given its number |

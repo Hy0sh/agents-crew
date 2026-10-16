@@ -11,6 +11,23 @@ import (
 	"time"
 )
 
+// The ping carries the fields the master reads before reacting: no cat
+// of the whole JSON in its terminal at each turn end.
+func TestStatusFieldsCarriesWhatTheMasterReads(t *testing.T) {
+	dir := t.TempDir()
+	if got := statusFields(dir, "worker1"); got != "" {
+		t.Errorf("no status = %q, want nothing", got)
+	}
+	status := `{"state":"verdict_ready","summary":"tests pass,\n  PR open","decision":"","pr_url":"https://github.com/o/r/pull/9","proof_path":"/tmp/p.txt"}`
+	if err := os.WriteFile(filepath.Join(dir, "worker1.json"), []byte(status), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want := ". Its status: summary: tests pass, PR open · pr_url: https://github.com/o/r/pull/9 · proof_path: /tmp/p.txt"
+	if got := statusFields(dir, "worker1"); got != want {
+		t.Errorf("statusFields() = %q, want %q", got, want)
+	}
+}
+
 // The ping says what moved since the previous one, so a turn the master
 // triggered itself costs it no read of the status file.
 func TestStatusDeltaTellsWhatMovedSinceThePreviousPing(t *testing.T) {

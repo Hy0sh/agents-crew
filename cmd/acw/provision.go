@@ -463,7 +463,7 @@ func pingCommand(inbox, masterName, label string) string {
 
 const (
 	pingHead = " handed control back"
-	pingTail = ". Read its status file (fields state, decision, pr_url, proof_path) before reacting, unless this message says it is unchanged. " +
+	pingTail = ". Read its status file before reacting only for what this message leaves out (it carries the state that moved and the fields summary, decision, blocked_on, pr_url, proof_path, doc_path when set), and not at all when it says the status is unchanged. " +
 		"If nothing changed since your last status point, do nothing and don't write to it."
 )
 

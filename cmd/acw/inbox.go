@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Hy0sh/agents-crew/internal/claudecode"
 	"github.com/Hy0sh/agents-crew/internal/harness"
 )
 
@@ -24,8 +26,9 @@ import (
 // events start a turn without touching the input.
 
 const (
-	inboxWatchUse = "__inbox-watch"
-	inboxNextUse  = "__inbox-next"
+	inboxWatchUse  = "__inbox-watch"
+	inboxNextUse   = "__inbox-next"
+	masterWriteUse = "__master-write"
 )
 
 // masterKickoff is the first prompt of a claude master, whose brief is
@@ -76,23 +79,36 @@ func inboxNextCommand(exe, inbox string) string {
 // Claude Code's own flag, so no other kind gets it.
 // A claude master also compacts at autocompact tokens, unless 0: it lives
 // all day, and every turn re-reads its whole context (left at the model's
-// 1M window, a day-long master ended past 800K). Its brief (briefPath)
+// 1M window, a day-long master ended past 800K). Its brief, in statusDir,
 // goes in as a system prompt, which a compaction does not summarize away.
-// It is denied the file tools: it dispatches, it does not code.
-func masterArgs(kind, model, exe, inboxWatch, briefPath string, autocompact int) []string {
+// It is denied the file tools but Write, which a hook keeps to its briefs
+// folder: it dispatches, it does not code (see claudecode.BriefsDir).
+func masterArgs(kind, model, exe, inboxWatch, statusDir string, autocompact int) []string {
 	args := modelArgs(model)
 	a := harness.Of(kind)
 	if a.Settings && autocompact > 0 {
 		args = append(args, "--autocompact", strconv.Itoa(autocompact))
 	}
 	if a.SystemPrompt {
-		args = append(args, "--append-system-prompt-file", briefPath)
+		args = append(args, "--append-system-prompt-file", claudecode.BriefFile(statusDir))
 	}
 	if !a.Settings {
 		return args
 	}
-	args = append(args, "--disallowedTools", "Edit", "Write", "NotebookEdit", "EnterPlanMode", "ExitPlanMode")
-	return append(append(args, "--allowedTools"), masterAllow(exe, inboxWatch)...)
+	briefs := claudecode.BriefsDir(statusDir)
+	args = append(args, "--disallowedTools", "Edit", "NotebookEdit", "EnterPlanMode", "ExitPlanMode")
+	args = append(args, "--settings", masterSettings(exe, briefs))
+	return append(append(args, "--allowedTools"), append(masterAllow(exe, inboxWatch), claudecode.WriteRule(briefs))...)
+}
+
+// masterSettings is the --settings JSON of a claude master: the hook that
+// refuses its Write outside briefs.
+func masterSettings(exe, briefs string) string {
+	out, _ := json.Marshal(map[string]any{"hooks": map[string]any{"PreToolUse": []any{map[string]any{
+		"matcher": "Write",
+		"hooks":   []any{map[string]string{"type": "command", "command": shellWord(exe) + " " + masterWriteUse + " " + shellWord(briefs)}},
+	}}}})
+	return string(out)
 }
 
 // masterAllow are the permission rules for the acw commands the master
