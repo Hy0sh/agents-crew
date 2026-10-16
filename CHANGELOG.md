@@ -46,6 +46,11 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ### Added
 
+- Task kinds can be declared in the config, under `kinds`: `when`, the
+  situation the master's brief lists for it, and `prompt`, its method,
+  which acw puts at the head of every brief of that kind. The master
+  rewrote the same method into every brief; which role takes a kind stays
+  in the roles' `tasks`, and `defaults` shares kinds with every repo.
 - `acw board` shows a worker's terminal: a click on it opens its screen,
   colours included, as its herdr pane or `claude attach` would show it,
   read every 2 seconds while open and never otherwise. A worker running as
