@@ -50,7 +50,7 @@ func queueCommand() *cobra.Command {
 	add.Flags().StringVar(&o.Branch.Branch, "branch", "", "put the worker on this branch first (a fix or a rebase on a known branch), after a git fetch")
 	add.Flags().StringVar(&o.Branch.Base, "base", "", "where --branch is cut from when it doesn't exist yet (default: the repo's default branch on origin)")
 	add.Flags().StringVar(&o.Worker, "worker", "", "only this worker may take it (a fix after a KO goes back to the worker that has the context)")
-	add.Flags().StringVar(&o.Kind, "kind", "", "only the workers whose worker-overrides tasks list this kind take it (a reviewer for need-review)")
+	add.Flags().StringVar(&o.Kind, "kind", "", "only the workers whose role's tasks list this kind take it (a reviewer for need-review)")
 	add.Flags().IntSliceVar(&o.After, "after", nil, "hold it until this task is ended with acw done (repeatable): a rebase that needs the pushed result of the task before it")
 	add.Flags().IntSliceVar(&o.AfterMerge, "after-merge", nil, "hold it until the PR this task ended with is merged (repeatable; needs pr-watch): a follow-up that builds on the merged code")
 	add.Flags().Int64SliceVar(&o.AfterAccept, "after-accept", nil, "hold it until the user accepts this parked document on acw board (repeatable): the implementation queued with its plan")

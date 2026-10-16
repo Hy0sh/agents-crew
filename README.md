@@ -4,10 +4,12 @@
 to, and up to N **workers** it hands tasks to (tickets, bugs, anything),
 each in its own git worktree, working in parallel.
 
-- Everything lives in a dedicated [Herdr](https://herdr.dev) workspace.
+- Everything lives in a dedicated [Herdr](https://herdr.dev) workspace, or,
+  with the master in [Claude Desktop](#the-master-in-claude-desktop), in
+  Claude Code background sessions.
 - By default every agent is Claude Code: Opus for the master, Sonnet for the
-  workers. Any other kind Herdr knows (`codex`, `gemini`, `cursor`...) works
-  via `--master-kind` / `--worker-kind`.
+  workers. The other Herdr kinds acw knows (`codex`, `gemini`, `cursor`...)
+  work via `--master-kind` / `--worker-kind`.
 - It is project-agnostic. The master's brief states intentions ("one
   isolated environment per task, released when the task changes hands") and
   defers to the target project's own docs and skills for the mechanics,
@@ -21,7 +23,7 @@ operating rules baked into the master's initial prompt live in
 
 | Tool | Needed |
 |---|---|
-| [`herdr`](https://herdr.dev) | always |
+| [`herdr`](https://herdr.dev) | always, unless the master runs in [Claude Desktop](#the-master-in-claude-desktop) |
 | the CLI of each agent kind you use | always. With the defaults that's `claude` (`npm install -g @anthropic-ai/claude-code`); with `--worker-kind codex` it's `codex`, and so on (a Herdr kind's name is its executable) |
 | `wtm` | optional. Without it, workers just don't get an isolated environment provisioned automatically |
 | [`gh`](https://cli.github.com), logged in | only with [`pr-watch`](#pr-watch) on |
@@ -111,16 +113,16 @@ the terminal too.
 | `acw close [--repo <dir>] <worker>` | close a free worker now, as after `idle-close-minutes` | master, you |
 | `acw tell [--repo <dir>] <worker> [message...]` | leave a worker a message; `--command /x` types a slash command; `--interrupt` stops its turn first (Escape) | master, you |
 | `acw clear [--repo <dir>] worker1 [worker2...]` | reset workers' context, confirmed | you |
-| `acw dispatch [--repo <dir>] worker1 <brief-file>` | hand a worker a task outside the queue | you |
-| `acw stack up` / `acw stack down` | take / give back your worktree's stack, under `max-stacks` | workers |
+| `acw dispatch [--repo <dir>] worker1 <brief-file> [--branch <b>] [--base <ref>]` | hand a worker a task outside the queue | you |
+| `acw stack up [--profile <p>]` / `acw stack down` | take / give back your worktree's stack, under `max-stacks` | workers |
 | `acw pause` / `acw resume` | stop / restart the workers' stacks | you |
 | `acw watch [--repo <dir>]` | start the swarm's watcher again when it is not running, without touching the swarm | you |
 | `acw project create\|edit [dir]` | write the repo's config entry | you |
-| `acw board` | local page of what waits on you, ticket by ticket | you |
+| `acw board` | local page of what waits on you, ticket by ticket; refused without a terminal, where `acw board parked` reads the board as text | you |
 | `acw board decision\|park\|parked\|edit\|resume [--repo <dir>] ...` | record a decision, put one off (or a document to approve, `--doc`), list the ones put off, change who one waits on, close one | master |
 
 A `claude` master is started allowed to run `status`, `queue`, `done`,
-`tell` and its `board` commands without a prompt, and nothing broader (see
+`close`, `tell` and its `board` commands without a prompt, and nothing broader (see
 [The master's inbox](#the-masters-inbox) for the exact list). `clear` and
 `dispatch` stay yours.
 
@@ -181,7 +183,7 @@ replaces with its own (`ctx 34% · 5h 78%`) to record that usage.
 
 ```sh
 acw queue                                   # workers and queue
-acw queue add <brief-file> [--branch <b>] [--worker <worker>] [--kind <kind>] [--after <id>]... [--after-merge <id>]... [--after-accept <parked>]... [--top]
+acw queue add <brief-file> [--branch <b>] [--base <ref>] [--worker <worker>] [--kind <kind>] [--after <id>]... [--after-merge <id>]... [--after-accept <parked>]... [--top]
 acw queue move <id> <position>
 acw queue remove <id>
 acw queue review <id> [--kind <kind>] [--note <text>] [--plan <parked>]
@@ -210,6 +212,8 @@ only read, never run. `acw tell <worker> --command /reload-plugins` types
 the command itself into the worker's input instead: it waits for the
 worker to be idle, and refuses one that is blocked or whose input line
 holds something. `/clear` is refused there: `acw clear` confirms the reset.
+With workers in background sessions ([Claude Desktop](#the-master-in-claude-desktop)),
+`--command` is refused: each task starts a new session anyway.
 
 It used to type into the worker's pane with `herdr agent prompt`, which a
 worker on an approval popup could not take, and which mixed with what you
@@ -228,7 +232,9 @@ might be typing there.
 It also restarts the watcher's block count for that worker. A worker that
 has not finished a turn yet has nothing to reset: `acw clear` says so and
 sends nothing, since a `/clear` there keeps the same session and could
-never be confirmed.
+never be confirmed. A worker in a background session
+([Claude Desktop](#the-master-in-claude-desktop)) gets no `/clear`: its
+next task starts a new session, which is the reset.
 
 `acw dispatch` hands a free claude worker a task in one call, outside the
 queue; the worker is busy until `acw done`. Same wait, refusals and
@@ -236,7 +242,9 @@ confirmed reset as `acw clear`, then the brief file's content is typed into
 its prompt. A blank or unreadable brief is refused before anything is sent.
 
 With `--branch <b>` (a fix, a rebase on a known branch) it first runs
-`git fetch` and puts the worker on that branch:
+`git fetch` and puts the worker on that branch, cut from `--base <ref>`
+when it doesn't exist yet (the repo's default branch on origin without
+it):
 
 - **worker with a wtm stack**: through `wtm switch --no-start`, which
   moves its environment along on the same ports and drops the old
@@ -271,7 +279,8 @@ a stack.
 
 - `acw stack up`, run by the worker from its worktree, takes a place as
   soon as one is free under `max-stacks`, then starts its stack (`wtm
-  start`, on the swarm's or its role's profile). With none free, it waits
+  start`, on the swarm's or its role's profile, or on `--profile <p>` when
+  the task needs other services; still one place). With none free, it waits
   up to 9 min, then gives the hand back saying so: the worker runs it
   again, and works on what needs no stack meanwhile. A start that fails
   gives the place back.
@@ -385,7 +394,11 @@ caps the stacks running (see [`acw stack up`](#acw-stack-up-and-acw-stack-down))
   worker never collides with the branch its first opening left), its pane,
   its agent, then `wtm adopt --no-start`. `wtm doctor`'s port clash sections, if any,
   go into the "opened" message.
-- A failed opening is undone and the master told.
+- A failed opening is undone, and the tasks that worker would have taken
+  are held ("could not be opened for it") instead of opening it again in a
+  loop. The master gets the last lines of its screen once (a dialog at
+  startup, usually), and releases the tasks with `acw queue move <id> 1`
+  once the cause is fixed.
 - Workers opened together come up one at a time up to their pane, and one
   `wtm adopt` at a time: run together, `git worktree add` raced for
   `.git/config`, and two adopts each missed the other's ports.
@@ -443,6 +456,10 @@ task: it reports to the master only, what "Message from the master" means,
 its status file's path and fields, and `/tmp` for temporary files with no
 `rm -rf`. A master used to copy that into every brief, about twenty lines
 each time, and the copies drifted.
+
+**The repo's MCP servers, enabled** (`enableAllProjectMcpServers`): a repo
+with a `.mcp.json` otherwise stops every new worktree on Claude Code's
+approval dialog for them, which nobody answers.
 
 **A `Stop` hook, `acw __turn-end`**, that pings the master when the worker
 hands control back. Herdr has no push notification, so without it a
@@ -507,7 +524,7 @@ broader:
 ```
 --allowedTools "Bash(<acw> __inbox-watch:*)" "Bash(<acw> __inbox-next:*)"
                "Bash(<acw> status:*)" "Bash(<acw> queue:*)" "Bash(<acw> done:*)"
-               "Bash(<acw> tell:*)" "Bash(<acw> board decision:*)"
+               "Bash(<acw> close:*)" "Bash(<acw> tell:*)" "Bash(<acw> board decision:*)"
                "Bash(<acw> board park:*)" "Bash(<acw> board parked:*)"
                "Bash(<acw> board resume:*)" "Bash(<acw> board edit:*)"
                "Edit(/<status dir>/briefs/**)"
@@ -578,6 +595,12 @@ hash of the full repo path (see `internal/names`), so one swarm per project
 can run at the same time without colliding. The repo's own name is on the
 workspace instead, where it is displayed once and in full.
 
+With a Claude Code agent in the swarm, acw adds `.claude/worktrees/` to the
+clone's `.git/info/exclude` (local, never committed) when git does not
+ignore it already: Claude Code shows the diff of any file a command changes
+that git does not ignore, and every acw command the master ran rewrote the
+pool and queue files there.
+
 ## Per-project config
 
 Typing the same flags on every launch of the same repo gets old, and some
@@ -617,8 +640,13 @@ every repo is one edit:
 Any key of an entry may go there (not `presets`), roles included: a role
 in the defaults reaches every repo, and an entry's role of the same name
 replaces it. An entry that counts its workers with `workers` or
-`min-workers` has none of the default roles. What applies is the
-defaults, then the repo's entry, then its preset, then the flags given.
+`min-workers` has none of the default roles. Kinds merge the same way, by
+name. With `roles` in the defaults, the sync no longer writes `workers` and
+`min-workers` there. What applies is the defaults, then the repo's entry,
+then its preset, then the flags given.
+
+A launch that adds or drops default keys says so: `config: <path>: defaults
+written for …`, or `… defaults acw no longer knows dropped: …`.
 
 ### Writing an entry: `acw project create` and `edit`
 
@@ -636,7 +664,7 @@ https://github.com/user-attachments/assets/e3bac7fd-445d-46b1-b4a0-219743d12541
   optional argument, the current directory by default.
 - **With flags**, only the keys given are written; the others keep their
   value. Each key in the [table below](#keys) has a flag of the same name,
-  except `presets` and `roles`.
+  except `presets`, `roles`, `kinds` and `master-app`.
 - **Without flags**, every key is asked in turn, its current value in
   brackets:
 
@@ -651,8 +679,8 @@ https://github.com/user-attachments/assets/e3bac7fd-445d-46b1-b4a0-219743d12541
   or deleting the original changes nothing. Give the path again to replace
   the copy.
 - The command ends by printing the entry as acw will read it.
-- `presets` and `roles` are nested, so they are edited in the
-  JSON by hand. The commands keep them, and keep the other repos' entries,
+- `presets`, `roles`, `kinds` and `master-app` are edited in the JSON by
+  hand. The commands keep them, and keep the other repos' entries,
   but rewrite the file whole: hand-made formatting is lost.
 
 ### The file by hand
@@ -676,11 +704,12 @@ The commands above write this; editing it directly works just as well.
 - **Key**: the directory you launch `acw` from, absolute (`~` allowed). A
   subdirectory of the repo does not match its entry.
 - **Precedence**: a flag given on the command line > the preset given with
-  `--preset` > the project's entry > the built-in default. `--worker-model
-  sonnet` wins over a config saying `haiku`, even though `sonnet` is also
-  the built-in value.
+  `--preset` > the project's entry > the file's [`defaults`](#defaults).
+  `--worker-model sonnet` wins over a config saying `haiku`, even though
+  `sonnet` is also the default.
 - **Launch line**: whenever an entry applies, acw prints what it read, e.g.
-  `config: ~/.config/acw/config.json → workers=4, profile="light"`, so you
+  `config: ~/.config/acw/config.json → defaults, then workers=4,
+  profile="light"` (with `preset="x", ` in front when one is given), so you
   can always tell where a value came from.
 - **Errors**: invalid JSON or an unknown key (`worker_model` for
   `worker-model`) refuses to start and names the file. A `notes` file that
@@ -688,7 +717,7 @@ The commands above write this; editing it directly works just as well.
 
 ### Keys
 
-| Key | Same as | Built-in default |
+| Key | Same as | Default, as first written in `defaults` |
 |---|---|---|
 | `workers` | `-n, --workers` | `3` |
 | `min-workers` | `--min-workers` | `0` |
@@ -711,7 +740,7 @@ The commands above write this; editing it directly works just as well.
 | `presets` | *(picked with `--preset`)* | none |
 
 "No flag" means no launch flag; `acw project` has one for each of these
-but `roles` and `presets`.
+but `roles`, `presets`, `kinds` and `master-app`.
 
 #### `profile`
 
@@ -851,7 +880,8 @@ method:
   but not declared works as before; a kind declared that no role takes is
   a warning at start.
 - Declared under `defaults`, a kind serves every repo; an entry's kind of
-  the same name replaces it. A preset that sets `kinds` replaces them all.
+  the same name replaces it. A preset that sets `kinds` replaces the
+  entry's, while the kinds of `defaults` still apply.
 
 ### The master in Claude Desktop
 
@@ -913,8 +943,9 @@ brings the project's product tooling, next to the code:
   the repo's hard rules still reach it through `notes`.
 - The folder must be absolute (`~` allowed) and exist. Claude Code asks
   whether to trust a folder it has never opened, and an agent started there
-  waits on that prompt: open `claude` there once beforehand. acw names that
-  likely cause when an agent never becomes ready.
+  waits on that prompt: open `claude` there once beforehand. When an agent
+  never becomes ready, acw's error names a Claude Code dialog at startup as
+  the likely cause and shows the pane's screen.
 - `acw stop` is still run from the repo: the master is found by name,
   wherever it started.
 
@@ -949,7 +980,8 @@ acw --preset feature
   inherit roles written for another composition of the swarm. A key it
   leaves out keeps the entry's value. The count of workers is one value
   written two ways: a preset's `roles` replace the entry's `workers` and
-  `min-workers`, and the other way round.
+  `min-workers`, and the other way round. The roles of `defaults` still
+  apply under a preset's, merged by name like an entry's.
 - A pipeline (plan, then code, then review) is a different way of
   dispatching, not only different workers: give the preset its own `brief`,
   or the master will use the roles as interchangeable task runners. A mode
@@ -1125,9 +1157,10 @@ you.
 **Documents to approve**: a worker that stops for a plan, a verdict or a
 review draft writes it as a markdown file outside the repo and names it in
 its status (`doc_path`). The master parks it on you with `acw board park
---on me --worker <w> --doc <path>`, which keeps only the path and frees the
-worker at once: you may take days to read it. "Read worker2's plan" opens
-it in a dialog, rendered from the file as it is now (GitHub markdown, raw
+--on me --worker <w> --doc <path>`, which keeps a copy of the file next to
+the board's base and frees the worker at once: you may take days to read
+it, and what you accept is the version that was parked. "Read worker2's
+plan" opens that copy in a dialog (GitHub markdown, raw
 HTML dropped, outside images not loaded), with its path to open in your
 editor, a notes field, and two buttons. **Accept** is your go: the master
 queues the follow-up on the branch, the document's path in its brief.
@@ -1143,20 +1176,15 @@ tickets it touched and their decisions. Everything lives in one SQLite base,
 written whether the page is open or not, and never purged. A write that
 fails never stops the swarm.
 
-## What it is not for
-
-Reviewing pull requests. It was tried for a day: the reviews were good and
-found a real defect, but each one cost a full environment switch for work
-that produces no commit. And on a repo that bans AI-written review
-comments, the result can't even be posted where reviews live. Dispatch work
-that ends in a branch and a PR; run reviews separately.
-
 ## Code layout
 
 | Package | Role |
 |---|---|
 | `cmd/acw` | the CLI: flags merged with the config, each worker's final kind/model/prompt, launching the master, and the detached watcher that runs the pool (worktrees, panes, agents, environments) from `pool.json` and `queue.json` in the status dir, both changed under one file lock |
 | `internal/herdr` | thin wrapper around the `herdr` CLI (JSON in, typed Go out) |
+| `internal/harness` | the agent kinds acw knows, and what it can do with each (system prompt, hooks, context reset); an unknown kind is refused |
+| `internal/claudecode` | everything specific to Claude Code: the master's briefs folder and its Write guard, Claude Desktop sessions, `claude --bg` workers |
+| `internal/board` | the board: its SQLite base, the HTTP page, the embedded xterm.js of the terminal view |
 | `internal/wtm` | thin wrapper for giving/removing a worktree's environment, used only by acw's own provisioning, never by the brief text sent to agents (see below) |
 | `internal/gitutil` | fetch, default-branch detection, worktree creation/removal |
 | `internal/names` | herdr-safe, per-directory agent names (`master-<slug>`, `worker1-<slug>`...) so swarms can coexist, and where a run puts its worktrees, branches and status files: `acw stop` has to find exactly what provisioning created |
@@ -1188,7 +1216,9 @@ that ends in a branch and a PR; run reviews separately.
   the master to re-arm a wait, or a worker to report in, is a discipline,
   and a day of real use dropped three of them. The hook still doesn't
   cover a worker frozen on a tool-approval prompt: it never ends its turn,
-  so `Stop` never fires. That's what the wait remains the net for.
+  so `Stop` never fires. acw's [watcher](#the-watcher) is that net: it
+  reads every worker's herdr state every 5 seconds and tells the master of
+  a blocked one, or one idle without its hook having run.
 - **A `Notification` hook was considered for that frozen case and left
   out.** Zero occurrences over a full day with workers in auto mode: a
   real but unobserved failure, not worth a second ping per worker until
@@ -1200,6 +1230,9 @@ that ends in a branch and a PR; run reviews separately.
   still self-reported, so the brief also tells the master to cross-check
   objective signals (git status, CI) before trusting a push.
 - **`herdr agent start` on a just-created pane can race the shell's own
-  startup** (oh-my-zsh, profile scripts) and fail with `agent_pane_busy`
-  even though nothing is wrong. `internal/herdr.AgentStart` retries that
-  specific error with backoff rather than surfacing it.
+  startup** (oh-my-zsh, profile scripts). `internal/herdr.AgentStart` first
+  waits for the pane to draw anything at all (`herdr pane wait-output`, up
+  to 10 s): a new pane stays blank until its shell is up, whatever the shell
+  or its prompt. It retries `agent_pane_busy` with backoff, and when the
+  shell swallowed the command anyway (herdr times out with only the shell
+  in the foreground) it sends Ctrl-C and starts once more.
