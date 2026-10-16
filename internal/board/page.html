@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>acw board</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f6f8b'/%3E%3Cpath d='M16 9 9 22h14z' fill='none' stroke='%23e2eff4' stroke-width='2'/%3E%3Cg fill='%23fff'%3E%3Ccircle cx='16' cy='9' r='3.5'/%3E%3Ccircle cx='9' cy='22' r='3.5'/%3E%3Ccircle cx='23' cy='22' r='3.5'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="stylesheet" href="/xterm/xterm.css">
+<script src="/xterm/xterm.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;600&family=Fraunces:opsz,wght@9..144,600&display=swap">
 <style>
@@ -82,6 +84,9 @@ button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px
 .read-btn::before { content: "☰" / ""; margin-right: 5px; } .mark-btn::before { content: "✓" / ""; margin-right: 5px; }
 dialog { width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto; resize: both; border: 1px solid var(--line); border-radius: 10px; padding: 0; background: var(--panel); color: var(--fg); }
 dialog::backdrop { background: rgb(0 0 0 / .45); }
+#term { width: min(1640px, calc(100vw - 32px)); }
+#term-screen { background: #000; padding: 8px; overflow-x: auto; }
+.row[data-worker] { cursor: pointer; } .row[data-worker]:hover { border-color: var(--accent); }
 .doc-head { position: sticky; top: 0; cursor: move; background: var(--panel); border-bottom: 1px solid var(--line); padding: 12px 16px; display: grid; gap: 6px; }
 .doc-head .top { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
 .doc-body { padding: 4px 20px 20px; overflow-wrap: anywhere; line-height: 1.5; }
@@ -140,6 +145,14 @@ dialog::backdrop { background: rgb(0 0 0 / .45); }
     <div class="flag" id="doc-flag"></div>
   </div>
   <div class="doc-body" id="doc-body"></div>
+</dialog>
+<dialog id="term">
+  <div class="doc-head" style="cursor:auto">
+    <div class="top"><span class="title" id="term-title"></span><span class="meta">read only, refreshed every 2 s while open</span>
+      <span style="margin-left:auto"><button type="button" class="done-btn" id="term-close" style="color:var(--muted);border-color:var(--line)">Close</button></span></div>
+    <div class="flag" id="term-flag"></div>
+  </div>
+  <div id="term-screen"></div>
 </dialog>
 <dialog id="queue">
   <div class="doc-head" style="cursor:auto">
@@ -354,8 +367,43 @@ function worker(w) {
   const stack = new Date(w.stack_since).getFullYear() > 1 && "stack " + span(Math.max(0, secs(w.stack_since)));
   const bits = [w.subject, w.busy && "waiting on " + w.busy, stack, w.ctx != null && "ctx " + Math.round(w.ctx) + " %"].filter(Boolean);
   if (bits.length) r.append(el("div", "meta", bits.join(" · ")));
+  r.dataset.worker = w.worker;
+  r.title = "Show its terminal";
+  r.addEventListener("click", () => openTerm(w.worker));
   return r;
 }
+
+// A worker's terminal, as `claude attach` or its pane would show it: what
+// it waits on when nothing reaches the master. Read only while the
+// dialog is open; each read is a whole screen, drawn on a cleared one.
+// 200×50 is the size of a background session's screen; a pane's is
+// smaller and fits in it.
+let term, termTimer;
+async function readTerm(worker) {
+  try {
+    const res = await fetch(`/api/terminal?repo=${encodeURIComponent(state.repo)}&worker=${encodeURIComponent(worker)}`);
+    if (!res.ok) throw new Error((await res.text()).trim());
+    const screen = await res.text();
+    $("term-flag").textContent = "";
+    term.reset();
+    term.write(screen);
+  } catch (e) {
+    $("term-flag").textContent = "Could not read its screen: " + e.message;
+  }
+}
+function openTerm(worker) {
+  if (!term) {
+    term = new Terminal({ cols: 200, rows: 50, convertEol: true, disableStdin: true, cursorBlink: false, fontSize: 12 });
+    term.open($("term-screen"));
+  }
+  $("term-title").textContent = worker + " — terminal";
+  term.reset();
+  $("term").showModal();
+  readTerm(worker);
+  termTimer = setInterval(() => readTerm(worker), 2000);
+}
+$("term").addEventListener("close", () => clearInterval(termTimer));
+$("term-close").addEventListener("click", () => $("term").close());
 
 const store = { get: k => { try { return localStorage.getItem(k) || ""; } catch { return ""; } },
                 set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };

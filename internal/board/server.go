@@ -2,7 +2,7 @@ package board
 
 import (
 	"bytes"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"mime"
@@ -23,6 +23,13 @@ import (
 
 //go:embed page.html
 var page []byte
+
+// xterm.js 5.5.0 (MIT, see xterm/LICENSE), as published on npm: the
+// terminal a worker's screen is rendered in. Served from here, the board
+// needs no network and loads nothing from another site.
+//
+//go:embed xterm
+var xterm embed.FS
 
 // doneHeader must come with a POST: a header of its own makes the browser
 // ask first (CORS preflight), which nothing here answers, so a page from
@@ -106,25 +113,51 @@ type QueuedTask struct {
 // Handler serves the page, its read routes, and POST /api/done. Only a
 // request naming 127.0.0.1 or localhost gets through: a site whose name
 // resolves to 127.0.0.1 (DNS rebinding) would otherwise read the
-// decisions. notify writes to repo's master; queue reads its tasks, nil
-// for none.
-func Handler(b *DB, now func() time.Time, notify func(repo, msg string) error, queue func(repo string) (Queue, error)) http.Handler {
+// decisions. notify writes to repo's master; queue reads its tasks, and
+// terminal one of its workers' screen, nil for none.
+func Handler(b *DB, now func() time.Time, notify func(repo, msg string) error, queue func(repo string) (Queue, error), terminal func(repo, worker string) (string, error)) http.Handler {
 	mux := http.NewServeMux()
 	// Only a repo the board knows: the path comes from the request.
+	known := func(repo string) (bool, error) {
+		repos, err := b.Repos()
+		return slices.ContainsFunc(repos, func(d RepoDays) bool { return d.Repo == repo }), err
+	}
 	mux.HandleFunc("GET /api/queue", func(w http.ResponseWriter, r *http.Request) {
 		repo := r.URL.Query().Get("repo")
-		repos, err := b.Repos()
+		ok, err := known(repo)
 		if err != nil {
 			reply(w, nil, err)
 			return
 		}
-		if queue == nil || !slices.ContainsFunc(repos, func(d RepoDays) bool { return d.Repo == repo }) {
+		if queue == nil || !ok {
 			http.NotFound(w, r)
 			return
 		}
 		tasks, err := queue(repo)
 		reply(w, tasks, err)
 	})
+	// The screen as the terminal got it, escape codes and all: the page
+	// renders it in xterm.js, read only.
+	mux.HandleFunc("GET /api/terminal", func(w http.ResponseWriter, r *http.Request) {
+		repo := r.URL.Query().Get("repo")
+		ok, err := known(repo)
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		if terminal == nil || !ok {
+			http.NotFound(w, r)
+			return
+		}
+		screen, err := terminal(repo, r.URL.Query().Get("worker"))
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Write([]byte(screen))
+	})
+	mux.Handle("GET /xterm/", http.FileServerFS(xterm))
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		// A parked document's markdown images would load from anywhere.

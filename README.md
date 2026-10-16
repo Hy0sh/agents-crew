@@ -1041,7 +1041,10 @@ the master write.
   shows it waiting on and, while it holds one, since when it holds its
   stack. The ☰ next to the queue opens the tasks: the running ones with
   their worker, then the queued ones in the order acw hands them out,
-  each with what it waits for.
+  each with what it waits for. A click on a worker opens its terminal,
+  colours included, as its pane or `claude attach` would show it: a prompt
+  or a dialog nobody saw is there. Read only, and read every 2 seconds
+  only while it is open.
 
 **Done**: each line of "Waiting on you" has a button that tells the master
 "the user marked done: ..." and sets the line aside. The master takes it as

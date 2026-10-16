@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -161,7 +162,7 @@ func boardCommand() *cobra.Command {
 			if !noBrowser {
 				openBrowser(url)
 			}
-			srv := &http.Server{Handler: board.Handler(b, time.Now, notifyMaster, boardQueue)}
+			srv := &http.Server{Handler: board.Handler(b, time.Now, notifyMaster, boardQueue, boardTerminal)}
 			if untilStop != "" {
 				if err := os.WriteFile(boardSwarms(), []byte(untilStop+"\n"), 0o600); err != nil {
 					return err
@@ -223,6 +224,19 @@ func notifyMaster(repo, msg string) error {
 		return fmt.Errorf("no swarm running in %s: %w", repo, err)
 	}
 	return deliver(p.Plan.Inbox, names.Master(names.Slug(repo)), msg)
+}
+
+// boardTerminal is the screen of repo's worker label, for the board's
+// terminal view: refused for a worker the pool doesn't have open.
+func boardTerminal(repo, label string) (string, error) {
+	p, _, err := readPool(repo)
+	if err != nil {
+		return "", fmt.Errorf("no swarm running in %s: %w", repo, err)
+	}
+	if !slices.ContainsFunc(p.Workers, func(w poolWorker) bool { return w.label() == label }) {
+		return "", fmt.Errorf("%s is not open", label)
+	}
+	return engineOf(p.Plan).terminal(names.Agent(names.Slug(repo), label))
 }
 
 // readText is a command's text: its arguments, or stdin without any.

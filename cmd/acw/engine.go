@@ -30,6 +30,9 @@ type engine interface {
 	// reaches it at once.
 	interrupt(statusDir, label, name string) error
 	screen(name string) (string, error)
+	// terminal is name's screen as the user would see it, with its
+	// colours, for the board to render.
+	terminal(name string) (string, error)
 	// read is the last lines of name's pane, for the master to see what
 	// it waits on.
 	read(name string, lines int) (string, error)
@@ -98,6 +101,8 @@ func (panes) reset(t clearTarget, out io.Writer) error { return resetContext(t, 
 func (panes) interrupt(_, _, name string) error { return pressKeys(name, "esc") }
 
 func (panes) screen(name string) (string, error) { return herdr.AgentScreen(name) }
+
+func (panes) terminal(name string) (string, error) { return herdr.AgentScreen(name) }
 
 func (panes) read(name string, lines int) (string, error) { return herdr.AgentRead(name, lines) }
 
@@ -217,6 +222,18 @@ func (b bgSessions) interrupt(statusDir, label, name string) error {
 // screen: a background session has no screen to read; what acw read on
 // one (a pending prompt, the last lines) it does without.
 func (bgSessions) screen(string) (string, error) { return "", nil }
+
+func (bgSessions) terminal(name string) (string, error) {
+	sessions, err := claudecode.Sessions()
+	if err != nil {
+		return "", err
+	}
+	s, ok := claudecode.FindSession(sessions, name)
+	if !ok {
+		return "", fmt.Errorf("no background session named %s", name)
+	}
+	return claudecode.Logs(s)
+}
 
 func (bgSessions) read(name string, _ int) (string, error) {
 	return "(a background session, no pane to read: the user answers it with `claude attach " + name + "` in a terminal)", nil

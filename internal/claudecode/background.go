@@ -113,6 +113,17 @@ func StopAll(ours func(name string) bool, timeout time.Duration) {
 	}
 }
 
+// Logs is s's screen as `claude attach` would show it: the terminal's own
+// escape codes, a full redraw, for a terminal emulator to render. By its
+// id: part of a name works there too, and worker1 would match worker10.
+func Logs(s Session) (string, error) {
+	out, err := exec.Command("claude", "logs", s.ID).Output()
+	if err != nil {
+		return "", fmt.Errorf("claude logs %s: %w", s.ID, err)
+	}
+	return string(out), nil
+}
+
 // ResumeWith resumes the stopped session s, in the background, on prompt:
 // same id, same saved options. Its full id, never the short one, and no
 // option: either makes a copy instead.
