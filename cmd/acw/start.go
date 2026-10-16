@@ -78,6 +78,11 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if err != nil {
 		return err
 	}
+	kindMethods, kindsWhen, err := readKinds(repo, opts.kinds, workers, out)
+	if err != nil {
+		return err
+	}
+	_ = kindsWhen
 	var prWatchRepo string
 	if opts.prWatch {
 		if prWatchRepo, err = resolvePRWatch(repo); err != nil {
@@ -204,7 +209,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		}
 	}
 
-	plan := provisionPlan{Repo: repo, MasterPane: masterPane, Stamp: stamp, Stacks: stacks, MaxStacks: maxStacks, Profile: opts.profile, Workers: workers, Inbox: inbox, SwitchAllowed: switchCommand != "", PRWatch: prWatchRepo != ""}
+	plan := provisionPlan{Repo: repo, MasterPane: masterPane, Stamp: stamp, Stacks: stacks, MaxStacks: maxStacks, Profile: opts.profile, Workers: workers, Inbox: inbox, SwitchAllowed: switchCommand != "", PRWatch: prWatchRepo != "", Kinds: kindMethods}
 	if desktop {
 		plan.Engine = bgEngine
 	}

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Hy0sh/agents-crew/internal/brief"
 	"github.com/Hy0sh/agents-crew/internal/config"
 	"github.com/Hy0sh/agents-crew/internal/names"
 )
@@ -155,5 +158,42 @@ func TestWorkerRoleDocumentToApprove(t *testing.T) {
 		if !strings.Contains(role, want) {
 			t.Errorf("worker role lacks %q", want)
 		}
+	}
+}
+
+// A kind's method is read at start, relative to the repo like a role's
+// prompt; a missing file stops the start, naming it; a kind no role takes
+// is only a warning.
+func TestReadKinds(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "kinds"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "kinds", "ci.md"), []byte("Name the failing job.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	slots := []workerSpec{{Role: "chore", Tasks: []string{"ci-triage"}}}
+	kinds := map[string]config.Kind{
+		"ci-triage": {When: "a CI turns red", Prompt: "kinds/ci.md"},
+		"rebase":    {When: "a branch conflicts"},
+		"no-when":   {Prompt: "kinds/ci.md"},
+	}
+	var warn bytes.Buffer
+	methods, when, err := readKinds(repo, kinds, slots, &warn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if methods["ci-triage"] != "Name the failing job." || methods["no-when"] == "" || len(methods) != 2 {
+		t.Errorf("methods = %q", methods)
+	}
+	if want := []brief.Kind{{Name: "ci-triage", When: "a CI turns red"}, {Name: "rebase", When: "a branch conflicts"}}; !slices.Equal(when, want) {
+		t.Errorf("when = %v, want %v (sorted by name, only kinds with a when)", when, want)
+	}
+	if !strings.Contains(warn.String(), "rebase") || !strings.Contains(warn.String(), "no-when") || strings.Contains(warn.String(), "ci-triage") {
+		t.Errorf("warning = %q, want the kinds no role takes", warn.String())
+	}
+	kinds["ci-triage"] = config.Kind{Prompt: "kinds/missing.md"}
+	if _, _, err := readKinds(repo, kinds, slots, io.Discard); err == nil || !strings.Contains(err.Error(), "ci-triage") || !strings.Contains(err.Error(), "missing.md") {
+		t.Errorf("missing prompt = %v, want an error naming the kind and the file", err)
 	}
 }

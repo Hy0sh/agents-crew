@@ -131,6 +131,12 @@ type Params struct {
 	PRWatch       bool
 }
 
+// Kind is a declared kind of task the master is told when to queue.
+type Kind struct {
+	Name string
+	When string
+}
+
 // Worker is one worker as it was actually started.
 type Worker struct {
 	Kind  string
