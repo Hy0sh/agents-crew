@@ -723,6 +723,25 @@ func (b *DB) Board(repo string, day, now time.Time) (Day, error) {
 	return d, rows.Err()
 }
 
+// Watched lists every repo whose watcher ever reported: each swarm run
+// since the board's base exists.
+func (b *DB) Watched() ([]string, error) {
+	rows, err := b.sql.Query(`SELECT repo FROM watchers ORDER BY repo`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var repo string
+		if err := rows.Scan(&repo); err != nil {
+			return nil, err
+		}
+		out = append(out, repo)
+	}
+	return out, rows.Err()
+}
+
 // Repos lists every repo with a row, the most recently active first, each
 // with its days, latest first.
 func (b *DB) Repos() ([]RepoDays, error) {

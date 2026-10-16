@@ -23,13 +23,11 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/Hy0sh/agents-crew/internal/board"
 	"github.com/Hy0sh/agents-crew/internal/claudecode"
 	"github.com/Hy0sh/agents-crew/internal/config"
 	"github.com/Hy0sh/agents-crew/internal/harness"
 	"github.com/Hy0sh/agents-crew/internal/names"
 	"github.com/Hy0sh/agents-crew/internal/preflight"
-	"github.com/Hy0sh/agents-crew/internal/teardown"
 	"github.com/Hy0sh/agents-crew/internal/version"
 	"github.com/Hy0sh/agents-crew/internal/wtm"
 )
@@ -388,31 +386,22 @@ func main() {
 	root.Flags().BoolVar(&opts.board, "board", false, "open acw board along with the swarm, in the background; acw stop stops it (per-project: board)")
 	root.Flags().StringVar(&opts.briefPath, "brief", "", "path to a custom master brief template (Go text/template), variables in the README; default: built-in template (per-project: brief)")
 
+	var stopAll bool
 	stop := &cobra.Command{
-		Use:   "stop",
+		Use:   "stop [--all]",
 		Short: "Tear down the running swarm (environments, status files, Herdr workspace), keeping its tasks for the next master",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := preflight.CheckStop(); err != nil {
 				return err
 			}
-			cwd, err := os.Getwd()
-			if err != nil {
-				return err
+			if !stopAll {
+				return stopHere(cmd.OutOrStdout())
 			}
-			if err := saveInterrupted(cwd, cmd.OutOrStdout()); err != nil {
-				return err
-			}
-			if err := teardown.Run(); err != nil {
-				return err
-			}
-			// teardown works on the current directory.
-			if cwd, err := os.Getwd(); err == nil {
-				record("stop", func(b *board.DB) error { return b.KeepWorkers(cwd, nil) })
-			}
-			return nil
+			return stopEvery(cmd.OutOrStdout())
 		},
 	}
+	stop.Flags().BoolVar(&stopAll, "all", false, "stop the swarm of every repo, from anywhere")
 
 	status := withRepo(&cobra.Command{
 		Use:   "status",

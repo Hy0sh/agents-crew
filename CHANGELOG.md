@@ -6,6 +6,11 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `acw stop --all` stops every running swarm from anywhere, each as `acw
+  stop` run in its repo.
+
 ### Fixed
 
 - A PR link on the board opens in your own browser: shown in Claude
