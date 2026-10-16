@@ -154,12 +154,16 @@ func withLater(inbox string, w io.Writer, woke []byte) error {
 // master whose command was killed had to notice and re-run it by hand.
 const inboxQuiet = 25 * time.Minute
 
+const inboxStopped = "The swarm was stopped (acw stop): do NOT run this command again, nothing will come. Tell the user the swarm is over and stop there."
+
 // nextInbox waits until at least one line is in the inbox, writes out
 // every line waiting there, and returns. The master runs it as a
 // background command and runs it again after each return: the end of the
 // command is what wakes it. After quiet with no line it returns anyway,
 // saying so, before the background timeout kills it. A removed status dir
-// (acw stop) ends it with nothing written.
+// (acw stop) ends it saying so: ended with nothing written, it woke a
+// master in Claude Desktop, which acw stop leaves open, that ran it again
+// at once, turn after turn.
 func nextInbox(inbox string, w io.Writer, interval, quiet time.Duration) error {
 	for deadline := time.Now().Add(quiet); ; {
 		if time.Now().After(deadline) {
@@ -167,7 +171,8 @@ func nextInbox(inbox string, w io.Writer, interval, quiet time.Duration) error {
 			return err
 		}
 		if _, err := os.Stat(filepath.Dir(inbox)); errors.Is(err, fs.ErrNotExist) {
-			return nil
+			_, err := fmt.Fprintln(w, inboxStopped)
+			return err
 		}
 		var got bytes.Buffer
 		if err := drainOnce(inbox, &got); err != nil {
