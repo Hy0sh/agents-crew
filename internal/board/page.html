@@ -78,7 +78,13 @@ details li .t { font-family: var(--f-data); color: var(--muted); font-size: 12px
 button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .no-btn { color: var(--bad); border-color: var(--bad); } .no-btn:hover { background: var(--bad-soft); }
 .read-btn { color: var(--panel); background: var(--accent); border-color: var(--accent); } .read-btn:hover { background: var(--fg); border-color: var(--fg); }
-#doc-note { font: 14px/1.4 var(--f-body); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; resize: vertical; cursor: auto; }
+#decide-text { font: 15px/1.5 var(--f-body); white-space: pre-wrap; }
+#decide-options { display: grid; gap: 8px; }
+.option { text-align: left; font: 14px/1.4 var(--f-body); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; cursor: pointer; }
+.option:hover { border-color: var(--ok); background: var(--ok-soft); } .option:disabled { opacity: .5; cursor: wait; }
+.option b { font-family: var(--f-data); margin-right: 6px; } .option.reco { border-color: var(--ok); }
+.option.reco::after { content: "recommended"; margin-left: 8px; font: 600 11px var(--f-body); color: var(--ok); }
+#doc-note, #decide-note { font: 14px/1.4 var(--f-body); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; resize: vertical; cursor: auto; }
 .icon-btn { font: 13px var(--f-data); color: var(--accent); background: none; border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; margin-left: 5px; cursor: pointer; }
 .icon-btn:hover { background: var(--accent-soft); }
 .read-btn::before { content: "☰" / ""; margin-right: 5px; } .mark-btn::before { content: "✓" / ""; margin-right: 5px; }
@@ -145,6 +151,18 @@ dialog::backdrop { background: rgb(0 0 0 / .45); }
     <div class="flag" id="doc-flag"></div>
   </div>
   <div class="doc-body" id="doc-body"></div>
+</dialog>
+<dialog id="decide">
+  <div class="doc-head" style="cursor:auto">
+    <div class="top"><span class="key" id="decide-key"></span>
+      <span style="margin-left:auto"><button type="button" class="done-btn" id="decide-close" style="color:var(--muted);border-color:var(--line)">Close</button></span></div>
+  </div>
+  <div class="doc-body" style="display:grid; gap:12px; padding:16px">
+    <div id="decide-text"></div>
+    <div id="decide-options"></div>
+    <textarea id="decide-note" rows="3" aria-label="Notes for the master" placeholder="Something else, or what you did yourself; sent alone, or with the option clicked"></textarea>
+    <div style="display:flex; gap:8px; align-items:center"><button type="button" class="done-btn" id="decide-send">Send this note</button><span class="flag" id="decide-flag"></span></div>
+  </div>
 </dialog>
 <dialog id="term">
   <div class="doc-head" style="cursor:auto">
@@ -226,23 +244,74 @@ function wait(w, withButton) {
 }
 // A parked decision often offers options: done alone left the master
 // guessing which one was taken, or whether the user did it themselves.
+// It opens the decision with one button per option instead.
 async function markDone(w, b) {
-  let note = "";
-  if (w.id.startsWith("parked:")) {
-    note = prompt("What was decided or done? (the option taken, or what you did yourself)", "");
-    if (note === null) return;
-  }
+  if (w.id.startsWith("parked:")) return openDecide(w);
   b.disabled = true;
   try {
-    const res = await fetch("/api/done", { method: "POST", headers: { "Content-Type": "application/json", "X-Acw-Board": "1" },
-      body: JSON.stringify({ repo: state.repo, id: w.id, ticket: w.ticket, text: w.text, since: w.since, note }) });
-    if (!res.ok) throw new Error((await res.text()).trim());
+    await sendDone(w, "");
     load();
   } catch (e) {
     b.disabled = false;
     b.closest(".row").append(el("div", "flag", "Not sent: " + e.message));
   }
 }
+async function sendDone(w, note) {
+  const res = await fetch("/api/done", { method: "POST", headers: { "Content-Type": "application/json", "X-Acw-Board": "1" },
+    body: JSON.stringify({ repo: state.repo, id: w.id, ticket: w.ticket, text: w.text, since: w.since, note }) });
+  if (!res.ok) throw new Error((await res.text()).trim());
+}
+// The options a parked decision lists the way the master writes them,
+// "(a) this; (b) that. Reco: (a)", or "(a) [recommended] this": each up
+// to the next option, a ";" or the end of its sentence. The first one of
+// a letter counts, so the letter the recommendation repeats is no new
+// option.
+function choices(text) {
+  const out = [], seen = new Set();
+  for (const m of text.matchAll(/\(([a-z])\)\s*([^;]+?)(?=\s*(?:;|\([a-z]\)|\.\s|\.?$))/g)) {
+    if (!seen.has(m[1]) && m[2].trim()) { seen.add(m[1]); out.push({ letter: m[1], text: m[2].trim() }); }
+  }
+  const reco = text.match(/\breco(?:mmand\w*)?\s*:?\s*\(([a-z])\)/i);
+  const tag = /^\[recomm?and[^\]]*\]\s*/i; // recommended, recommandé
+  return out.map(o => ({ letter: o.letter, text: o.text.replace(tag, ""), reco: reco?.[1] === o.letter || tag.test(o.text) }));
+}
+let decideWait = null;
+function openDecide(w) {
+  decideWait = w;
+  $("decide-key").textContent = w.ticket || "no ticket";
+  // The detail often starts with the text: shown once.
+  $("decide-text").textContent = w.detail?.startsWith(w.text) ? w.detail : [w.text, w.detail].filter(Boolean).join("\n\n");
+  $("decide-note").value = "";
+  $("decide-flag").textContent = "";
+  const opts = choices($("decide-text").textContent);
+  $("decide-options").replaceChildren(...opts.map(o => {
+    const b = el("button", "option" + (o.reco ? " reco" : ""));
+    b.type = "button";
+    b.append(el("b", null, `(${o.letter})`), o.text);
+    b.addEventListener("click", () => decide(`The user chose (${o.letter}): ${o.text}`));
+    return b;
+  }));
+  $("decide").showModal();
+}
+// The option clicked, with the note typed if any; or the note alone.
+async function decide(choice) {
+  const note = $("decide-note").value.trim();
+  const text = [choice, note].filter(Boolean).join(". ");
+  if (!text) { $("decide-flag").textContent = "Click an option or type what was decided."; return; }
+  const buttons = [...$("decide").querySelectorAll("button")];
+  buttons.forEach(b => b.disabled = true);
+  try {
+    await sendDone(decideWait, text);
+    $("decide").close();
+    load();
+  } catch (e) {
+    $("decide-flag").textContent = "Not sent: " + e.message;
+  } finally {
+    buttons.forEach(b => b.disabled = false);
+  }
+}
+$("decide-send").addEventListener("click", () => decide(""));
+$("decide-close").addEventListener("click", () => $("decide").close());
 // A parked document, read from its file now: accept is the user's go,
 // refuse holds it. The notes typed go with either answer, and are the
 // only text typed on the board: refused without notes, the user says why
@@ -359,7 +428,8 @@ function ticket(t) {
 }
 function worker(w) {
   const tone = w.state === "blocked" ? "bad" : /_ready$/.test(w.state) ? "warn" : w.state === "free" ? "ok" : "accent";
-  const noStatus = w.state === "busy" && !w.subject;
+  // A status file comes a few turns in: flagged only once it is late.
+  const noStatus = w.state === "busy" && secs(w.since) > 300;
   const r = toned(el("article", "row"), noStatus ? "warn" : tone), top = el("div", "top");
   top.append(el("b", "who", w.worker), pill(noStatus ? "no status file" : w.state || "free", noStatus ? "warn" : tone), ago(w.since));
   r.append(top);

@@ -729,6 +729,11 @@ func boardWorker(repo string, pw poolWorker, agentStatus string, s workerStatus,
 	}
 	if pw.State == workerBusy {
 		w.Subject, w.Branch, w.PRURL, w.Summary, w.BlockedOn = s.Tache, s.Branch, s.PRURL, s.Summary, s.BlockedOn
+		// Its status file comes a few turns in: until then, the task acw
+		// gave it says what it is on.
+		if w.Subject == "" && pw.Current != nil {
+			w.Subject = fmt.Sprintf("#%d %s", pw.Task, firstLine(pw.Current.Brief))
+		}
 		if s.State != "" {
 			w.State = s.State
 			if t, err := time.Parse(time.RFC3339, s.StateSince); err == nil {

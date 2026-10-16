@@ -1047,9 +1047,12 @@ the master write.
   only while it is open.
 
 **Done**: each line of "Waiting on you" has a button that tells the master
-"the user marked done: ..." and sets the line aside. The master takes it as
-information, never as an approval: a gate or a merge still waits for your
-words. If the wait is still there two minutes later, the line comes back,
+"the user marked done: ..." and sets the line aside. On a parked decision
+it opens the decision instead, with a button per option it lists
+(`(a) …; (b) …`, the recommended one marked) and a field for anything
+else: the master hears which option you took, and your note. The master
+takes it as information, never as an approval: a gate or a merge still
+waits for your words. If the wait is still there two minutes later, the line comes back,
 flagged. The button only works from the page itself: it needs a header of
 its own, which makes a browser ask first, and nothing answers that, so
 another site open in the same browser can't write to your master.
