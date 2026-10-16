@@ -170,7 +170,13 @@ func PaneSplit(paneID, direction string, ratio float64, cwd string) (newPaneID s
 // with nothing run. Seen on about one start in three. When only the shell
 // is in the pane's foreground then, Ctrl-C frees it and the start is
 // tried again, once; with the agent there, it is a slow start, left alone.
+// That costs herdr's whole startup timeout, so the start first waits for
+// the shell to draw anything at all: a new pane stays blank until its
+// shell is up, whatever the shell or its prompt.
 func AgentStart(name, kind, paneID string, extraArgs ...string) error {
+	// An error only means nothing was drawn in time: the start goes on,
+	// and the retry below still covers it.
+	_, _ = run("pane", "wait-output", paneID, "--regex", `\S`, "--source", "visible", "--timeout", "10000")
 	err := agentStart(name, kind, paneID, extraArgs)
 	if err == nil || !strings.Contains(err.Error(), "timed out waiting for agent startup") || !shellOnly(paneID) {
 		return err
