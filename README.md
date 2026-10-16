@@ -427,10 +427,14 @@ to it (`--disallowedTools`), whatever its permission mode, and `Write`
 only works in its briefs folder, `.claude/worktrees/.acw-status/briefs/`:
 a hook acw installs refuses it anywhere else. It writes its briefs,
 messages and decisions there, then hands the file to acw
-(`acw queue add <file>`, `acw tell <worker> < <file>`). Claude Code folds
-a `Write` in the terminal (*Wrote 40 lines*), where the heredocs it used
-to write in Bash showed in full. It still has Bash, so a rule against
-coding through Bash stays in its brief.
+(`acw queue add <file>`, `acw tell <worker> < <file>`). It still has
+Bash, so a rule against coding through Bash stays in its brief.
+
+**Its terminal is in focus view** (`viewMode` focus, fullscreen
+renderer): the tool calls of a turn show as one summary line before its
+answer (*Edited 2 files +50, ran 1 shell command*). A Write otherwise shows
+the first ten lines of each brief, and a heredoc its whole text. `/focus`
+or ctrl+o shows the detail when you want it.
 
 ### What each claude worker gets
 
@@ -508,7 +512,8 @@ broader:
                "Bash(<acw> board resume:*)" "Bash(<acw> board edit:*)"
                "Edit(/<status dir>/briefs/**)"
 --disallowedTools Edit NotebookEdit EnterPlanMode ExitPlanMode
---settings '{"hooks":{"PreToolUse":[{"matcher":"Write",
+--settings '{"viewMode":"focus","tui":"fullscreen",
+             "hooks":{"PreToolUse":[{"matcher":"Write",
              "hooks":[{"type":"command","command":"<acw> __master-write <briefs>"}]}]}}'
 ```
 

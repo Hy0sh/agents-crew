@@ -9,10 +9,13 @@ bump carries new commands or new behaviour, a patch bump carries fixes.
 ### Changed
 
 - The master writes its briefs, messages and decisions with Write, in a
-  briefs folder of the status directory, then hands acw the file: Claude
-  Code folds a Write, where the heredocs it wrote in Bash showed in full in
-  the user's terminal. Write works there only: a hook refuses it anywhere
+  briefs folder of the status directory, then hands acw the file, instead
+  of heredocs in Bash. Write works there only: a hook refuses it anywhere
   else, and Edit stays denied, so the master still never edits the code.
+- The master's terminal is in Claude Code's focus view: a turn's tool calls
+  are one summary line before its answer, the detail one `/focus` or
+  ctrl+o away. Each brief it wrote showed its first ten lines, each command
+  its output, all over the user's reading.
 - A worker's turn end tells the master its status fields (summary,
   decision, blocked_on, pr_url, proof_path, doc_path): the master no longer
   prints the whole status file to read them.

@@ -24,8 +24,8 @@ func ExcludeWorktrees(repo string) error {
 }
 
 // BriefsDir is the one folder the master writes in, with its Write tool:
-// the briefs and messages it hands acw. Claude Code folds a Write in the
-// terminal, where a heredoc in a Bash command showed in full. Edit and the
+// the briefs and messages it hands acw. Claude Code shows a Write as a
+// preview, where a heredoc in a Bash command showed in full. Edit and the
 // other file tools stay denied, and a hook keeps Write there (see
 // GuardWrite): the master still never edits the code.
 func BriefsDir(statusDir string) string { return filepath.Join(statusDir, "briefs") }
