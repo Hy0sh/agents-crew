@@ -981,6 +981,7 @@ and keep the variables you need:
 | `{{.RepoRules}}` | the `notes` file's content, empty when none is configured |
 | `{{.PingingWorkers}}` | the names of the workers that ping the master on each turn (the `claude` ones, which have the Stop hook), empty when none does |
 | `{{.Roles}}` | the workers role by role: their names, kind and model, the tasks they take, their profile or folder, and their standing instructions in full with whether the master must copy them into briefs; empty for one plain role |
+| `{{.Kinds}}` | one line per declared kind with a `when`: the situation, `--kind <name>`, the roles that take it; empty when none |
 | `{{.InboxWatch}}` | the command the master must arm a Monitor on to receive pings and acw's messages, empty when the master is not `claude`. A custom brief that mentions neither it nor `{{.InboxNext}}` gets pings typed into the master's input, as before, with a warning at launch |
 | `{{.InboxNext}}` | the command the master runs in the background to read its next messages, and runs again after each batch; empty when the master is not `claude`. The built-in brief uses this one |
 | `{{.SilenceMinutes}}` | the `silence-minutes` value: how long a working worker may show no activity before acw's watcher tells the master |

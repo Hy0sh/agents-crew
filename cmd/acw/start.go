@@ -82,7 +82,6 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 	if err != nil {
 		return err
 	}
-	_ = kindsWhen
 	var prWatchRepo string
 	if opts.prWatch {
 		if prWatchRepo, err = resolvePRWatch(repo); err != nil {
@@ -123,6 +122,7 @@ func runStart(out io.Writer, repo string, opts *startOptions, workers []workerSp
 		Profile:          opts.profile,
 		Notes:            notes,
 		Workers:          briefWorkers(workers),
+		Kinds:            kindsWhen,
 		InboxWatch:       inboxWatch,
 		InboxNext:        inboxNext,
 		SilenceMinutes:   opts.silenceMinutes,
